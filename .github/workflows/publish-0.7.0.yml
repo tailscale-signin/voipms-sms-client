@@ -39,7 +39,6 @@ jobs:
               [[ "$(jq -r .type <<<"$object")" == commit && "$(jq -r .sha <<<"$object")" == "$REV" ]]
             fi
           }
-          lookup() { gh api --paginate "$api/releases?per_page=100" --jq '.[] | select(.tag_name == "v0.7.0")'; }
           check_refs
           gh api "$api/contents/release-staging/apk-blobs.txt?ref=$GITHUB_SHA" --jq .content | base64 --decode > blobs.txt
           mapfile -t parts < blobs.txt
@@ -59,29 +58,31 @@ jobs:
           test -x "$signer"
           "$signer" verify --verbose --print-certs "$APK" | tee signer.txt
           grep -Ei "certificate SHA-256 digest: *$CERT[[:space:]]*$" signer.txt
-          release=$(lookup)
-          if [[ -z "$release" ]]; then
-            cat > release-notes.md <<'NOTES'
-          Signed Android APK, version 0.7.0 (build 155), from merged PR #1.
-          The inbox and open conversations check for SMS every 30 seconds. Scheduled background checks default to 15 minutes and Android may delay them. Instant background delivery requires a configured Firebase build and a matching VoIP.ms callback relay.
-          NOTES
-            gh release create "$TAG" --target "$REV" --draft --title 'VoIPms SMS 0.7.0' --notes-file release-notes.md
-            release=$(lookup)
-          fi
-          id=$(jq -er .id <<<"$release")
-          existing_digest() {
-            gh api "$api/releases/$id/assets" --paginate --jq '.[] | select(.name == "VoIPms-SMS-0.7.0-release.apk") | (.digest // "missing")'
+          id=457603610
+          release=$(gh api "$api/releases/$id")
+          jq -e --arg tag "$TAG" --arg target "$REV" '.tag_name == $tag and .target_commitish == $target' <<<"$release" > /dev/null
+          asset_digest() {
+            gh api "$api/releases/$id/assets" --jq '.[] | select(.name == "VoIPms-SMS-0.7.0-release.apk") | (.digest // "missing")'
           }
-          digest=$(existing_digest)
-          if [[ "$(jq -r .draft <<<"$release")" == false ]]; then
-            [[ -n "$object" && "$digest" == "sha256:$SHA256" ]]
+          digest=$(asset_digest)
+          if [[ "$(jq -r .draft <<<"$release")" == true ]]; then
+            if [[ -z "$digest" ]]; then
+              curl --fail-with-body --silent --show-error --request POST \
+                --header "Authorization: Bearer $GH_TOKEN" --header 'Content-Type: application/vnd.android.package-archive' \
+                --data-binary "@$APK" "https://uploads.github.com/$api/releases/$id/assets?name=$APK" > upload.json
+              digest=$(jq -er .digest upload.json)
+            fi
+            [[ "$digest" == "sha256:$SHA256" ]]
+            check_refs
+            gh api --method PATCH "$api/releases/$id" -F draft=false -f make_latest=true --jq .html_url
           else
-            [[ "$(jq -r .target_commitish <<<"$release")" == "$REV" ]]
-            if [[ -z "$digest" ]]; then gh release upload "$TAG" "$APK"; fi
-            [[ "$(existing_digest)" == "sha256:$SHA256" ]]
-            check_refs
-            gh release edit "$TAG" --draft=false
-            check_refs
-            [[ -n "$object" ]]
+            [[ "$digest" == "sha256:$SHA256" ]]
           fi
-          gh release view "$TAG" --json url --jq .url
+          for attempt in {1..15}; do
+            if [[ "$(gh api "$api/git/ref/tags/$TAG" --jq .object.sha 2>/dev/null)" == "$REV" && "$(asset_digest)" == "sha256:$SHA256" ]]; then
+              gh api "$api/releases/$id" --jq 'select(.draft == false) | .html_url'
+              exit 0
+            fi
+            sleep 3
+          done
+          exit 1
