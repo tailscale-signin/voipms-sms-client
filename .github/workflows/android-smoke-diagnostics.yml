@@ -1,0 +1,60 @@
+name: Android artifact smoke diagnostics
+on:
+  push:
+    branches: [ diagnostics/android-smoke-40574be ]
+  workflow_dispatch:
+
+jobs:
+  emulator:
+    name: Android ${{ matrix.android }} app smoke test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { android: 14, api: 34, image: default }
+          - { android: 16, api: 36, image: google_apis }
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: voipms-sms-fdroid-debug
+          run-id: 45698053207
+          github-token: ${{ github.token }}
+          path: smoke-apk
+      - uses: actions/download-artifact@v7
+        if: matrix.api == 34
+        with:
+          name: matrix-instrumentation
+          run-id: 45698053207
+          github-token: ${{ github.token }}
+          path: matrix-test-apk
+      - name: Start disposable Matrix homeserver
+        id: synapse
+        continue-on-error: true
+        if: matrix.api == 34
+        run: .github/scripts/matrix-integration.sh setup
+      - name: Enable emulator acceleration
+        run: sudo chown "$(id -u):$(id -g)" /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          SMS_SMOKE_SCREENSHOTS: ${{ runner.temp }}/voipms-smoke-screenshots
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.image }}
+          disable-animations: true
+          script: |
+            python3 .github/scripts/android-smoke.py smoke-apk/*.apk
+            if [ "${{ matrix.api }}" = "34" ]; then test "${{ steps.synapse.outcome }}" = success && .github/scripts/matrix-integration.sh test; fi
+      - name: Upload emulator screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-${{ matrix.android }}-smoke-screenshots
+          path: ${{ runner.temp }}/voipms-smoke-screenshots/*.png
+          if-no-files-found: ignore
