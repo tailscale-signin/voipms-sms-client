@@ -12,6 +12,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -45,18 +46,26 @@ internal object CallHistory {
             if (response.body.source().request(12L * 1024 * 1024)) throw IOException("Response too large")
             val body = JSONObject(response.body.string())
             val status = body.optString("status")
-            if (status !in setOf("success","no_cdr","no_messages","no_voicemail_messages","no_dids")) throw IOException(status)
+            if (status !in setOf("success","no_cdr","no_messages","no_voicemail_messages","no_mailbox","no_dids")) throw IOException(status)
             body
         }
     }
 
     private val eastern = TimeZone.getTimeZone("America/New_York")
 
-    private fun instant(row: JSONObject, zone: TimeZone): Long? {
-        row.optString("origtime").toLongOrNull()?.takeIf { it > 0 }?.let { return it * 1000L }
-        return runCatching { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
-            timeZone = zone; isLenient = false
-        }.parse(row.getString("date"))?.time }.getOrNull()
+    internal fun instant(row: JSONObject, zone: TimeZone): Long? {
+        row.optString("origtime").toLongOrNull()?.takeIf { it in 1L..253402300799L }?.let { return it * 1000L }
+        val raw = row.optString("date")
+        val pattern = if (raw.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) "yyyy-MM-dd" else "yyyy-MM-dd HH:mm:ss"
+        val parser = SimpleDateFormat(pattern, Locale.US).apply { timeZone = zone; isLenient = false }
+        val position = ParsePosition(0)
+        return parser.parse(raw, position)?.time?.takeIf { position.index == raw.length }
+    }
+
+    internal fun isInbound(row: JSONObject): Boolean {
+        val direction = row.optString("destination_type").trim().uppercase(Locale.ROOT)
+        if (direction.isNotEmpty()) return direction == "IN" || direction.startsWith("IN:")
+        return row.optString("description").trim().startsWith("Inbound", ignoreCase = true)
     }
 
     suspend fun missed(account: AccountCredentials, dids: Set<String>, since: Long): List<CallFeedItem> {
@@ -64,6 +73,7 @@ internal object CallHistory {
         val args = mapOf("date_from" to dates.format(Date(since)), "date_to" to dates.format(Date()),
             "answered" to "0", "noanswer" to "1", "busy" to "1", "failed" to "1", "timezone" to "-5")
         return request(account, "getCDR", args).rows("cdr").mapNotNull { row ->
+            if (!isInbound(row)) return@mapNotNull null
             val did = callerNumber(row.optString("destination"))?.takeIf { it in dids } ?: return@mapNotNull null
             if (row.optString("disposition").uppercase(Locale.ROOT) !in setOf("NO ANSWER","NOANSWER","BUSY","FAILED","CONGESTION")) return@mapNotNull null
             val peer = callerNumber(row.optString("callerid")).orEmpty()
@@ -73,13 +83,24 @@ internal object CallHistory {
         }
     }
 
+    internal fun mailboxRoutes(row: JSONObject): Set<String> = buildSet {
+        row.optString("voicemail").takeIf { it.toLongOrNull()?.let { n -> n > 0 } == true }?.let(::add)
+        for (field in listOf("routing", "failover_busy", "failover_unreachable", "failover_noanswer")) {
+            val route = row.optString(field)
+            if (route.startsWith("vm:")) route.removePrefix("vm:")
+                .takeIf { it.toLongOrNull()?.let { n -> n > 0 } == true }?.let(::add)
+        }
+    }
+
     suspend fun mailboxes(account: AccountCredentials, dids: Set<String>): Map<String, VoiceMailbox> = coroutineScope {
         val mailboxList = async { request(account, "getVoicemails").rows("voicemails") }
-        val lines = request(account, "getDIDsInfo").rows("dids").groupBy { it.optString("voicemail") }
+        val lines = request(account, "getDIDsInfo").rows("dids").flatMap { row ->
+            mailboxRoutes(row).map { mailbox -> mailbox to normalizeVoipMsDid(row.optString("did")) }
+        }.groupBy({ it.first }, { it.second })
         val zones = mailboxList.await().associate { it.optString("mailbox") to it.optString("timezone") }
         lines.mapNotNull { (mailbox, matching) ->
             if (mailbox.toLongOrNull()?.let { it > 0 } != true) return@mapNotNull null
-            val numbers = matching.map { normalizeVoipMsDid(it.optString("did")) }.distinct()
+            val numbers = matching.distinct()
             if (!numbers.all { it in dids }) return@mapNotNull null
             val zoneName = zones[mailbox]
             val zone = when (zoneName?.lowercase(Locale.ROOT)) {
@@ -110,12 +131,27 @@ internal object CallHistory {
         }
     }
 
+    /** A message number is a mutable folder slot. Never select between indistinguishable recordings. */
+    internal fun locateSlot(rows: List<JSONObject>, item: CallFeedItem): String? {
+        val match = rows.singleOrNull { row ->
+            val duration = row.optString("duration")
+            val key = "vm:${item.mailbox}:${item.providerDate}:${item.peer}:$duration:"
+            row.optString("mailbox") == item.mailbox && row.optString("folder") == item.folder &&
+                row.optString("callerid") == item.caller && row.optString("date") == item.providerDate &&
+                item.id.startsWith(key)
+        }
+        return match?.optString("message_num")?.takeIf { it.toIntOrNull()?.let { slot -> slot >= 0 } == true }
+    }
+
     suspend fun audio(account: AccountCredentials, item: CallFeedItem): ByteArray {
-        val rows = request(account,"getVoicemailMessages",mapOf("mailbox" to item.mailbox,"folder" to item.folder)).rows("messages")
-        val same = rows.filter { it.optString("callerid") == item.caller && it.optString("date") == item.providerDate }
-        val row = same.singleOrNull() ?: same.singleOrNull { it.optString("message_num") == item.slot } ?: throw IOException("Voicemail unavailable")
-        val args = mapOf("mailbox" to item.mailbox,"folder" to item.folder,"message_num" to row.optString("message_num"))
-        val file = request(account,"getVoicemailMessageFile",args).rows("message").singleOrNull() ?: throw IOException("Voicemail unavailable")
-        return Base64.decode(file.getString("data"), Base64.DEFAULT)
+        val folder = mapOf("mailbox" to item.mailbox, "folder" to item.folder)
+        suspend fun currentSlot() = locateSlot(request(account, "getVoicemailMessages", folder).rows("messages"), item)
+        val slot = currentSlot() ?: throw IOException("Voicemail unavailable")
+        val file = request(account, "getVoicemailMessageFile", folder + ("message_num" to slot))
+            .rows("message").singleOrNull() ?: throw IOException("Voicemail unavailable")
+        if (file.optString("mailbox") != item.mailbox || file.optString("folder") != item.folder ||
+            file.optString("message_num") != slot || currentSlot() != slot) throw IOException("Voicemail changed")
+        return Base64.decode(file.getString("data"), Base64.DEFAULT).takeIf { it.isNotEmpty() }
+            ?: throw IOException("Empty voicemail")
     }
 }

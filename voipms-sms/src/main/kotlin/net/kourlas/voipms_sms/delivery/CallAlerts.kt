@@ -31,6 +31,7 @@ internal object CallAlerts {
     const val GENERATION = "call_alert_generation"
     private const val MISSED = "missed_calls"
     private const val VOICEMAIL = "voicemail_alerts"
+    private const val AFFECTED_THREADS = "call_alert_thread_scopes"
     private const val PREFIX = "voipms-call-event:"
 
     private fun hash(value: String): String =
@@ -70,22 +71,34 @@ internal object CallAlerts {
         for (event in added) {
             val did = normalizeVoipMsDid(event.did)
             val peer = normalizeVoipMsDid(event.peer)
-            if (event.id.isBlank() || did !in lines || LineProfiles.quiet(context, did)) continue
+            if (event.id.isBlank()) continue
+            val receivingLines = when {
+                did.isNotEmpty() -> setOf(did)
+                event.voicemail && event.mailbox.isNotEmpty() -> DeliveryTrace.store(context)
+                    .getStringSet("mailboxLines.${account.generation}.${event.mailbox}", emptySet()).orEmpty()
+                else -> emptySet()
+            }
             val routable = peer.isNotEmpty() && peer.all { it in '0'..'9' }
             val thread = ConversationId(did, if (routable) peer else "")
-            if (PrivateThreads.isPrivate(context, thread) || ThreadReminders.hidden(context, thread) ||
-                !Notifications.getInstance(context).getNotificationsEnabled(thread)) continue
+            val scopes = receivingLines.map { line -> thread.copy(did = line) }
+            if (scopes.isEmpty() || scopes.any { scoped ->
+                    scoped.did !in lines || LineProfiles.quiet(context, scoped.did) ||
+                        PrivateThreads.isPrivate(context, scoped) || ThreadReminders.hidden(context, scoped) ||
+                        !Notifications.getInstance(context).getNotificationsEnabled(scoped)
+                }) continue
             val channel = if (event.voicemail) VOICEMAIL else MISSED
             if (Build.VERSION.SDK_INT >= 26 && system.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE) continue
             val tag = tag(account.generation, event.id, thread, event.voicemail)
-            val intent = tapIntent(context, thread, routable && event.voicemail, account.generation, tag)
+            val intent = tapIntent(context, thread, routable && did.isNotEmpty() && event.voicemail, account.generation, tag)
             val pending = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             val title = context.getString(if (event.voicemail) R.string.calls_voicemail else R.string.calls_missed)
             val redacted = NotificationCompat.Builder(context, channel).setSmallIcon(R.drawable.ic_call_toolbar_24dp)
                 .setContentTitle(title).setVisibility(NotificationCompat.VISIBILITY_PUBLIC).build()
             val from = if (routable) getFormattedPhoneNumber(peer) else context.getString(R.string.call_alerts_unknown)
+            val lineLabel = if (did.isEmpty()) context.getString(R.string.calls_shared) else LineProfiles.label(context, did)
+            val metadata = android.os.Bundle().apply { putStringArray(AFFECTED_THREADS, scopes.map(::threadTag).toTypedArray()) }
             val notification = NotificationCompat.Builder(context, channel).setSmallIcon(R.drawable.ic_call_toolbar_24dp)
-                .setContentTitle(title).setContentText(context.getString(R.string.call_alerts_route, from, LineProfiles.label(context, did)))
+                .setContentTitle(title).setContentText(context.getString(R.string.call_alerts_route, from, lineLabel)).addExtras(metadata)
                 .setWhen(event.receivedAt).setShowWhen(true).setOnlyAlertOnce(true).setAutoCancel(true)
                 .setColor(LineProfiles.accent(context, did, context.getColor(R.color.notification_accent)))
                 .setCategory(if (event.voicemail) NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_MISSED_CALL)
@@ -99,6 +112,10 @@ internal object CallAlerts {
     fun cancel(context: Context, thread: ConversationId? = null) {
         val prefix = if (thread == null) PREFIX else threadTag(thread)
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.activeNotifications.filter { it.tag?.startsWith(prefix) == true }.forEach { manager.cancel(it.tag, it.id) }
+        manager.activeNotifications.filter { posted ->
+            val postedTag = posted.tag ?: return@filter false
+            postedTag.startsWith(PREFIX) && (postedTag.startsWith(prefix) ||
+                posted.notification.extras.getStringArray(AFFECTED_THREADS)?.contains(prefix) == true)
+        }.forEach { manager.cancel(it.tag, it.id) }
     }
 }

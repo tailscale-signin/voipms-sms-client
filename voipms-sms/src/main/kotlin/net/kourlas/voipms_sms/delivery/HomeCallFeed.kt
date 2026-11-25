@@ -68,10 +68,11 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
             CallFeedStore.observe(activity).collect { items ->
                 val rows = withContext(Dispatchers.IO) {
                     val names=mutableMapOf<String,String>()
+                    val active = net.kourlas.voipms_sms.preferences.getDids(activity, onlyRetrieveMessages = true)
                     items.filter { item ->
                         val lines = if (item.did.isNotEmpty()) setOf(item.did) else
                             prefs.getStringSet("mailboxLines.${account.generation}.${item.mailbox}", emptySet()).orEmpty()
-                        lines.isNotEmpty() && lines.all { line -> getDidShowInConversationsView(activity,line) &&
+                        lines.isNotEmpty() && lines.all { line -> line in active && getDidShowInConversationsView(activity,line) &&
                             !PrivateThreads.isPrivate(activity,ConversationId(line,item.peer)) }
                     }.map { item ->
                         item to if(item.peer.isEmpty()) activity.getString(R.string.calls_unknown)
@@ -87,9 +88,11 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                     override fun getItemId(position:Int)=getItem(position).id.hashCode().toLong()
                     override fun getView(position:Int,convertView:View?,parent:ViewGroup):View {
                         val (event,name)=rows[position]
-                        val day=date.format(Date(event.receivedAt))
+                        val day=if (event.voicemail && event.providerDate.length == 10) event.providerDate else date.format(Date(event.receivedAt))
                         val group=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(activity.dp(18),activity.dp(7),activity.dp(18),activity.dp(7)) }
-                        if(position==0 || date.format(Date(getItem(position-1).receivedAt))!=day) group.addView(TextView(activity).apply {
+                        val prior = if (position > 0) getItem(position - 1) else null
+                        val priorDay = prior?.let { if (it.voicemail && it.providerDate.length == 10) it.providerDate else date.format(Date(it.receivedAt)) }
+                        if(day != priorDay) group.addView(TextView(activity).apply {
                             text=day; textSize=13f; setTypeface(typeface,Typeface.BOLD); setPadding(0,activity.dp(8),0,activity.dp(8))
                         })
                         val card=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(activity.dp(12),activity.dp(10),activity.dp(12),0); setBackgroundResource(R.drawable.call_event_surface) }
@@ -100,7 +103,7 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                         val line=if(event.did.isEmpty()) activity.getString(R.string.calls_shared) else LineProfiles.label(activity,event.did)
                         label.addView(TextView(activity).apply { text=activity.getString(R.string.calls_row_detail,activity.getString(if(event.voicemail) R.string.calls_voicemail else R.string.calls_missed),line);textSize=13f })
                         row.addView(label,LinearLayout.LayoutParams(0,-2,1f))
-                        row.addView(TextView(activity).apply { text=time.format(Date(event.receivedAt)); textSize=13f })
+                        row.addView(TextView(activity).apply { text=if (event.voicemail && event.providerDate.length == 10) "" else time.format(Date(event.receivedAt)); textSize=13f })
                         card.addView(row); if(event.voicemail) card.addView(CallPlayback.controls(activity,event))
                         if(event.did.isNotEmpty() && event.peer.isNotEmpty()) card.addView(MaterialButton(activity,null,androidx.appcompat.R.attr.borderlessButtonStyle).apply {
                             setText(R.string.calls_reply); gravity=Gravity.CENTER_VERTICAL or Gravity.START; isAllCaps=false

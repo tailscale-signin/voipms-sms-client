@@ -2,7 +2,10 @@ package net.kourlas.voipms_sms.delivery
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.MediaDataSource
 import android.media.AudioManager
+import android.os.Build
 import android.media.MediaPlayer
 import android.view.View
 import android.widget.ImageButton
@@ -16,94 +19,174 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.readAccountCredentials
-import java.io.File
+import java.io.IOException
+import net.kourlas.voipms_sms.conversation.ConversationActivity
+import net.kourlas.voipms_sms.privacy.PrivateThreads
+import net.kourlas.voipms_sms.sms.ConversationId
 import kotlin.math.roundToInt
 
 internal fun Context.dp(value: Int) = (resources.displayMetrics.density * value).roundToInt()
 
 internal enum class PlayState { READY, LOADING, PLAYING, PAUSED }
 
+/** Bounded provider audio stays in memory. Reads occur on Android's decoder thread. */
+internal class VoicemailDataSource(private var bytes: ByteArray?) : MediaDataSource() {
+    @Synchronized override fun getSize(): Long = (bytes ?: throw IOException("Closed")).size.toLong()
+    @Synchronized override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+        val source = bytes ?: throw IOException("Closed")
+        if (position < 0 || offset < 0 || size < 0 || offset > buffer.size - size) throw IOException("Invalid read")
+        if (size == 0) return 0
+        if (position >= source.size) return -1
+        val count = minOf(size, source.size - position.toInt())
+        source.copyInto(buffer, offset, position.toInt(), position.toInt() + count)
+        return count
+    }
+    @Synchronized override fun close() { bytes?.fill(0); bytes = null }
+}
+
 internal class VoicePlaybackModel : ViewModel() {
     val state = MutableStateFlow("" to PlayState.READY)
     private var job: Job? = null
     private var player: MediaPlayer? = null
-    private var file: File? = null
+    private var source: VoicemailDataSource? = null
     private var owner: FragmentActivity? = null
+    private var activeGeneration = -1L
+    private var activeLines = emptySet<String>()
     private var audio: AudioManager? = null
-    private val focus = AudioManager.OnAudioFocusChangeListener { change ->
-        if(change == AudioManager.AUDIOFOCUS_LOSS) stop() else if(change < 0) pause()
-    }
+    private var focusRequest: AudioFocusRequest? = null
+    private var focusListener: AudioManager.OnAudioFocusChangeListener? = null
+    private var focusSerial = 0L
+    private val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
     private val observer = object : DefaultLifecycleObserver {
         override fun onStop(owner: LifecycleOwner) { stop() }
-        override fun onDestroy(owner: LifecycleOwner) { owner.lifecycle.removeObserver(this); this@VoicePlaybackModel.owner = null }
+        override fun onDestroy(owner: LifecycleOwner) {
+            owner.lifecycle.removeObserver(this)
+            if (this@VoicePlaybackModel.owner === owner) this@VoicePlaybackModel.owner = null
+        }
     }
 
     @Suppress("DEPRECATION")
+    private fun abandonFocus() {
+        focusSerial++
+        val manager = audio ?: return
+        if (Build.VERSION.SDK_INT >= 26) focusRequest?.let { manager.abandonAudioFocusRequest(it) }
+        else focusListener?.let { manager.abandonAudioFocus(it) }
+        focusRequest = null
+        focusListener = null
+        audio = null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun gainFocus(activity: FragmentActivity): Boolean {
+        abandonFocus()
+        val manager = activity.getSystemService(AudioManager::class.java)
+        audio = manager
+        val serial = focusSerial
+        val listener = AudioManager.OnAudioFocusChangeListener { change ->
+            if (serial != focusSerial) return@OnAudioFocusChangeListener
+            if (change == AudioManager.AUDIOFOCUS_LOSS) stop() else if (change < 0) pause()
+        }
+        focusListener = listener
+        val result = if (Build.VERSION.SDK_INT >= 26) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(attributes).setOnAudioFocusChangeListener(listener).setWillPauseWhenDucked(true).build()
+            focusRequest = request
+            manager.requestAudioFocus(request)
+        } else manager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) abandonFocus()
+        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun allowed(activity: FragmentActivity, item: CallFeedItem): Boolean {
+        if (readAccountCredentials(activity)?.generation != activeGeneration || activeLines.isEmpty()) return false
+        val selected = getDids(activity, onlyRetrieveMessages = true)
+        return activeLines.all { line ->
+            val thread = ConversationId(line, item.peer)
+            line in selected && (!PrivateThreads.isPrivate(activity, thread) ||
+                (activity is ConversationActivity && item.did == line && activity.conversationId == thread))
+        }
+    }
+
     fun play(activity: FragmentActivity, item: CallFeedItem) {
         val account = readAccountCredentials(activity)?.takeIf { it.configured } ?: return
-        if (item.did.isNotEmpty() && item.did !in getDids(activity)) return
+        if (!item.voicemail) return
         if (owner !== activity) {
-            owner?.lifecycle?.removeObserver(observer); owner = activity; activity.lifecycle.addObserver(observer)
-        }
-        fun gainFocus(): Boolean {
-            audio = activity.getSystemService(AudioManager::class.java)
-            return audio?.requestAudioFocus(focus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN_TRANSIENT) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            stop()
+            owner?.lifecycle?.removeObserver(observer)
+            owner = activity
+            activity.lifecycle.addObserver(observer)
         }
         if (state.value == (item.id to PlayState.PAUSED)) {
-            if (gainFocus()) { player?.start(); state.value = item.id to PlayState.PLAYING }
+            val recording = player ?: return stop()
+            if (!allowed(activity, item)) return stop()
+            if (gainFocus(activity)) {
+                try { recording.start(); state.value = item.id to PlayState.PLAYING }
+                catch (_: IllegalStateException) { failure(activity) }
+            }
             return
         }
         stop()
+        activeGeneration = account.generation
         state.value = item.id to PlayState.LOADING
         job = activity.lifecycleScope.launch {
             try {
-                val box = CallHistory.mailboxes(account,getDids(activity, onlyRetrieveMessages = true))[item.mailbox]
-                if (box == null || box.did != item.did) { failure(activity); return@launch }
-                val bytes = CallHistory.audio(account,item)
-                if (readAccountCredentials(activity)?.generation != account.generation) { stop(); return@launch }
-                val path = File.createTempFile("voicemail-", ".audio", activity.cacheDir)
-                file = path
-                withContext(Dispatchers.IO) { path.writeBytes(bytes) }
-                val device = MediaPlayer()
-                player = device
-                device.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                device.setDataSource(path.absolutePath)
-                device.setOnPreparedListener {
-                    if (readAccountCredentials(activity)?.generation == account.generation && gainFocus()) {
-                        it.start(); state.value = item.id to PlayState.PLAYING
-                    } else stop()
+                val box = CallHistory.mailboxes(account, getDids(activity, onlyRetrieveMessages = true))[item.mailbox]
+                if (box == null || box.did != item.did) return@launch failure(activity)
+                activeLines = box.lines
+                if (!allowed(activity, item)) return@launch stop()
+                val bytes = CallHistory.audio(account, item)
+                if (!allowed(activity, item)) { bytes.fill(0); return@launch stop() }
+                val recording = MediaPlayer()
+                player = recording
+                val recordingSource = VoicemailDataSource(bytes)
+                source = recordingSource
+                recording.setAudioAttributes(attributes)
+                recording.setDataSource(recordingSource)
+                recording.setOnPreparedListener { ready ->
+                    if (player !== ready) return@setOnPreparedListener
+                    if (!allowed(activity, item) || !gainFocus(activity)) return@setOnPreparedListener stop()
+                    try { ready.start(); state.value = item.id to PlayState.PLAYING }
+                    catch (_: IllegalStateException) { failure(activity) }
                 }
-                device.setOnCompletionListener { stop() }
-                device.setOnErrorListener { _, _, _ -> failure(activity); true }
-                device.prepareAsync()
+                recording.setOnCompletionListener { completed -> if (player === completed) stop() }
+                recording.setOnErrorListener { failed, _, _ -> if (player === failed) failure(activity); true }
+                recording.prepareAsync()
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { failure(activity) }
         }
     }
+
     private fun failure(activity: FragmentActivity) {
         stop()
-        Toast.makeText(activity,R.string.calls_audio_failed,Toast.LENGTH_LONG).show()
+        Toast.makeText(activity, R.string.calls_audio_failed, Toast.LENGTH_LONG).show()
     }
     fun pause() {
-        if (state.value.second == PlayState.PLAYING) {
-            player?.pause(); state.value = state.value.first to PlayState.PAUSED
-        }
+        if (state.value.second != PlayState.PLAYING) return
+        try { player?.pause(); state.value = state.value.first to PlayState.PAUSED }
+        catch (_: IllegalStateException) { stop() }
+        abandonFocus()
     }
-    @Suppress("DEPRECATION")
     fun stop() {
-        job?.cancel(); job=null
-        player?.release(); player=null
-        file?.delete(); file=null
-        audio?.abandonAudioFocus(focus); audio=null
+        job?.cancel()
+        job = null
+        val recording = player
+        player = null
+        recording?.setOnPreparedListener(null)
+        recording?.setOnCompletionListener(null)
+        recording?.setOnErrorListener(null)
+        recording?.release()
+        source?.close()
+        source = null
+        abandonFocus()
+        activeGeneration = -1L
+        activeLines = emptySet()
         state.value = "" to PlayState.READY
     }
     override fun onCleared() { stop() }
