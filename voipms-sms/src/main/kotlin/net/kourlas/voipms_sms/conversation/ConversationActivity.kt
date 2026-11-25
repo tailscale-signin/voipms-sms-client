@@ -61,7 +61,10 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isGone
 import androidx.core.view.updateLayoutParams
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.lifecycleScope
+import net.kourlas.voipms_sms.lookup.OnlineNumberLookup
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.squareup.moshi.JsonClass
@@ -184,6 +187,13 @@ open class ConversationActivity(val bubble: Boolean = false) :
         super.onCreate(savedInstanceState)
         setContentView(R.layout.conversation)
         onNewIntent(intent)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                OnlineNumberLookup.updates.collect {
+                    if (::contact.isInitialized) updateContactHeading()
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -361,18 +371,12 @@ open class ConversationActivity(val bubble: Boolean = false) :
         // Set up toolbar
         setSupportActionBar(findViewById(R.id.toolbar))
         supportActionBar?.let {
-            // Show phone number under contact name if there is a contact name;
-            // otherwise just show phone number
-            contactName?.let { contactName ->
-                it.title = contactName
-                it.subtitle = getFormattedPhoneNumber(contact)
-            } ?: run {
-                it.title = getFormattedPhoneNumber(contact)
-            }
-
             it.setHomeButtonEnabled(true)
             it.setDisplayHomeAsUpEnabled(true)
         }
+
+        updateContactHeading()
+        invalidateOptionsMenu()
 
         // Allow contact phone number to be copied by long clicking the toolbar
         findViewById<Toolbar>(R.id.toolbar).setOnLongClickListener {
@@ -394,6 +398,19 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
 
         actionMode = null
+    }
+
+    private fun updateContactHeading() {
+        val label = OnlineNumberLookup.label(this, contact, contactName)
+        supportActionBar?.apply {
+            val number = getFormattedPhoneNumber(contact)
+            title = contactName ?: if (label == null) number else OnlineNumberLookup.blueNumber(this@ConversationActivity, contact, toolbar = true)
+            subtitle = when {
+                contactName != null -> number
+                label != null -> OnlineNumberLookup.description(this@ConversationActivity, label)
+                else -> null
+            }
+        }
     }
 
     /**
@@ -691,6 +708,12 @@ open class ConversationActivity(val bubble: Boolean = false) :
             )
         )
 
+        if (::contact.isInitialized && !BuildConfig.IS_DEMO) {
+            contactName = getContactName(this, contact)
+            updateContactHeading()
+            invalidateOptionsMenu()
+        }
+
         // Load draft message
         val messageText = findViewById<EditText>(R.id.message_edit_text)
         lifecycleScope.launch(Dispatchers.Default) {
@@ -759,6 +782,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         val inflater = menuInflater
         inflater.inflate(R.menu.conversation, menu)
         this.menu = menu
+        menu.findItem(R.id.lookup_number).isVisible = !BuildConfig.IS_DEMO && OnlineNumberLookup.available(contact, contactName)
 
         // Replace DID menu item with DID
         val didMenuItem = menu.findItem(R.id.did_button)
@@ -869,6 +893,11 @@ open class ConversationActivity(val bubble: Boolean = false) :
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             android.R.id.home -> return onUpButtonClick()
+            R.id.lookup_number -> {
+                OnlineNumberLookup.offer(this, contact)
+                return true
+            }
+
             R.id.call_button -> {
                 onCallButtonClick()
                 return true

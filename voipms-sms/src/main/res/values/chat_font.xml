@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="custom_font_children_hook" type="id" />
+    <string name="chat_font_title">Chat font</string>
+    <string name="chat_font_default">Proxima Nova. Choose a local font to override it.</string>
+    <string name="chat_font_custom">Custom font. Tap to change or restore Proxima Nova.</string>
+    <string name="chat_font_choose">Choose font file</string>
+    <string name="chat_font_restore">Restore Proxima Nova</string>
+    <string name="chat_font_import_failed">Choose a valid TrueType (.ttf) or OpenType (.otf) font up to 8 MB.</string>
+    <string name="chat_font_reset_failed">Couldn’t remove the custom font. Try again.</string>
+</resources>

@@ -362,36 +362,13 @@ class ConversationRecyclerViewAdapter(
     }
 
     /**
-     * Sets the colours of text in the view holder, depending on the message
-     * type.
+     * Selects the checked or normal fill on the incoming or outgoing bubble.
      *
      * @param holder The message view holder to use.
      * @param position The position of the view in the adapter.
      */
     fun updateViewHolderColours(holder: MessageViewHolder, position: Int) {
-        val messageItem = messageItems[position]
-        val message = messageItem.message
-
-        // Incoming messages have the secondary color, while outgoing messages
-        // have the primary color; dark variants are used for selection
-        val smsContainer = holder.smsContainer
-        if (message.isIncoming) {
-            if (messageItem.checked) {
-                smsContainer.setBackgroundResource(
-                    R.color.message_incoming_checked
-                )
-            } else {
-                smsContainer.setBackgroundResource(R.color.message_incoming)
-            }
-        } else {
-            if (messageItem.checked) {
-                smsContainer.setBackgroundResource(
-                    R.color.message_outgoing_checked
-                )
-            } else {
-                smsContainer.setBackgroundResource(R.color.message_outgoing)
-            }
-        }
+        holder.smsContainer.isActivated = messageItems[position].checked
     }
 
     override fun getItemViewType(i: Int): Int =

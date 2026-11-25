@@ -24,6 +24,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.UnderlineSpan
 import android.text.style.StyleSpan
 import android.util.Log
 import android.view.LayoutInflater
@@ -35,6 +36,8 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.runBlocking
+import net.kourlas.voipms_sms.lookup.OnlineNumberLookup
+import net.kourlas.voipms_sms.ui.ChatFont
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.Database
@@ -86,6 +89,7 @@ class ConversationsRecyclerViewAdapter<T>(
         // There is only one item view type
         val itemView = LayoutInflater.from(parent.context)
             .inflate(R.layout.conversations_item, parent, false)
+        itemView.clipToOutline = true
         return ConversationViewHolder(itemView)
     }
 
@@ -140,18 +144,21 @@ class ConversationsRecyclerViewAdapter<T>(
         val message = conversationItem.message
 
         val contactTextBuilder = SpannableStringBuilder()
-        contactTextBuilder.append(
-            conversationItem.contactName ?: getFormattedPhoneNumber(
-                conversationItem.message.contact
-            )
-        )
+        val label = OnlineNumberLookup.label(activity, message.contact, conversationItem.contactName)
+        if (label != null) {
+            contactTextBuilder.append(OnlineNumberLookup.blueNumber(activity, message.contact))
+            contactTextBuilder.append(" · ").append(OnlineNumberLookup.description(activity, label))
+        } else {
+            contactTextBuilder.append(conversationItem.contactName ?: getFormattedPhoneNumber(message.contact))
+        }
 
         // Highlight text that matches filter
         if (currConstraint != "") {
-            val index = contactTextBuilder.toString()
-                .lowercase(Locale.getDefault())
-                .indexOf(currConstraint.lowercase(Locale.getDefault()))
-            if (index != -1) {
+            val index = contactTextBuilder.indexOf(currConstraint, ignoreCase = true)
+            if (index >= 0 && label != null) {
+                // Keep the blue lookup number readable when a search matches its digits.
+                contactTextBuilder.setSpan(UnderlineSpan(), index, index + currConstraint.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            } else if (index >= 0) {
                 contactTextBuilder.setSpan(
                     BackgroundColorSpan(
                         ContextCompat.getColor(activity, R.color.highlight)
@@ -176,11 +183,13 @@ class ConversationsRecyclerViewAdapter<T>(
         holder.contactTextView.text = contactTextBuilder
 
         // Mark text as bold if unread
-        if (message.isUnread) {
-            holder.contactTextView.setTypeface(null, Typeface.BOLD)
-        } else {
-            holder.contactTextView.setTypeface(null, Typeface.NORMAL)
-        }
+        ChatFont.setInboxWeight(holder.contactTextView, message.isUnread)
+    }
+
+    fun refreshLookupLabels() {
+        val first = layoutManager.findFirstVisibleItemPosition()
+        val last = layoutManager.findLastVisibleItemPosition()
+        if (first >= 0 && last >= first) notifyItemRangeChanged(first, last - first + 1)
     }
 
     /**
@@ -292,13 +301,8 @@ class ConversationsRecyclerViewAdapter<T>(
         holder.messageTextView.text = messageTextBuilder
 
         // Mark text as bold and supporting additional lines if unread
-        if (message.isUnread) {
-            holder.messageTextView.setTypeface(null, Typeface.BOLD)
-            holder.messageTextView.maxLines = 3
-        } else {
-            holder.messageTextView.setTypeface(null, Typeface.NORMAL)
-            holder.messageTextView.maxLines = 1
-        }
+        ChatFont.setInboxWeight(holder.messageTextView, message.isUnread)
+        holder.messageTextView.maxLines = if (message.isUnread) 3 else 1
     }
 
     /**
@@ -547,6 +551,7 @@ class ConversationsRecyclerViewAdapter<T>(
                     else -> {
                         // Update the underlying message
                         conversationItems[newIdx].message = newMessages[newIdx]
+                        conversationItems[newIdx].contactName = resultsObject.contactNames[newMessages[newIdx].contact]
                         messageIndexes.add(newIdx)
 
                         oldIdx += 1
@@ -642,7 +647,7 @@ class ConversationsRecyclerViewAdapter<T>(
      * @param contactBitmap The photo of the displayed contact.
      */
     inner class ConversationItem(
-        var message: Message, val contactName: String?,
+        var message: Message, var contactName: String?,
         val contactBitmap: Bitmap
     ) {
         private var _checked = false

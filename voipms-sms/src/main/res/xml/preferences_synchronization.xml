@@ -17,6 +17,17 @@
 
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
     <androidx.preference.Preference
+        android:icon="@drawable/ic_sync_settings_24dp"
+        android:key="live_listening"
+        android:persistent="false"
+        android:title="@string/live_start" />
+    <androidx.preference.Preference
+        android:icon="@android:color/transparent"
+        android:key="live_alert_settings"
+        android:persistent="false"
+        android:title="@string/live_alert_settings"
+        android:summary="@string/live_alert_settings_summary" />
+    <androidx.preference.Preference
         android:icon="@android:color/transparent"
         android:key="push_registration_results"
         android:persistent="false"

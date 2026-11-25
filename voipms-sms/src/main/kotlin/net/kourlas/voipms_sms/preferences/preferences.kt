@@ -513,6 +513,10 @@ fun setRawSyncInterval(context: Context, string: String) {
 }
 
 /** An interrupted switch is reconciled before any new account work reads its DIDs. */
+/** The account generation mirrored when account-specific preferences are reconciled. */
+internal fun currentDirectoryAccountGeneration(context: Context): Long =
+    PreferenceManager.getDefaultSharedPreferences(context).getLong(ACCOUNT_GENERATION, 0L)
+
 internal fun reconcileAccountSelection(context: Context, generation: Long) {
     val prefs = PreferenceManager.getDefaultSharedPreferences(context)
     if (prefs.getLong(ACCOUNT_GENERATION, 0L) == generation) return

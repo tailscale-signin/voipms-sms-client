@@ -2,6 +2,8 @@
 
 * [Account](#account)
 * [Phone numbers](#phone-numbers)
+* [Unknown numbers](#unknown-numbers)
+* [Appearance](#appearance)
 * [Notifications](#notifications)
 * [Synchronization](#synchronization)
 * [Network](#network)
@@ -20,19 +22,37 @@ This app can send and receive messages from multiple phone numbers in your accou
 
 You can hide messages from the conversations view, block the retrieval of messages, and block notifications on a per-phone number basis.
 
+## Unknown numbers
+
+Open a conversation with an unknown sender and choose **Look up number online** from the menu. You can also select a single conversation in the inbox and use its menu. Choose the service for that number:
+
+* Wikidata searches for organizations that publicly list the number. During a search and for a directory match, the number appears in blue and the app shows its source. Some organizations and most personal numbers have no listing.
+* The Truecaller option copies the number and opens the official web search so you can paste it. Truecaller may ask you to sign in on its site.
+* ShadyCall checks for US complaint and community reports. Report counts describe what others reported. Anyone can send messages using a spoofed number.
+
+Saved contact names take priority. Opening the inbox does not perform a lookup.
+
+## Appearance
+
+The app includes Proxima Nova from GPT Mobile Improved and uses it by default. Open **Settings → Appearance** to change the theme. To use your own font, open **Chat font → Choose font file** and select a regular TTF or OTF file up to 8 MB. Android derives the other weights for custom fonts. To switch back to the bundled font, choose **Restore Proxima Nova**.
+
 ## Notifications
 
 ### Live delivery
 
+**Settings → Synchronization → Start live listening** starts a session using your existing VoIP.ms account in either full build. Select numbers with message retrieval enabled. The app checks about every 15 seconds after the previous check finishes and backs off after errors. The settings screen shows the last successful check or retry. An ongoing notification lets you stop listening with the inbox closed.
+
+Direct listening uses more battery. Android can postpone network access or end a session. On Android 15 and later, foreground data synchronization shares a six-hour background budget across the app. Force-stopping the app, restarting the phone or losing the app process ends a session. Reopen the screen to start another. Scheduled checks use the interval you select separately.
+
 In a push-enabled primary build, VoIP.ms calls the operator’s HTTPS relay when a selected number receives a message. The relay sends a wake-up through Firebase. The app then downloads the message directly from VoIP.ms. The callback contains only the destination number.
 
-Open **Settings → Synchronization → Live delivery** to check each number. Tap the status to retry setup. Enable message retrieval for the number and allow Android notifications if you want alerts. If another service already uses the number’s callback, the app leaves it in place. You can keep that integration and use scheduled synchronization, or change the callback yourself in the [VoIP.ms portal](https://voip.ms/m/managedid.php). Changing it there affects every app using that number.
+Open **Settings → Synchronization → Push registration** to check each number. Tap the status to retry setup. Enable message retrieval for the number and allow Android notifications if you want alerts. If another service already uses the number’s callback, the app leaves it in place. You can keep that integration and use scheduled synchronization, or change the callback yourself in the [VoIP.ms portal](https://voip.ms/m/managedid.php). Changing it there affects every app using that number.
 
-F-Droid builds, primary builds without a configured relay, and devices without Google Play services use scheduled background recovery. If you force-stop the app in Android settings, reopen it to resume delivery. To view media or compare a message with the provider’s records, open **VoIP.ms Message Center** from the conversation list menu.
+Direct listening and scheduled recovery also work on devices without Google Play services. If you force-stop the app in Android settings, reopen it to resume delivery. To view media or compare a message with the provider’s records, open **VoIP.ms Message Center** from the conversation list menu.
 
 ### Check delivery on your phone
 
-Send an SMS from a different phone to a selected number with the app in the background and the screen locked. Open the alert and check that the conversation contains one copy. For a recovery check, take the phone offline, send another SMS, reconnect, and check that it arrives. The Live delivery status confirms registration. Receiving the test message confirms the entire route.
+Send an SMS from a different phone to a selected number with the app in the background and the screen locked. Open the alert and check that the conversation contains one copy. For a recovery check, take the phone offline, send another SMS, reconnect, and check that it arrives. The Push registration status confirms callback setup. Receiving the test message confirms the entire route.
 
 ## Synchronization
 

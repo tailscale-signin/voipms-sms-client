@@ -43,4 +43,8 @@
         android:id="@+id/export_button"
         android:title="@string/conversation_action_export"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/lookup_number"
+        android:title="@string/lookup_action"
+        app:showAsAction="never" />
 </menu>

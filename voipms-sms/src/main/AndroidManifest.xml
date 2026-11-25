@@ -228,6 +228,11 @@
             android:name=".sms.receivers.SendMessageReceiver"
             android:exported="false" />
         <!-- SERVICES -->
+        <service
+            android:name=".sms.LiveDeliveryService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

@@ -49,4 +49,8 @@
         android:title="@string/conversations_action_delete"
         app:showAsAction="always"
         tools:ignore="AlwaysShowAction,AppCompatResource" />
+    <item
+        android:id="@+id/lookup_number"
+        android:title="@string/lookup_action"
+        app:showAsAction="never" />
 </menu>

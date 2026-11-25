@@ -55,6 +55,10 @@ import net.kourlas.voipms_sms.utils.showSnackbar
  * Activity used to sign-in to VoIP.ms SMS.
  */
 class SignInActivity : AppCompatActivity() {
+    companion object {
+        internal const val EXTRA_FIRST_RUN = "net.kourlas.voipms_sms.extra.FIRST_RUN_SIGN_IN"
+    }
+
     // Broadcast receivers
     private val verifyCredentialsCompleteReceiver =
         object : BroadcastReceiver() {
@@ -143,6 +147,12 @@ class SignInActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
 
+        // An onboarding launch may resume after another window has already completed or skipped it.
+        if (intent.getBooleanExtra(EXTRA_FIRST_RUN, false) && !firstRun(this)) {
+            finish()
+            return
+        }
+
         // If an account is already configured, then go to the account screen
         // instead
         if (accountConfigured(this)) {
@@ -189,6 +199,7 @@ class SignInActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
+        if (intent != null) setIntent(intent)
 
         hasDids = runBlocking {
             Database.getInstance(applicationContext).getDids().isNotEmpty()

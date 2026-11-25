@@ -39,10 +39,12 @@ import net.kourlas.voipms_sms.preferences.fragments.AppearancePreferencesFragmen
 import net.kourlas.voipms_sms.preferences.getAppTheme
 import net.kourlas.voipms_sms.preferences.getSyncInterval
 import net.kourlas.voipms_sms.preferences.setRawSyncInterval
+import net.kourlas.voipms_sms.sms.LiveDeliveryService
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.preferences.migrateDidPreferences
 import net.kourlas.voipms_sms.sms.workers.SyncWorker
 import net.kourlas.voipms_sms.utils.subscribeToDidTopics
+import net.kourlas.voipms_sms.ui.ChatFont
 import kotlin.math.roundToLong
 
 private const val TAG = "CustomApplication"
@@ -119,7 +121,7 @@ class CustomApplication : Application() {
         visibleRefresh = applicationScope.launch(Dispatchers.Default) {
             if (!immediate) delay(VISIBLE_REFRESH_MS)
             while (isActive) {
-                if (accountConfigured(applicationContext) && didsConfigured(applicationContext)) {
+                if (!LiveDeliveryService.state.value.running && accountConfigured(applicationContext) && didsConfigured(applicationContext)) {
                     SyncWorker.performPartialSynchronization(applicationContext)
                 }
                 delay(VISIBLE_REFRESH_MS)
@@ -137,6 +139,8 @@ class CustomApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        ChatFont.start(this)
 
         // Create static reference to self.
         self = this

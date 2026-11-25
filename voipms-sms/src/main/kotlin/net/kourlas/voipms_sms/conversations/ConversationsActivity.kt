@@ -47,7 +47,10 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.lifecycleScope
+import net.kourlas.voipms_sms.lookup.OnlineNumberLookup
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -202,6 +205,11 @@ open class ConversationsActivity(val archived: Boolean = false) :
         setupBack()
         setupToolbar()
         setupRecyclerViewAndSwipeRefreshLayout()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                OnlineNumberLookup.updates.collect { adapter.refreshLookupLabels() }
+            }
+        }
         setupNewConversationButton()
         setupPermissions()
         setupNavigationView()
@@ -553,7 +561,9 @@ open class ConversationsActivity(val archived: Boolean = false) :
                 && firstRun(applicationContext)
             ) {
                 startActivity(
-                    Intent(applicationContext, SignInActivity::class.java)
+                    Intent(this@ConversationsActivity, SignInActivity::class.java)
+                        .putExtra(SignInActivity.EXTRA_FIRST_RUN, true)
+                        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 )
             }
         }
@@ -828,6 +838,13 @@ open class ConversationsActivity(val archived: Boolean = false) :
         item: MenuItem
     ): Boolean {
         when (item.itemId) {
+            R.id.lookup_number -> {
+                val selected = adapter.singleOrNull { it.checked } ?: return false
+                mode.finish()
+                OnlineNumberLookup.offer(this, selected.message.contact)
+                return true
+            }
+
             R.id.archive_button -> {
                 onArchiveButtonClick(mode)
                 return true
@@ -1374,6 +1391,9 @@ open class ConversationsActivity(val archived: Boolean = false) :
             }
 
         val actionMode = actionMode ?: return
+        val selected = adapter.singleOrNull { it.checked }
+        actionMode.menu.findItem(R.id.lookup_number).isVisible = !BuildConfig.IS_DEMO && selected != null &&
+            OnlineNumberLookup.available(selected.message.contact, selected.contactName)
         val markReadButton = actionMode.menu.findItem(
             R.id.mark_read_button
         )
