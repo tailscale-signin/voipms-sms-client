@@ -47,6 +47,12 @@ def add_notice(name, text):
         embedded.add((name, text))
 
 for archive in map(Path, sys.argv[3:]):
+    if archive.name.startswith('rustls-platform-verifier-'):
+        # The official AAR's POM omits the upstream Apache-2.0 OR MIT declaration.
+        # Distribute this Android component under its MIT license and copyright notice.
+        text = (license_dir / f'{archive.stem}.txt').read_text(encoding='utf-8')
+        add_notice(f'rustls-platform-verifier for Android {archive.stem.removeprefix("rustls-platform-verifier-")}', text)
+        continue
     if archive.name.startswith('tesseract4android-'):
         # This Maven POM omits licenses and its AAR has no embedded notice index.
         version = archive.stem.removeprefix('tesseract4android-')

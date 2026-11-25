@@ -272,6 +272,7 @@ androidComponents.onVariants { variant ->
                 componentFilter { id ->
                     id is ModuleComponentIdentifier &&
                         ((id.group == "com.google.mlkit" && id.module in setOf("common", "translate")) ||
+                            (id.group == "org.rustls" && id.module == "rustls-platform-verifier") ||
                             (id.group == "cz.adaptech.tesseract4android" && id.module == "tesseract4android"))
                 }
             }.files
