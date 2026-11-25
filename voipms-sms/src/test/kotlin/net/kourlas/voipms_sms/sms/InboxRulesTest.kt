@@ -12,6 +12,8 @@ class InboxRulesTest {
             "Votre code de vérification est 0007." to "0007",
             "Code: 123-456" to "123456",
             "G-001357 is your Google verification code." to "001357",
+            "Enter 000071 to verify your phone number." to "000071",
+            "Your recovery code: P3G4-8AbC" to "P3G4-8AbC",
             "000004" to "000004"
         )
         for ((body, code) in cases) assertEquals(body, code, VerificationCode.extract(body))

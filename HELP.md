@@ -31,7 +31,7 @@ Open a conversation with an unknown sender and choose **Look up number online** 
 * The Truecaller option copies the number and opens the official web search so you can paste it. Truecaller may ask you to sign in on its site.
 * ShadyCall checks for US complaint and community reports. Report counts describe what others reported. Anyone can send messages using a spoofed number.
 
-Saved contacts appear by name. For an unknown geographic number, the app uses bundled numbering data to display an approximate region offline.
+Saved contacts appear by name. For unknown numbers, the app shows the assigned area or mobile numbering country when the bundled offline data identifies one.
 
 ## Inbox and verification codes
 

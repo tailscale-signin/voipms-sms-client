@@ -17,9 +17,17 @@ internal object NumberOrigin {
         val phones = PhoneNumberUtil.getInstance()
         val area = try {
             val phone = phones.parse(canonical, null)
-            if (phones.isValidNumber(phone) && phones.isNumberGeographical(phone)) {
-                PhoneNumberOfflineGeocoder.getInstance().getDescriptionForNumber(phone, locale)
-            } else ""
+            when {
+                !phones.isValidNumber(phone) -> ""
+                phones.isNumberGeographical(phone) ->
+                    PhoneNumberOfflineGeocoder.getInstance().getDescriptionForNumber(phone, locale)
+                phones.getNumberType(phone) == PhoneNumberUtil.PhoneNumberType.MOBILE -> {
+                    val region = phones.getRegionCodeForNumber(phone)
+                    if (region == null || region.length != 2 || region == "ZZ") ""
+                    else Locale.Builder().setRegion(region).build().getDisplayCountry(locale)
+                }
+                else -> ""
+            }
         } catch (_: NumberParseException) {
             ""
         }

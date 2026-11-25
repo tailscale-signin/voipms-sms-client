@@ -109,7 +109,8 @@ def run(adb, element, screenshot):
     element("text", CODE)
     adb("shell", "input", "keycombination", "113", "29")  # Ctrl+A
     adb("shell", "input", "keyevent", "KEYCODE_DEL")
-    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    if "mInputShown=true" in adb("shell", "dumpsys", "input_method"):
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
     screenshot("sample-conversation")
     element("content-desc", "More options", tap=True)
     element("text", "Look up number online", tap=True)

@@ -14,6 +14,7 @@ class NumberOriginTest {
     @Test fun canadianAndInternationalNumbersHaveOfflineOrigins() {
         assertFalse(NumberOrigin.offline("4163920000", Locale.CANADA).isNullOrBlank())
         assertTrue(NumberOrigin.offline("442079460958", Locale.UK).orEmpty().contains("London"))
+        assertEquals("Portugal", NumberOrigin.offline("+351912345678", Locale.CANADA))
         assertNull(NumberOrigin.offline("12345", Locale.CANADA))
         assertNull(NumberOrigin.offline("+18005550100", Locale.CANADA))
     }
