@@ -28,11 +28,10 @@ import kotlinx.coroutines.launch
 import net.kourlas.voipms_sms.CustomApplication
 import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
 import net.kourlas.voipms_sms.R
-import net.kourlas.voipms_sms.database.Database
+import net.kourlas.voipms_sms.sms.workers.Outbox
 import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.workers.SendMessageWorker
-import net.kourlas.voipms_sms.utils.getMessageTexts
 
 private const val TAG = "SendMessageReceiver"
 
@@ -67,6 +66,7 @@ class SendMessageReceiver : BroadcastReceiver() {
             ) ?: throw Exception(
                 "No contact provided"
             )
+            if (net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, ConversationId(did, contact))) return
             val generation = intent.getLongExtra(SendMessageWorker.ACCOUNT_GENERATION, -1)
             val account = readAccountCredentials(context) ?: return
             if (!account.configured || generation != account.generation) return
@@ -86,19 +86,10 @@ class SendMessageReceiver : BroadcastReceiver() {
                 // Insert the messages into the database, then tell the
                 // SendMessageWorker to send them.
                 try {
-                    val databaseIds = Database.getInstance(context)
-                        .insertConversationMessagesDeliveryInProgress(
-                            ConversationId(did, contact),
-                            getMessageTexts(context, messageText)
-                        )
-                    for (id in databaseIds) {
-                        SendMessageWorker.sendMessage(
-                            context, id, generation,
-                            inlineReplyConversationId = ConversationId(
-                                did, contact
-                            )
-                        )
-                    }
+                    if (messageText.isNotBlank()) Outbox.enqueue(
+                        context, ConversationId(did, contact), messageText, emptyList(),
+                        generation, System.currentTimeMillis(), inline = true
+                    )
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

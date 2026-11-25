@@ -28,37 +28,37 @@
     <color name="fastscroll_track_color">@android:color/transparent</color>
     <color name="highlight">#A5EEFF</color>
     <color name="launcher_icon">#006878</color>
-    <color name="message_hint">#3F484A</color>
-    <color name="message_incoming">#E3E9EB</color>
-    <color name="message_incoming_checked">#BFC8CA</color>
-    <color name="message_outgoing">#A5EEFF</color>
-    <color name="message_outgoing_checked">#76C3D1</color>
-    <color name="message_section">#E9EFF0</color>
-    <color name="nav_view_header_gradient_end">#006878</color>
-    <color name="nav_view_header_gradient_start">@color/primary_variant</color>
+    <color name="message_hint">#465F5B</color>
+    <color name="message_incoming">#E5EEEB</color>
+    <color name="message_incoming_checked">#C0D5CE</color>
+    <color name="message_outgoing">#C3EFE0</color>
+    <color name="message_outgoing_checked">#8FD5BE</color>
+    <color name="message_section">#FFFFFF</color>
+    <color name="nav_view_header_gradient_end">#123F42</color>
+    <color name="nav_view_header_gradient_start">#123F42</color>
     <color name="new_conversation_letter">@color/primary</color>
-    <color name="primary">#006878</color>
+    <color name="primary">#00695F</color>
     <color name="primary_text">#FFFFFF</color>
-    <color name="primary_variant">#004E5B</color>
+    <color name="primary_variant">#14534F</color>
     <color name="search_cursor">#FFFFFF</color>
     <color name="search_hint">#E6FFFFFF</color>
     <color name="send_icon">@color/colorOnPrimary</color>
     <color name="send_icon_background">@color/primary</color>
     <color name="settings_icon">@color/primary</color>
     <color name="sign_in_progress_bar">@color/primary</color>
-    <color name="swipe_refresh_icon">#006878</color>
+    <color name="swipe_refresh_icon">@color/primary</color>
     <color name="toolbar_icon">@android:color/white</color>
     <color name="typed_in_contact">@color/primary_variant</color>
     <color name="delete_swipe">@color/send_error</color>
     <color name="archive_swipe">#188038</color>
 
-    <color name="toolbar_background">@color/primary</color>
-    <color name="surface">#F5FAFB</color>
-    <color name="on_surface">#171D1E</color>
+    <color name="toolbar_background">#123F42</color>
+    <color name="surface">#F5F8F7</color>
+    <color name="on_surface">#162C2B</color>
     <color name="on_message_incoming">@color/on_surface</color>
-    <color name="on_message_outgoing">#001F25</color>
+    <color name="on_message_outgoing">#123F35</color>
     <color name="send_error">#BA1A1A</color>
-    <color name="notification_accent">#006878</color>
+    <color name="notification_accent">@color/primary</color>
 
     <!-- Material design colors -->
     <color name="colorAccent">@color/primary</color>
@@ -69,7 +69,7 @@
     <color name="colorPrimaryVariant">@color/primary_variant</color>
     <color name="colorSecondary">#4A6267</color>
     <color name="colorSecondaryVariant">#334B4F</color>
-    <color name="surface_outline">#C6D9DD</color>
+    <color name="surface_outline">#CCDAD7</color>
     <color name="inbox_surface">#FFFFFF</color>
-    <color name="toolbar_end">#004752</color>
+    <color name="toolbar_end">#123F42</color>
 </resources>

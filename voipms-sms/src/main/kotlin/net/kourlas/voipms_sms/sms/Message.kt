@@ -63,9 +63,13 @@ class Message(
     val isUnread: Boolean,
     val isDelivered: Boolean,
     val isDeliveryInProgress: Boolean,
-    val isDraft: Boolean = false
+    val isDraft: Boolean = false,
+    val attachmentJson: String = ""
 ) :
     Comparable<Message> {
+    @Transient var outboxState: String? = null
+    @Transient var outboxDueAt: Long? = null
+
 
     /**
      * This constructor is used when initializing a message using data from VoIP.ms.
@@ -95,7 +99,7 @@ class Message(
         media1: String,
         media2: String,
         media3: String, isUnread: Long, isDelivered: Long,
-        isDeliveryInProgress: Long, isDraft: Boolean = false
+        isDeliveryInProgress: Long, isDraft: Boolean = false, attachmentJson: String = ""
     ) : this(
         databaseId,
         voipId,
@@ -110,7 +114,7 @@ class Message(
         toBoolean(isUnread),
         toBoolean(isDelivered),
         toBoolean(isDeliveryInProgress),
-        isDraft
+        isDraft, attachmentJson
     )
 
     /**
@@ -131,7 +135,7 @@ class Message(
             sms.media3,
             sms.unread,
             sms.delivered,
-            sms.deliveryInProgress
+            sms.deliveryInProgress, attachmentJson = sms.mediaJson
         )
 
     /**
@@ -152,7 +156,7 @@ class Message(
             sms.media3,
             sms.unread,
             sms.delivered,
-            sms.deliveryInProgress
+            sms.deliveryInProgress, attachmentJson = sms.mediaJson
         )
 
     /**
@@ -203,19 +207,8 @@ class Message(
      * Gets a list of the media links in the message.
      */
     val medias: List<String>
-        get() {
-            val medias = mutableListOf<String>()
-            if (media1 != "") {
-                medias.add(media1)
-            }
-            if (media2 != "") {
-                medias.add(media2)
-            }
-            if (media3 != "") {
-                medias.add(media3)
-            }
-            return medias
-        }
+        get() = net.kourlas.voipms_sms.media.AttachmentList.decode(attachmentJson)
+            .ifEmpty { listOf(media1, media2, media3).filter(String::isNotBlank) }
 
     /**
      * Gets a version of the message text for display in summary contexts.
@@ -226,10 +219,7 @@ class Message(
                 return text
             }
 
-            return if (media1 != ""
-                || media2 != ""
-                || media3 != ""
-            ) {
+            return if (medias.isNotEmpty()) {
                 CustomApplication.getApplication().resources.getString(
                     R.string.message_media
                 )
@@ -406,6 +396,7 @@ class Message(
         if (did != other.did) return false
         if (contact != other.contact) return false
         if (text != other.text) return false
+        if (attachmentJson != other.attachmentJson) return false
         if (media1 != other.media1) return false
         if (media2 != other.media2) return false
         if (media3 != other.media3) return false
@@ -415,6 +406,7 @@ class Message(
         if (isUnread != other.isUnread) return false
         if (isDelivered != other.isDelivered) return false
         if (isDeliveryInProgress != other.isDeliveryInProgress) return false
+        if (outboxState != other.outboxState || outboxDueAt != other.outboxDueAt) return false
 
         return true
     }
@@ -425,6 +417,7 @@ class Message(
         result = 31 * result + did.hashCode()
         result = 31 * result + contact.hashCode()
         result = 31 * result + text.hashCode()
+        result = 31 * result + attachmentJson.hashCode()
         result = 31 * result + media1.hashCode()
         result = 31 * result + media2.hashCode()
         result = 31 * result + media3.hashCode()
@@ -434,6 +427,8 @@ class Message(
         result = 31 * result + isUnread.hashCode()
         result = 31 * result + isDelivered.hashCode()
         result = 31 * result + isDeliveryInProgress.hashCode()
+        result = 31 * result + (outboxState?.hashCode() ?: 0)
+        result = 31 * result + (outboxDueAt?.hashCode() ?: 0)
         return result
     }
 }

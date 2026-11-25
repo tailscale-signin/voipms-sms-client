@@ -36,6 +36,10 @@ import android.text.SpannableStringBuilder
 import android.text.TextWatcher
 import android.text.util.Linkify
 import android.util.Log
+import net.kourlas.voipms_sms.tools.LineProfiles
+import net.kourlas.voipms_sms.tools.MessageActions
+import net.kourlas.voipms_sms.tools.ConversationSpeech
+import net.kourlas.voipms_sms.tools.ThreadReminders
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -90,11 +94,15 @@ import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.getMessageTextBoxMaximumSize
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.Message
-import net.kourlas.voipms_sms.sms.workers.SendMessageWorker
+import net.kourlas.voipms_sms.sms.destinationSupport
+import net.kourlas.voipms_sms.sms.DestinationSupport
+import net.kourlas.voipms_sms.sms.workers.Outbox
+import net.kourlas.voipms_sms.utils.hasOversizedSmsUrl
 import net.kourlas.voipms_sms.ui.FastScroller
 import net.kourlas.voipms_sms.utils.JsonParserManager
 import net.kourlas.voipms_sms.utils.abortActivity
-import net.kourlas.voipms_sms.utils.applyRoundedCornersMask
+import net.kourlas.voipms_sms.privacy.PrivateThreads
+import net.kourlas.voipms_sms.preferences.ShareSuggestions
 import net.kourlas.voipms_sms.utils.getContactName
 import net.kourlas.voipms_sms.utils.getContactPhotoBitmap
 import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
@@ -105,7 +113,6 @@ import net.kourlas.voipms_sms.utils.showAlertDialog
 import net.kourlas.voipms_sms.utils.showErrorMessage
 import net.kourlas.voipms_sms.utils.showPermissionSnackbar
 import net.kourlas.voipms_sms.utils.showSnackbar
-import java.text.BreakIterator
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -132,11 +139,29 @@ open class ConversationActivity(val bubble: Boolean = false) :
     val conversationId: ConversationId
         get() = ConversationId(did, contact)
 
+    private var privateDictationPending = false
+    private var keepReviewedDraft = false
+    private val dictate = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        val wasPrivate = privateDictationPending
+        privateDictationPending = false
+        if (::did.isInitialized && ::contact.isInitialized && result.resultCode == RESULT_OK &&
+            data != null && data.getStringExtra("thread") == conversationId.getId()) {
+            val editor = findViewById<EditText>(R.id.message_edit_text)
+            val text = data.getStringExtra(ConversationSpeech.RESULT).orEmpty()
+            if (text.isNotBlank()) {
+                keepReviewedDraft = true
+                editor.text.insert(editor.selectionStart.coerceAtLeast(0), text)
+            }
+        } else if (wasPrivate) finish()
+    }
+
     // Additional metadata associated with the DID and contact, including the
     // name and photo of the person associated with the DID or contact
     private var contactName: String? = null
     private var offlineRegion: String? = null
-    private lateinit var contactBitmap: Bitmap
+    private var contactJob: kotlinx.coroutines.Job? = null
+    private data class ContactPresentation(val name: String?, val photo: Bitmap, val region: String?)
 
     // Broadcast receivers
     private val syncCompleteReceiver =
@@ -187,6 +212,9 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
     }
 
+    private var privateSession = false
+    private var resumedConversation = false
+
     public override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, messageBack)
@@ -195,6 +223,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         findViewById<View>(R.id.message_section).addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
             if (bottom - top != oldBottom - oldTop) ViewCompat.requestApplyInsets(list)
         }
+        mmsPickerDraft = savedInstanceState?.getString("mms_picker_draft")
         onNewIntent(intent)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -208,33 +237,47 @@ open class ConversationActivity(val bubble: Boolean = false) :
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.hasExtra(net.kourlas.voipms_sms.delivery.CallAlerts.GENERATION) &&
+            intent.getLongExtra(net.kourlas.voipms_sms.delivery.CallAlerts.GENERATION, -1) != readAccountCredentials(this)?.generation) {
+            finish()
+            return
+        }
 
         if (!setupDidAndContact(intent)) {
             return
         }
-        offlineRegion = null
-        setupToolbar()
-        if (contactName == null) {
-            val number = contact
-            val locale = resources.configuration.locales[0]
-            lifecycleScope.launch {
-                val region = withContext(Dispatchers.IO) { NumberOrigin.offline(number, locale) }
-                if (contact == number) {
-                    offlineRegion = region
-                    updateContactHeading()
-                }
+        privateSession = net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(this, conversationId)
+        if (privateSession) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            if (!net.kourlas.voipms_sms.privacy.PrivateThreads.consume(conversationId)) {
+                findViewById<View>(android.R.id.content).visibility = View.INVISIBLE
+                startActivity(Intent(this, net.kourlas.voipms_sms.privacy.PrivateThreadGateActivity::class.java)
+                    .putExtra("target", Intent(intent)).putExtra("did", did).putExtra("peer", contact))
+                finish()
+                return
             }
         }
+        contactJob?.cancel()
+        contactName = null
+        offlineRegion = null
+        setupToolbar()
         setupRecyclerView()
         setupMessageText()
         getMessageTextFromIntent()
         setupSendButton()
+        val sharedMedia = net.kourlas.voipms_sms.media.IncomingShare.uris(this, intent)
+        if (sharedMedia.isNotEmpty()) {
+            // Consume the share exactly once. The selected draft survives recreation.
+            intent.clipData = null
+            intent.removeExtra(Intent.EXTRA_STREAM)
+            mmsComposer.addUris(sharedMedia)
+        }
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) loadContactPresentation()
         setupDemo()
 
-        ShortcutManagerCompat.reportShortcutUsed(
-            applicationContext,
-            conversationId.getId()
-        )
+        if (ShareSuggestions.enabled(this, conversationId) && !PrivateThreads.isPrivate(this, conversationId)) {
+            ShortcutManagerCompat.reportShortcutUsed(applicationContext, conversationId.getId())
+        }
     }
 
     /**
@@ -244,10 +287,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
      * @param intent The intent that this activity was launched with.
      */
     private fun setupDidAndContact(intent: Intent): Boolean {
-        if (Intent.ACTION_SEND == intent.action
-            && "text/plain" == intent.type
-            && intent.getStringExtra(Intent.EXTRA_TEXT) != null
-        ) {
+        if (net.kourlas.voipms_sms.media.IncomingShare.isShare(intent)) {
             // Generic text share; forward to NewConversationActivity
             val shortcutId =
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -255,10 +295,15 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 } else {
                     intent.getStringExtra("android.intent.extra.shortcut.ID")
                 }
-            if (shortcutId == null) {
+            val parts = shortcutId?.split("_")
+            val target = parts?.takeIf { it.size == 2 }?.let { ConversationId(normalizeVoipMsDid(it[0]), it[1]) }
+            if (target == null || !ShareSuggestions.enabled(this, target) || PrivateThreads.isPrivate(this, target) ||
+                target.did !in getDids(applicationContext)
+            ) {
                 val newIntent = Intent()
-                newIntent.action = Intent.ACTION_SEND
-                newIntent.type = "text/plain"
+                newIntent.action = intent.action
+                newIntent.type = intent.type
+                net.kourlas.voipms_sms.media.IncomingShare.forward(this, intent, newIntent)
                 newIntent.putExtra(
                     Intent.EXTRA_TEXT,
                     intent.getStringExtra(Intent.EXTRA_TEXT)
@@ -271,16 +316,8 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 finish()
                 return false
             } else {
-                val components = shortcutId.split("_")
-                if (components.size != 2) {
-                    abortActivity(
-                        this,
-                        Exception("Invalid shortcut ID: '$shortcutId'")
-                    )
-                    return false
-                }
-                did = normalizeVoipMsDid(components[0])
-                contact = components[1]
+                did = target.did
+                contact = target.contact
             }
         } else {
             // Standard intent
@@ -333,23 +370,29 @@ open class ConversationActivity(val bubble: Boolean = false) :
             contact = contact.substring(1)
         }
 
-        // Get DID and contact name and photo for use in recycler view
-        // adapter
-        contactName = if (!BuildConfig.IS_DEMO) {
-            getContactName(this, contact)
-        } else {
-            net.kourlas.voipms_sms.demo.getContactName(contact)
-        }
-        contactBitmap = getContactPhotoBitmap(
-            this,
-            contactName,
-            contact,
-            resources.getDimensionPixelSize(
-                R.dimen.contact_badge
-            )
-        )
-
         return true
+    }
+
+    /** Resolve Contacts and decode the avatar off the notification launch path. */
+    private fun loadContactPresentation() {
+        val target = conversationId
+        val size = resources.getDimensionPixelSize(R.dimen.contact_badge)
+        val locale = resources.configuration.locales[0]
+        contactJob?.cancel()
+        contactJob = lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val name = if (BuildConfig.IS_DEMO) net.kourlas.voipms_sms.demo.getContactName(target.contact)
+                           else getContactName(applicationContext, target.contact)
+                val region = if (name == null) NumberOrigin.offline(target.contact, locale) else null
+                ContactPresentation(name, getContactPhotoBitmap(applicationContext, name, target.contact, size), region)
+            }
+            if (target != conversationId) return@launch
+            contactName = result.name
+            offlineRegion = result.region
+            adapter.updateContactPhoto(result.photo)
+            updateContactHeading()
+            invalidateOptionsMenu()
+        }
     }
 
     /**
@@ -404,6 +447,8 @@ open class ConversationActivity(val bubble: Boolean = false) :
     /**
      * Sets up the activity recycler view.
      */
+    private var callFeedObservation: kotlinx.coroutines.Job? = null
+
     private fun setupRecyclerView() {
         // Set up recycler view with most recent message at bottom of list
         layoutManager = LinearLayoutManager(this)
@@ -414,12 +459,18 @@ open class ConversationActivity(val bubble: Boolean = false) :
             this,
             recyclerView,
             layoutManager,
-            conversationId,
-            contactBitmap
+            conversationId
         )
         recyclerView.setHasFixedSize(true)
         recyclerView.layoutManager = layoutManager
         recyclerView.adapter = adapter
+        callFeedObservation?.cancel()
+        if (!BuildConfig.IS_DEMO) callFeedObservation = lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                net.kourlas.voipms_sms.delivery.CallFeedSync.refresh(applicationContext)
+                net.kourlas.voipms_sms.delivery.CallFeedStore.observe(applicationContext).collect { adapter.updateCalls(it) }
+            }
+        }
         recyclerView.addOnScrollListener(object :
                                              RecyclerView.OnScrollListener() {
             override fun onScrolled(
@@ -468,14 +519,15 @@ open class ConversationActivity(val bubble: Boolean = false) :
             messageSection,
             resources.getDimension(R.dimen.send_message_elevation)
         )
-        applyRoundedCornersMask(messageSection)
+        messageSection.clipToOutline = true
         ViewCompat.setOnApplyWindowInsetsListener(messageSection) { v, windowInsets ->
             val insets =
                 windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
             val margin = resources.getDimensionPixelSize(R.dimen.margin)
             v.updateLayoutParams<MarginLayoutParams> {
-                leftMargin = margin + insets.left
-                rightMargin = margin + insets.right
+                val gutter = resources.getDimensionPixelSize(R.dimen.thread_gutter)
+                leftMargin = gutter + insets.left
+                rightMargin = gutter + insets.right
                 bottomMargin = margin + insets.bottom
             }
             WindowInsetsCompat.CONSUMED
@@ -523,9 +575,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
      * Retrieves and stores the message text from the intent.
      */
     private fun getMessageTextFromIntent() {
-        if (Intent.ACTION_SEND == intent.action
-            && "text/plain" == intent.type
-        ) {
+        if (net.kourlas.voipms_sms.media.IncomingShare.isShare(intent)) {
             val messageText = findViewById<EditText>(
                 R.id.message_edit_text
             )
@@ -548,25 +598,9 @@ open class ConversationActivity(val bubble: Boolean = false) :
             R.id.chars_remaining_text
         )
 
-        // VoIP.ms uses UTF-8 encoding for text messages; any message
-        // exceeding N bytes when encoded using UTF-8 is too long
-        var msgsCount = 1
-        var bytesCount = 0
-        val boundary = BreakIterator.getCharacterInstance(Locale.getDefault())
-        boundary.setText(newText)
-        var current = boundary.first()
-        var next = boundary.next()
-        while (next != BreakIterator.DONE) {
-            val cluster = newText.substring(current, next)
-            val clusterBytes = cluster.toByteArray(Charsets.UTF_8)
-            if (bytesCount + clusterBytes.size > maxLength) {
-                msgsCount += 1
-                bytesCount = 0
-            }
-            bytesCount += clusterBytes.size
-            current = next
-            next = boundary.next()
-        }
+        val parts = getMessageTexts(this, newText)
+        val msgsCount = parts.size
+        val bytesCount = parts.last().toByteArray().size
 
         if (msgsCount == 1) {
             if (bytesCount >= maxLength - 10) {
@@ -600,12 +634,32 @@ open class ConversationActivity(val bubble: Boolean = false) :
     /**
      * Sets up the activity send button.
      */
+    private lateinit var mmsComposer: net.kourlas.voipms_sms.media.MmsComposer
+    private var mmsPickerDraft: String? = null
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("mms_picker_draft", mmsPickerDraft)
+    }
+    private val mmsPicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (::mmsComposer.isInitialized && mmsComposer.draftKey == mmsPickerDraft) mmsComposer.addUris(uris)
+        mmsPickerDraft = null
+    }
+
     private fun setupSendButton() {
+        val generation = readAccountCredentials(applicationContext)?.generation ?: 0
+        mmsComposer = net.kourlas.voipms_sms.media.MmsComposer(this, "$generation/$did/$contact") {
+            mmsPickerDraft = mmsComposer.draftKey
+            mmsPicker.launch(arrayOf("image/*", "video/*", "audio/*"))
+        }
+
         // Set up send button
         val sendButton = findViewById<ImageButton>(R.id.send_button)
         sendButton.setOnClickListener {
             this@ConversationActivity.sendMessage()
         }
+        sendButton.setOnLongClickListener { scheduleComposer(); true }
     }
 
     /**
@@ -622,68 +676,107 @@ open class ConversationActivity(val bubble: Boolean = false) :
     /**
      * Called after the user clicks the send message button.
      */
-    private fun sendMessage() {
-        // Get message from UI
-        val messageEditText = findViewById<EditText>(R.id.message_edit_text)
-        val messageText = messageEditText.text.toString()
+    private var enqueueInProgress = false
 
-        val account = readAccountCredentials(applicationContext) ?: return
-        if (messageText.trim() != ""
-            && account.configured
-            && did in getDids(applicationContext)
-        ) {
-            // Clear the message text box.
-            messageEditText.setText("")
+    private fun scheduleComposer() {
+        OutboxUi(this).pickTime { sendMessage(it, preview = true) }
+    }
 
-            // Send the message using the SendMessageService.
-            CustomApplication.getApplication().applicationScope.launch(
-                Dispatchers.Default
-            ) {
-                try {
-                    val ids = Database.getInstance(
-                        applicationContext
-                    )
-                        .insertConversationMessagesDeliveryInProgress(
-                            ConversationId(
-                                did,
-                                contact
-                            ),
-                            getMessageTexts(applicationContext, messageText)
-                        )
-                    SendMessageWorker.sendMessages(applicationContext, ids, account.generation)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to send message", e)
-                    // Some rows may have changed before the exception.
-                    lifecycleScope.launch(Dispatchers.Main) {
+    private fun sendMessage(scheduled: Long? = null, preview: Boolean = false, asMms: Boolean = false) {
+        if (enqueueInProgress) return
+        val editor = findViewById<EditText>(R.id.message_edit_text)
+        val text = editor.text.toString()
+        val media = mmsComposer.attachments.toList()
+        if ((text.isBlank() && media.isEmpty()) || !mmsComposer.validate(text)) return
+        val account = readAccountCredentials(this)?.takeIf { it.configured } ?: return
+        if (did !in getDids(this)) return
+        val smsParts = if (media.isEmpty()) getMessageTexts(this, text) else listOf(text)
+        val mms = asMms || media.isNotEmpty()
+        val parts = if (mms) listOf(text) else smsParts
+        val send = {
+            if (!enqueueInProgress) {
+                enqueueInProgress = true
+                lifecycleScope.launch {
+                    try {
+                        val due = scheduled ?: (System.currentTimeMillis() + Outbox.UNDO_MS)
+                        val batch = Outbox.enqueue(applicationContext, conversationId, text, media, account.generation, due, asMms = mms)
+                        if (editor.text.toString() == text) editor.setText("")
+                        if (mmsComposer.attachments == media) mmsComposer.clear()
                         adapter.refresh()
-                    }
-                    showErrorMessage(
-                        this@ConversationActivity,
-                        R.id.coordinator_layout,
-                        getString(R.string.conversation_send_fail)
-                    )
-                    return@launch
-                }
-
-                lifecycleScope.launch(Dispatchers.Main) {
-                    // Refresh adapter to show message being sent.
-                    adapter.refresh()
-
-                    // Scroll to the bottom of the adapter so that the message
-                    // is in view.
-                    if (adapter.itemCount > 0) {
-                        layoutManager.scrollToPosition(adapter.itemCount - 1)
+                        if (adapter.itemCount > 0) layoutManager.scrollToPosition(adapter.itemCount - 1)
+                        showSnackbar(this@ConversationActivity, R.id.coordinator_layout,
+                            getString(if (scheduled == null) R.string.outbox_saved else R.string.outbox_scheduled),
+                            getString(R.string.outbox_undo), View.OnClickListener {
+                                lifecycleScope.launch {
+                                    if (Outbox.cancel(applicationContext, batch)) {
+                                        if (editor.text.isEmpty()) editor.setText(text)
+                                        if (mmsComposer.attachments.isEmpty()) mmsComposer.restore(media)
+                                        adapter.refresh()
+                                    } else Toast.makeText(this@ConversationActivity, R.string.outbox_too_late, Toast.LENGTH_LONG).show()
+                                }
+                            }, Outbox.UNDO_MS.toInt())
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to queue message", e)
+                        showErrorMessage(this@ConversationActivity, R.id.coordinator_layout, getString(R.string.conversation_send_fail))
+                    } finally {
+                        enqueueInProgress = false
                     }
                 }
             }
         }
+        val destination = destinationSupport(did, contact)
+        if (preview || smsParts.size > 1 || mms || destination != DestinationSupport.STANDARD) {
+            val transport = if (!mms) getString(R.string.outbox_sms_parts, parts.size, text.toByteArray().size)
+                else if (media.isEmpty()) getString(R.string.outbox_text_mms, text.codePointCount(0, text.length))
+                else {
+                    val bytes = media.sumOf { net.kourlas.voipms_sms.media.MmsMedia.localFile(this, it).length() }
+                    getString(R.string.outbox_mms_parts, media.size, bytes)
+                }
+            val detail = buildString {
+                val rate = SendPreflight.estimate(this@ConversationActivity, account.generation, conversationId, mms, parts.size)
+                append(getString(R.string.outbox_preflight, getFormattedPhoneNumber(did), getFormattedPhoneNumber(contact), transport, rate))
+                if (!mms && hasOversizedSmsUrl(text, resources.getInteger(R.integer.sms_max_length)))
+                    append("\n\n").append(getString(R.string.outbox_long_url))
+                when (destination) {
+                    DestinationSupport.UNSUPPORTED -> append("\n\n").append(getString(R.string.outbox_destination_unsupported))
+                    DestinationSupport.SHORT_CODE -> append("\n\n").append(getString(R.string.outbox_destination_short))
+                    DestinationSupport.UNKNOWN -> append("\n\n").append(getString(R.string.outbox_destination_unknown))
+                    else -> Unit
+                }
+                if (scheduled != null) append("\n\n").append(getString(R.string.outbox_schedule_policy))
+            }
+            val dialog = androidx.appcompat.app.AlertDialog.Builder(this).setTitle(R.string.outbox_details)
+                .setMessage(detail)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(R.string.outbox_rate_title) { _, _ ->
+                    SendPreflight.editRate(this, account.generation, conversationId, mms) {
+                        sendMessage(scheduled, preview = true, asMms = mms)
+                    }
+                }
+            var previewDialog: androidx.appcompat.app.AlertDialog? = null
+            if (media.isEmpty() && smsParts.size > 1 && text.codePointCount(0, text.length) <= net.kourlas.voipms_sms.media.MmsMedia.MAX_CAPTION) {
+                dialog.setView(android.widget.Button(this).apply {
+                    this.text = if (mms) getString(R.string.outbox_choose_sms, smsParts.size) else getString(R.string.outbox_choose_mms)
+                    setOnClickListener {
+                        previewDialog?.dismiss()
+                        sendMessage(scheduled, preview = true, asMms = !mms)
+                    }
+                })
+            }
+            if (destination != DestinationSupport.UNSUPPORTED) {
+                dialog.setPositiveButton(if (scheduled == null) R.string.outbox_queue_send else R.string.outbox_schedule_action) { _, _ -> send() }
+            }
+            previewDialog = dialog.show()
+        } else send()
     }
 
     override fun onResume() {
         super.onResume()
 
+        if (isFinishing || !::adapter.isInitialized) return
+        resumedConversation = true
         // Register all dynamic receivers for this activity
         registerNonExportedReceiver(
             this,
@@ -700,14 +793,13 @@ open class ConversationActivity(val bubble: Boolean = false) :
             )
         )
 
-        if (::contact.isInitialized && !BuildConfig.IS_DEMO) {
-            contactName = getContactName(this, contact)
-            updateContactHeading()
-            invalidateOptionsMenu()
-        }
+        loadContactPresentation()
 
         // Load draft message
         val messageText = findViewById<EditText>(R.id.message_edit_text)
+        val restoreDraft = !keepReviewedDraft
+        keepReviewedDraft = false
+        val beforeRestore = messageText.text.toString()
         lifecycleScope.launch(Dispatchers.Default) {
             val draftMessage =
                 Database.getInstance(applicationContext).getConversationDraft(
@@ -717,7 +809,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
             ensureActive()
 
             withContext(Dispatchers.Main) {
-                if (draftMessage != null) {
+                if (restoreDraft && draftMessage != null && messageText.text.toString() == beforeRestore) {
                     messageText.setText(draftMessage.text)
                     messageText.requestFocus()
                     messageText.setSelection(messageText.text.length)
@@ -756,6 +848,8 @@ open class ConversationActivity(val bubble: Boolean = false) :
     override fun onPause() {
         super.onPause()
 
+        if (!resumedConversation) return
+        resumedConversation = false
         // Unregister all dynamic receivers for this activity
         safeUnregisterReceiver(this, syncCompleteReceiver)
         safeUnregisterReceiver(this, sentMessageReceiver)
@@ -768,19 +862,87 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        if (privateSession && !privateDictationPending && !isChangingConfigurations) finish()
+    }
+
     @SuppressLint("DiscouragedPrivateApi")
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         // Create standard options menu
         val inflater = menuInflater
+        if (isFinishing || !::adapter.isInitialized) return false
         inflater.inflate(R.menu.conversation, menu)
+
+        val editor = findViewById<EditText>(R.id.message_edit_text)
+        val composeTools = menu.addSubMenu(R.string.tools_composer)
+        if (!BuildConfig.IS_DEMO && !PrivateThreads.isPrivate(this, conversationId)) {
+            composeTools.add(R.string.handoff_title).setOnMenuItemClickListener {
+                net.kourlas.voipms_sms.companion.CompanionDraftHandoff(this, editor, conversationId).show()
+                true
+            }
+        }
+        composeTools.add(R.string.tools_templates).setOnMenuItemClickListener { MessageActions.templates(this, did, editor); true }
+        composeTools.add(R.string.tools_translate).setOnMenuItemClickListener {
+            val original = editor.text.toString()
+            MessageActions.translation(this, original) { translated ->
+                if (editor.text.toString() == original) { editor.setText(translated); editor.setSelection(editor.length()) }
+            }
+            true
+        }
+        composeTools.add(R.string.tools_dictate).setOnMenuItemClickListener {
+            privateDictationPending = privateSession
+            dictate.launch(ConversationSpeech.dictate(this).putExtra("thread", conversationId.getId()).putExtra("private", privateSession)); true
+        }
+        composeTools.add(R.string.tools_remind).setOnMenuItemClickListener { ThreadReminders.choose(this, conversationId); true }
+        composeTools.add(R.string.tools_line_profile).setOnMenuItemClickListener { LineProfiles.edit(this, did) { invalidateOptionsMenu() }; true }
+        if (intent.hasExtra(net.kourlas.voipms_sms.tools.MessageSearch.ANCHOR)) {
+            menu.add(R.string.tools_open_thread).setOnMenuItemClickListener {
+                intent.removeExtra(net.kourlas.voipms_sms.tools.MessageSearch.ANCHOR)
+                adapter.refresh(""); invalidateOptionsMenu(); true
+            }
+        }
+        if (!BuildConfig.IS_DEMO) {
+            menu.add(R.string.outbox_schedule_action).setOnMenuItemClickListener { scheduleComposer(); true }
+            menu.add(R.string.outbox_details).setOnMenuItemClickListener { sendMessage(preview = true); true }
+            menu.add(R.string.outbox_title).setOnMenuItemClickListener {
+                OutboxUi(this) { adapter.refresh() }.show(conversationId); true
+            }
+        }
+        if (!BuildConfig.IS_DEMO) {
+            menu.add(R.string.spam_trust).setOnMenuItemClickListener {
+                val id = conversationId
+                lifecycleScope.launch {
+                    Database.getInstance(applicationContext).moveToInboxFolder(listOf(id), false)
+                    Toast.makeText(this@ConversationActivity, R.string.spam_trusted, Toast.LENGTH_SHORT).show()
+                }
+                true
+            }
+            menu.add(if (privateSession) R.string.private_unlock else R.string.private_lock).setOnMenuItemClickListener {
+                net.kourlas.voipms_sms.privacy.PrivateThreads.configure(this, conversationId)
+                true
+            }
+        }
         menu.findItem(R.id.search_button).setOnActionExpandListener(messageBack)
         menu.findItem(R.id.lookup_number).isVisible = !BuildConfig.IS_DEMO && OnlineNumberLookup.available(contact, contactName)
 
+        menu.findItem(R.id.suggest_in_share).apply {
+            isVisible = !PrivateThreads.isPrivate(this@ConversationActivity, conversationId)
+            isChecked = ShareSuggestions.enabled(this@ConversationActivity, conversationId)
+            setOnMenuItemClickListener {
+                isChecked = !isChecked
+                ShareSuggestions.setEnabled(this@ConversationActivity, conversationId, isChecked)
+                CustomApplication.getApplication().applicationScope.launch {
+                    Database.getInstance(applicationContext).updateShortcuts()
+                }
+                true
+            }
+        }
         // Replace DID menu item with DID
         val didMenuItem = menu.findItem(R.id.did_button)
         didMenuItem.title = getString(
             R.string.conversation_action_did,
-            getFormattedPhoneNumber(did)
+            LineProfiles.label(this, did)
         )
         didMenuItem.setOnMenuItemClickListener {
             val clipboard = getSystemService(
@@ -1077,6 +1239,13 @@ open class ConversationActivity(val bubble: Boolean = false) :
     override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
         val inflater = mode.menuInflater
         inflater.inflate(R.menu.conversation_secondary, menu)
+        menu.add(0, R.id.tools_message_actions, Menu.NONE, R.string.tools_message_actions)
+            .setOnMenuItemClickListener {
+                val selected = adapter.messageItems.singleOrNull { it.checked }?.message ?: return@setOnMenuItemClickListener true
+                mode.finish()
+                MessageActions.selected(this, selected)
+                true
+            }
         return true
     }
 
@@ -1120,7 +1289,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
     override fun onDestroyActionMode(mode: ActionMode) {
         // Uncheck all items
         for (i in 0 until adapter.itemCount) {
-            adapter[i].setChecked(false, i)
+            adapter[i]?.setChecked(false, i)
         }
         actionMode = null
     }
@@ -1129,34 +1298,9 @@ open class ConversationActivity(val bubble: Boolean = false) :
      * Handles the resend button.
      */
     private fun onResendButtonClick(mode: ActionMode) {
-        val account = readAccountCredentials(applicationContext)?.takeIf { it.configured } ?: return
-        // Resend all checked items.
-        val databaseIds = adapter.messageItems.filter { it.checked }
-            .map { it.message.databaseId }
+        val message = adapter.messageItems.firstOrNull { it.checked }?.message
         mode.finish()
-
-        CustomApplication.getApplication().applicationScope.launch(Dispatchers.Default) {
-            try {
-                for (databaseId in databaseIds) {
-                    Database.getInstance(applicationContext)
-                        .markMessageDeliveryInProgress(databaseId)
-                    SendMessageWorker.sendMessage(applicationContext, databaseId, account.generation)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to resend messages", e)
-                // Some rows may have changed before the exception.
-                lifecycleScope.launch(Dispatchers.Main) {
-                    adapter.refresh()
-                }
-                showErrorMessage(
-                    this@ConversationActivity,
-                    R.id.coordinator_layout,
-                    getString(R.string.conversation_send_fail)
-                )
-            }
-        }
+        if (message != null) OutboxUi(this) { adapter.refresh() }.reviewMessage(message)
     }
 
     /**
@@ -1407,42 +1551,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 getRecyclerViewContainingItem(view)
             )
             if (position != RecyclerView.NO_POSITION) {
-                val messageItem = adapter[position]
+                val messageItem = adapter[position] ?: return
                 val message = messageItem.message
-                if (!message.isDelivered && !message.isDeliveryInProgress) {
-                    val account = readAccountCredentials(applicationContext)?.takeIf { it.configured } ?: return
-                    CustomApplication.getApplication().applicationScope.launch(
-                        Dispatchers.Default
-                    ) {
-                        try {
-                            Database.getInstance(applicationContext)
-                                .markMessageDeliveryInProgress(
-                                    messageItem.message.databaseId
-                                )
-                            SendMessageWorker.sendMessage(
-                                applicationContext,
-                                messageItem.message.databaseId, account.generation
-                            )
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to resend message", e)
-                            // Some rows may have changed before the exception.
-                            lifecycleScope.launch(Dispatchers.Main) {
-                                adapter.refresh()
-                            }
-                            showErrorMessage(
-                                this@ConversationActivity,
-                                R.id.coordinator_layout,
-                                getString(R.string.conversation_send_fail)
-                            )
-                            return@launch
-                        }
-                        lifecycleScope.launch(Dispatchers.Main) {
-                            // Refresh adapter to show message being sent.
-                            adapter.refresh()
-                        }
-                    }
+                if (!message.isIncoming && !message.isDelivered) {
+                    OutboxUi(this) { adapter.refresh() }.reviewMessage(message)
                     return
                 }
             }
@@ -1500,7 +1612,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         // Inform the adapter that the item should be checked
         val position = recyclerView.getChildAdapterPosition(view)
         if (position != RecyclerView.NO_POSITION) {
-            adapter[position].toggle(position)
+            adapter[position]?.toggle(position) ?: return
         }
 
         // Turn on or off the action mode depending on how many items are
@@ -1529,6 +1641,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
             // checked and that item is in the failed to deliver state
             val resendAction = it.menu.findItem(R.id.resend_button)
             val count = adapter.getCheckedItemCount()
+            it.menu.findItem(R.id.tools_message_actions)?.isVisible = count == 1
             resendAction.isVisible = adapter.singleOrNull { item ->
                 item.checked && !item.message.isDelivered
                     && !item.message.isDeliveryInProgress

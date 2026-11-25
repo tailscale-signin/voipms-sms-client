@@ -93,9 +93,14 @@ private val directoryHttpClient = OkHttpClient.Builder()
     .build()
 
 /** Dedicated unauthenticated client for public directories. No VoIP.ms credentials or cookies are attached. */
-internal suspend fun lookupResponse(url: okhttp3.HttpUrl, accept: String): String =
+internal suspend fun lookupResponse(url: okhttp3.HttpUrl, accept: String, telnyxKey: String? = null): String =
     suspendCancellableCoroutine { continuation ->
-        val request = Request.Builder().url(url)
+        val request = Request.Builder().url(url).apply {
+            if (telnyxKey != null) {
+                require(url.isHttps && url.host == "api.telnyx.com")
+                header("Authorization", "Bearer $telnyxKey")
+            }
+        }
             .header("Accept", accept)
             .header("User-Agent", "VoIPms-SMS/${BuildConfig.VERSION_NAME} (https://github.com/tailscale-signin/voipms-sms-client)")
             .build()

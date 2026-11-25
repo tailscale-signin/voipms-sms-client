@@ -11,6 +11,12 @@ internal object VerificationCode {
     private val originBound = Regex("""@$HOST #([A-Z0-9]{4,8})(?: @$HOST)?""", RegexOption.IGNORE_CASE)
     private val digitsOnly = Regex("""[0-9]{4,8}""")
 
+    // Deletion needs an explicit authentication context. A naked number may be a price or reference.
+    private val authentication = Regex("""\b(?:verification|security|login|sign[- ]in|one[- ]time|authentication|otp|passcode|vérification|sécurité|verificação|segurança)\b""", RegexOption.IGNORE_CASE)
+
+    fun eligibleForRetention(text: String) = (authentication.containsMatchIn(text) ||
+        originBound.matchEntire(text.trim().substringAfterLast('\n')) != null) && extract(text) != null
+
     fun extract(text: String): String? {
         val trimmed = text.trim()
         if (digitsOnly.matches(trimmed)) return trimmed

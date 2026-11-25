@@ -42,8 +42,8 @@ configure<ApplicationExtension> {
         applicationId = "net.kourlas.voipms_sms"
         minSdk = 24
         targetSdk = 36
-        versionCode = 157
-        versionName = "0.7.2"
+        versionCode = 158
+        versionName = "0.8.0"
     }
     flavorDimensions += "version"
     flavorDimensions += "demo"
@@ -177,6 +177,7 @@ dependencies {
     // fdroid-remove-start
 
     // Google and Firebase libraries
+    "primaryImplementation"(libs.mlkit.translate)
     "primaryImplementation"(libs.google.gms.playServicesBase)
     "primaryImplementation"(platform(libs.google.firebase.bom))
     "primaryImplementation"(libs.google.firebase.messaging)
@@ -185,10 +186,12 @@ dependencies {
     // fdroid-remove-end
 
     // Other third-party libraries
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     implementation(libs.google.phone.geocoder)
     implementation(libs.moshi.adapters)
     implementation(libs.moshi)
     implementation(libs.okhttp)
+    implementation("org.unifiedpush.android:connector:3.0.10")
     implementation(libs.mukeshsolanki.markdownView)
     implementation(libs.xabaras.recyclerViewSwipeDecorator)
     implementation(libs.saket.betterLinkMovementMethod)

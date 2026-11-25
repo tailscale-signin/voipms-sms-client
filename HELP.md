@@ -3,6 +3,7 @@
 * [Account](#account)
 * [Phone numbers](#phone-numbers)
 * [Unknown numbers](#unknown-numbers)
+* [Private threads](#private-threads)
 * [Appearance](#appearance)
 * [Notifications](#notifications)
 * [Synchronization](#synchronization)
@@ -35,9 +36,15 @@ Saved contacts appear by name. For unknown numbers, the app shows the assigned a
 
 ## Inbox and verification codes
 
-**Main** contains ordinary conversations. **Other** collects suspected junk using local message patterns. Long-press one or more conversations and use **Move to Main** or **Move to Other** in the overflow menu to remember your choice. The archive remains available separately.
+**Home** opens the call timeline. **Messages** shows your conversations. **Other** collects suspected junk using local message patterns. Long-press a conversation and choose **Move to Messages** or **Move to Other** to remember your choice. Archived conversations are available in the inbox menu.
+
+To hide one conversation from Android sharing suggestions, open it and turn off **Suggest in Direct Share** in its menu. Other conversations with the same contact on a different line keep their own settings.
 
 Open a message with a verification code and tap **Copy code** to copy the code, including leading zeros. Android marks the clipboard entry as sensitive.
+
+## Private threads
+
+Open a conversation and choose **Make thread private**. On the **Messages** tab, scroll to the very top and pull down past the usual refresh distance until the phone vibrates. Release, then unlock with your device credential. Repeat the long pull or choose **Return to messages** to leave. A shorter pull still refreshes messages. The overflow menu also offers **Private threads**. Switching tabs or leaving the app closes the private inbox.
 
 ## Appearance
 
@@ -60,6 +67,12 @@ Direct listening and scheduled recovery also work on devices without Google Play
 ### Check delivery on your phone
 
 Send an SMS from a different phone to a selected number with the app in the background and the screen locked. Open the alert and check that the conversation contains one copy. For a recovery check, take the phone offline, send another SMS, reconnect, and check that it arrives. The Push registration status confirms callback setup. Receiving the test message confirms the entire route.
+
+## Outbox and scheduled sending
+
+The inbox menu shows pending sends across your active account. A conversation’s **Outbox** shows its own sends. Hold **Send** or choose **Schedule message** to pick a local date and time. The app keeps that instant if you travel. After a restart or an offline period, Android sends due messages once it can run a connected worker. Tap a queued entry to change its text and time or cancel it. **Undo** cancels an immediate send during its eight-second hold.
+
+**Send details** shows the sending line, recipient, actual transport, SMS parts or MMS attachment bytes. For long texts, you can choose a single text-only MMS or separate SMS parts. If you have confirmed your account rate, enter the USD price per part for this route and transport. An estimate excludes fees and taxes. **Accepted by VoIP.ms** identifies a provider acknowledgement. If an acknowledgement is lost, open **Outbox → Check provider history**. Review possible matches, or explicitly authorize a second attempt after checking. Restoring a database preserves messages and discards its pending send authorizations.
 
 ## Synchronization
 
@@ -99,6 +112,10 @@ This option imports the database from a specified file. The database must be in 
 
 This option exports the database to a specified file. This allows you to make backups of the database in case you delete messages from the VoIP.ms servers or simply want to avoid re-downloading them all from the servers after resetting your phone.
 
+### Encrypted portable backup
+
+Choose **Encrypted portable backup** and enter the same passphrase twice. Keep the passphrase to unlock the file on another phone. **Restore portable backup** checks the whole file and shows message counts before you choose which threads to merge. Private threads and unsent jobs stay on this device. Local outgoing attachments travel inside the file, and provider media links keep their original addresses.
+
 ### Clean up database
 
 This option allows you to remove certain data from the database that might be considered outdated or no longer useful, such as:
@@ -112,3 +129,9 @@ This option deletes the entire database.
 ## Reporting bugs
 
 Use the [fork’s issue tracker](https://github.com/tailscale-signin/voipms-sms-client/issues). For delivery issues, include the app version, build flavor, Android version, Live delivery status, and whether the missing message appears in the VoIP.ms Message Center. Omit numbers, credentials, and message content.
+
+## Calls, voicemail and browser access
+
+**Home** lists missed calls and voicemails by the time VoIP.ms received them. A new event can post an Android notification after a provider check. The first successful check seeds older events quietly. **Messages** contains conversations, and **Other** contains suspected junk. A voicemail received on an identifiable line also appears at its original time in the caller’s conversation. Play, pause, and stop work in either view. The app uses the mailbox timezone when supplied. A mailbox assigned to multiple enabled lines appears in Home as shared. Select **Text back** for a known line and number to open the composer. Background notification timing depends on Android scheduling, the configured sync interval, connectivity, and the provider making its call records available.
+
+For Windows and shared work numbers, run the [browser companion](companion/README.md) on your own computer or server. Open **Settings → Browser companion** on Android to access your HTTPS instance. Configure device access, line permissions, and excluded contacts on that server.

@@ -19,7 +19,10 @@ dependencyResolutionManagement {
         mavenCentral()
         exclusiveContent {
             forRepository { maven(url = "https://jitpack.io") }
-            filter { includeModule("com.github.mukeshsolanki", "MarkdownView-Android") }
+            filter {
+                includeModule("com.github.mukeshsolanki", "MarkdownView-Android")
+                includeModule("cz.adaptech.tesseract4android", "tesseract4android")
+            }
         }
     }
 }

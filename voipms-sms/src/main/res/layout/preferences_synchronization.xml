@@ -43,6 +43,8 @@
 
         <FrameLayout
             android:id="@+id/preferences_fragment_layout"
+        android:paddingStart="@dimen/settings_gutter"
+        android:paddingEnd="@dimen/settings_gutter"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 

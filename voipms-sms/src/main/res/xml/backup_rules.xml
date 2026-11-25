@@ -3,4 +3,5 @@
     <exclude domain="sharedpref" path="net.kourlas.voipms_sms_encrypted.xml" />
     <exclude domain="sharedpref" path="net.kourlas.voipms_sms.demo_encrypted.xml" />
     <exclude domain="sharedpref" path="SecurePreferences.xml" />
+    <exclude domain="sharedpref" path="line_delivery.xml" />
 </full-backup-content>

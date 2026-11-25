@@ -4,10 +4,12 @@
         <exclude domain="sharedpref" path="net.kourlas.voipms_sms_encrypted.xml" />
         <exclude domain="sharedpref" path="net.kourlas.voipms_sms.demo_encrypted.xml" />
         <exclude domain="sharedpref" path="SecurePreferences.xml" />
+        <exclude domain="sharedpref" path="line_delivery.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="net.kourlas.voipms_sms_encrypted.xml" />
         <exclude domain="sharedpref" path="net.kourlas.voipms_sms.demo_encrypted.xml" />
         <exclude domain="sharedpref" path="SecurePreferences.xml" />
+        <exclude domain="sharedpref" path="line_delivery.xml" />
     </device-transfer>
 </data-extraction-rules>

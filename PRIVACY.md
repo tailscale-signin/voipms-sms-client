@@ -46,7 +46,15 @@ Opening the inbox or receiving a message does not send numbers to any lookup pro
 * Choosing Truecaller copies the selected number to the Android clipboard and opens its official search page. You choose whether to paste and submit it in the browser. [Truecaller privacy policy](https://www.truecaller.com/privacy-policy)
 * Choosing ShadyCall sends the number to its US reputation service. Its reports are shown on request. [ShadyCall privacy policy](https://shadycall.com/privacy)
 
+* Telnyx receives the full number and the Telnyx API key you enter when you confirm a paid carrier or caller-identity lookup. Canadian data depends on account access. The lookup result shows the provider and time. For caller identity, the app displays the returned name and confidence. It discards any postal address. The key and results stay in memory for the request and current session, respectively.
+
 Spam classification and code detection run on the device. Manual folder choices are stored with your conversations. Tapping **Copy code** places the selected code on the Android clipboard with the sensitive flag.
+
+Notification masking replaces detected verification codes with a generic message. Optional retention removes older, clearly marked verification messages from this device. Provider history and previously exported files have independent retention.
+
+Private threads require a device credential to open. The app hides these threads from regular inbox searches, message notifications, sharing shortcuts and portable backups. The legacy SQLite export requires device authentication when the app has private threads and includes them in the resulting database.
+
+Portable backups encrypt message history and locally stored outgoing attachments with your passphrase. A preview lets you select conversations to merge. Remote attachment references remain links to the original provider. API keys, pending send jobs and private threads stay out of the portable archive.
 
 A selected custom font stays on the device.
 

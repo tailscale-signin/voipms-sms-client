@@ -10,7 +10,7 @@ function canonicalDid(value) {
 
 export function readConfig(env) {
   const project = env.FIREBASE_PROJECT_ID ?? '';
-  if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project)) {
+  if (project && !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project)) {
     throw new Error('Set FIREBASE_PROJECT_ID to the Android app Firebase project ID.');
   }
   const numbers = (env.ALLOWED_DIDS ?? '').split(',').map(did => canonicalDid(did.trim()));
@@ -21,7 +21,21 @@ export function readConfig(env) {
   if (token && !/^[A-Za-z0-9_-]{32,128}$/.test(token)) {
     throw new Error('CALLBACK_TOKEN must contain 32 to 128 URL-safe characters.');
   }
-  return { project, allowed: new Set(numbers), path: Buffer.from('/' + token) };
+  const endpoints = JSON.parse(env.UNIFIEDPUSH_SUBSCRIPTIONS || '{}');
+  if (!endpoints || typeof endpoints !== 'object' || Array.isArray(endpoints)) throw new Error('Invalid subscription map');
+  for (const [did, subscriptions] of Object.entries(endpoints)) {
+    if (!numbers.includes(did) || !Array.isArray(subscriptions) || !subscriptions.length) throw new Error('Invalid subscription line');
+    for (const sub of subscriptions) {
+      const url = new URL(sub.endpoint);
+      if (url.protocol !== 'https:' || url.username || url.password || url.hash ||
+          !/^[A-Za-z0-9_-]{87}$/.test(sub.keys?.p256dh ?? '') || !/^[A-Za-z0-9_-]{22}$/.test(sub.keys?.auth ?? '')) {
+        throw new Error('Invalid Web Push subscription');
+      }
+    }
+  }
+  if (!project && numbers.some(did => !endpoints[did])) throw new Error('Configure a push transport for every line');
+  return { project, endpoints, allowed: new Set(numbers), path: Buffer.from('/' + token) };
+
 }
 
 export function createSender(project, fetchRequest = fetch) {
@@ -50,7 +64,7 @@ export function createSender(project, fetchRequest = fetch) {
     return pending;
   }
 
-  return async function send(did) {
+  return async function send(did, callbackTime) {
     const token = await accessToken();
     const response = await fetchRequest(messageEndpoint, {
       method: 'POST',
@@ -58,7 +72,7 @@ export function createSender(project, fetchRequest = fetch) {
       signal: AbortSignal.timeout(8000),
       headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: { topic: 'did-' + did, android: { priority: 'HIGH' }, data: { event: 'sync' } },
+        message: { topic: 'did-' + did, android: { priority: 'HIGH' }, data: { event: 'sync', ...(callbackTime ? { callbackTime: String(callbackTime) } : {}) } },
       }),
     });
     if (!response.ok) {
@@ -73,7 +87,22 @@ export function createSender(project, fetchRequest = fetch) {
   };
 }
 
-export function createRelay(config, send = createSender(config.project)) {
+export function createRouter(config, firebaseSend = createSender(config.project), webSend = sendWebPush) {
+  return async (did, timestamp) => {
+    const deliveries = (config.endpoints?.[did] ?? []).map(subscription => webSend(subscription, timestamp));
+    if (config.project) deliveries.push(firebaseSend(did, timestamp));
+    if (!deliveries.length) throw new Error('No delivery route');
+    await Promise.all(deliveries);
+  };
+}
+
+async function sendWebPush(subscription, timestamp) {
+  const { default: webPush } = await import('web-push');
+  await webPush.sendNotification(subscription, JSON.stringify({ event: 'sync', callbackTime: timestamp }),
+    { TTL: 300, urgency: 'high', timeout: 8000 });
+}
+
+export function createRelay(config, send = createRouter(config)) {
   return createServer(async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -101,7 +130,7 @@ export function createRelay(config, send = createSender(config.project)) {
       return;
     }
     try {
-      await send(did);
+      await send(did, Date.now());
       response.writeHead(200).end('ok');
     } catch {
       response.writeHead(503).end();

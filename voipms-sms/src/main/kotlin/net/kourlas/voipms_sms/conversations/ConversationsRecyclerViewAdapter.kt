@@ -83,14 +83,32 @@ class ConversationsRecyclerViewAdapter<T>(
 
     private var currConstraint = ""
     private var requestedConstraint = ""
+    private var privateView = false
     private var showOther = false
+
+    fun switchPrivateView(open: Boolean) {
+        if (open == privateView) return
+        refreshJob?.cancel()
+        privateView = open
+        // No private row can remain visible during the next database read or an item removal animation.
+        recyclerView.itemAnimator?.endAnimations()
+        loadedRows = emptyList()
+        _conversationItems.clear()
+        notifyDataSetChanged()
+        refresh("")
+    }
     private var refreshJob: Job? = null
     private val loader = Dispatchers.IO.limitedParallelism(1)
     private var loadedRows: List<InboxRow> = emptyList()
 
     // Caches
     private val contactNameCache = mutableMapOf<String, String>()
-    private val contactBitmapCache = mutableMapOf<String, Bitmap>()
+    // Keep photos only for recently visited rows; a large inbox need not allocate an avatar per thread.
+    private val avatarLoader = Dispatchers.IO.limitedParallelism(2)
+    private val avatarSize = activity.resources.getDimensionPixelSize(R.dimen.contact_badge)
+    private val avatars = object : android.util.LruCache<Pair<String, String?>, Bitmap>(3 * 1024 * 1024) {
+        override fun sizeOf(key: Pair<String, String?>, value: Bitmap) = value.allocationByteCount
+    }
 
     override fun onCreateViewHolder(
         parent: ViewGroup,
@@ -100,6 +118,7 @@ class ConversationsRecyclerViewAdapter<T>(
         val itemView = LayoutInflater.from(parent.context)
             .inflate(R.layout.conversations_item, parent, false)
         itemView.clipToOutline = true
+        androidx.core.view.ViewCompat.setScreenReaderFocusable(itemView, true)
         return ConversationViewHolder(itemView)
     }
 
@@ -128,13 +147,36 @@ class ConversationsRecyclerViewAdapter<T>(
         val conversationItem = conversationItems[position]
         val message = conversationItem.message
 
+        holder.unreadDot.visibility = if (message.isUnread) View.VISIBLE else View.GONE
+        holder.itemView.isActivated = conversationItem.checked
+        androidx.core.view.ViewCompat.setStateDescription(holder.itemView, when {
+            conversationItem.checked -> activity.getString(R.string.thread_state_selected)
+            message.isUnread -> activity.getString(R.string.thread_state_unread)
+            else -> null
+        })
         holder.viewSwitcher.displayedChild =
             if (conversationItem.checked) 1 else 0
         if (!conversationItem.checked) {
             holder.contactBadge.assignContactFromPhone(message.contact, true)
-            holder.contactBadge.setImageBitmap(
-                conversationItem.contactBitmap
-            )
+            val name = conversationItem.contactName
+            val key = message.contact to name
+            if (holder.avatarKey != key) {
+                holder.avatarJob?.cancel()
+                holder.avatarKey = key
+                val cached = avatars.get(key)
+                if (cached != null) {
+                    holder.contactBadge.setImageBitmap(cached)
+                } else {
+                    holder.contactBadge.setImageResource(R.drawable.ic_account_box_settings_24dp)
+                    holder.avatarJob = activity.lifecycleScope.launch {
+                        val bitmap = withContext(avatarLoader) {
+                            getContactPhotoBitmap(activity.applicationContext, name, message.contact, avatarSize)
+                        }
+                        avatars.put(key, bitmap)
+                        if (holder.avatarKey == key) holder.contactBadge.setImageBitmap(bitmap)
+                    }
+                }
+            }
         }
     }
 
@@ -192,8 +234,14 @@ class ConversationsRecyclerViewAdapter<T>(
         holder.contactTextView.text = contactTextBuilder
         val detail = label?.let { OnlineNumberLookup.description(activity, it) }
             ?: conversationItem.row.region?.let { activity.getString(R.string.lookup_offline_region, it) }
-        holder.senderRegion.text = detail
-        holder.senderRegion.visibility = if (detail == null) View.GONE else View.VISIBLE
+        val line = net.kourlas.voipms_sms.tools.LineProfiles.name(activity, message.did)
+        val lineDetails = SpannableStringBuilder(listOfNotNull(detail, line).joinToString(" · "))
+        if (line != null) {
+            val accent = net.kourlas.voipms_sms.tools.LineProfiles.accent(activity, message.did, holder.senderRegion.currentTextColor)
+            lineDetails.setSpan(ForegroundColorSpan(accent), lineDetails.length - line.length, lineDetails.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        holder.senderRegion.text = lineDetails
+        holder.senderRegion.visibility = if (lineDetails.isBlank()) View.GONE else View.VISIBLE
 
         // Mark text as bold if unread
         ChatFont.setInboxWeight(holder.contactTextView, message.isUnread)
@@ -311,7 +359,7 @@ class ConversationsRecyclerViewAdapter<T>(
             )
         }
 
-        holder.messageTextView.text = messageTextBuilder
+        holder.messageTextView.text = conversationItem.row.reason?.let { "$it · $messageTextBuilder" } ?: messageTextBuilder
 
         // Mark text as bold and supporting additional lines if unread
         ChatFont.setInboxWeight(holder.messageTextView, message.isUnread)
@@ -408,7 +456,8 @@ class ConversationsRecyclerViewAdapter<T>(
         refreshJob?.cancel()
         refreshJob = activity.lifecycleScope.launch {
             try {
-                val rows = withContext(loader) { loadRows(dids, query) }
+                val vault = privateView
+                val rows = withContext(loader) { loadRows(dids, query, vault) }
                 loadedRows = rows
                 val searchChanged = currConstraint != query
                 currConstraint = query
@@ -422,24 +471,42 @@ class ConversationsRecyclerViewAdapter<T>(
         }
     }
 
-    private suspend fun loadRows(dids: Set<String>, query: String): List<InboxRow> {
+    override fun onViewRecycled(holder: ConversationViewHolder) {
+        holder.avatarJob?.cancel()
+        holder.avatarJob = null
+        holder.avatarKey = null
+        holder.contactBadge.setImageDrawable(null)
+        super.onViewRecycled(holder)
+    }
+
+    private suspend fun loadRows(dids: Set<String>, query: String, vault: Boolean): List<InboxRow> {
         val previews = if (BuildConfig.IS_DEMO) {
             getConversationsDemoMessages().map { Database.InboxPreview(it, null, it.text, it.isOutgoing) }
         } else {
-            Database.getInstance(activity).inboxPreviews(
-                dids, query.lowercase(Locale.getDefault()), activity is ConversationsArchivedActivity, contactNameCache
-            )
+            val db = Database.getInstance(activity)
+            val filter = query.lowercase(Locale.getDefault())
+            val regular = db.inboxPreviews(dids, filter, activity is ConversationsArchivedActivity, contactNameCache)
+            if (vault) (regular + db.inboxPreviews(dids, filter, true, contactNameCache)).sortedByDescending { it.message.date }
+            else regular
         }
-        val size = activity.resources.getDimensionPixelSize(R.dimen.contact_badge)
         val locale = activity.resources.configuration.locales[0]
-        return previews.map { preview ->
+        val phrases = net.kourlas.voipms_sms.privacy.SpamReview.phrases(activity)
+        return previews.filterNot {
+            net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(activity, it.message.conversationId) != vault ||
+                (!vault && net.kourlas.voipms_sms.tools.ThreadReminders.hidden(activity, it.message.conversationId))
+        }.map { preview ->
             val message = preview.message
             val contact = message.contact
             val name = if (BuildConfig.IS_DEMO) net.kourlas.voipms_sms.demo.getContactName(contact)
                        else getContactName(activity, contact, contactNameCache)
-            val other = preview.otherFolder ?: InboxRules.suspectedJunk(preview.latestIncoming, preview.hasReply, name != null)
+            val reason = when (preview.otherFolder) {
+                true -> activity.getString(R.string.spam_manual)
+                false -> null
+                null -> InboxRules.reason(preview.latestIncoming, preview.hasReply, name != null, phrases)
+            }
+            val other = reason != null
             val region = if (name == null) NumberOrigin.offline(contact, locale) else null
-            InboxRow(message, name, getContactPhotoBitmap(activity, name, contact, size, contactBitmapCache), region, other)
+            InboxRow(message, name, region, other, reason)
         }
     }
 
@@ -452,7 +519,7 @@ class ConversationsRecyclerViewAdapter<T>(
 
     private fun publishRows(searchChanged: Boolean) {
         val archived = activity is ConversationsArchivedActivity
-        val rows = if (archived) loadedRows else loadedRows.filter { it.other == showOther }
+        val rows = if (archived || privateView) loadedRows else loadedRows.filter { it.other == showOther }
         val old = _conversationItems.toList()
         val selected = old.filter { it.checked }.mapTo(mutableSetOf()) { it.message.conversationId }
         val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
@@ -466,6 +533,7 @@ class ConversationsRecyclerViewAdapter<T>(
         diff.dispatchUpdatesTo(this)
         activity.findViewById<TextView>(R.id.empty_text).text = when {
             rows.isNotEmpty() -> ""
+            privateView -> activity.getString(R.string.private_empty)
             currConstraint.isNotEmpty() -> activity.getString(R.string.conversations_no_results, currConstraint)
             !archived && showOther -> activity.getString(R.string.inbox_other_empty)
             getDids(activity, onlyShowInConversationsView = true).isEmpty() -> activity.getString(R.string.conversations_no_dids)
@@ -475,13 +543,12 @@ class ConversationsRecyclerViewAdapter<T>(
     }
 
     internal data class InboxRow(
-        val message: Message, val name: String?, val bitmap: Bitmap, val region: String?, val other: Boolean
+        val message: Message, val name: String?, val region: String?, val other: Boolean, val reason: String? = null
     )
 
     inner class ConversationItem internal constructor(internal val row: InboxRow, initiallyChecked: Boolean) {
         val message get() = row.message
         val contactName get() = row.name
-        val contactBitmap get() = row.bitmap
         private var _checked = initiallyChecked
         val checked: Boolean
             get() = _checked
@@ -524,6 +591,10 @@ class ConversationsRecyclerViewAdapter<T>(
      */
     inner class ConversationViewHolder internal constructor(itemView: View) :
         RecyclerView.ViewHolder(itemView) {
+        internal val unreadDot: View = itemView.findViewById(R.id.unread_dot)
+        internal var avatarJob: Job? = null
+        internal var avatarKey: Pair<String, String?>? = null
+
         // All configurable views on a message item
         internal val viewSwitcher: ViewSwitcher =
             itemView.findViewById(R.id.view_switcher)

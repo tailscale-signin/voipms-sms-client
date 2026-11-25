@@ -28,6 +28,7 @@ import java.util.Date
     tableName = Sms.TABLE_NAME,
     indices = [
         Index(value = [Sms.COLUMN_DID, Sms.COLUMN_VOIP_ID]),
+        Index(name = "index_sms_search_date", value = [Sms.COLUMN_DID, Sms.COLUMN_DATE, Sms.COLUMN_DATABASE_ID]),
         Index(name = "index_sms_inbox", value = [Sms.COLUMN_DID, Sms.COLUMN_CONTACT,
             Sms.COLUMN_DELIVERY_IN_PROGRESS, Sms.COLUMN_DATE, Sms.COLUMN_VOIP_ID, Sms.COLUMN_DATABASE_ID])
     ]
@@ -49,7 +50,8 @@ data class Sms(
     val media1: String = "",
     @ColumnInfo(name = COLUMN_MEDIA2, defaultValue = "")
     val media2: String = "",
-    @ColumnInfo(name = COLUMN_MEDIA3, defaultValue = "") val media3: String = ""
+    @ColumnInfo(name = COLUMN_MEDIA3, defaultValue = "") val media3: String = "",
+    @ColumnInfo(name = "MediaJson", defaultValue = "") val mediaJson: String = ""
 ) {
     fun toMessage(): Message = Message(this)
 

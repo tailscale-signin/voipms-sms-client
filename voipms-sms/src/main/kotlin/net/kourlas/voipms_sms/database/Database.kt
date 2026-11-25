@@ -37,6 +37,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import net.kourlas.voipms_sms.preferences.ShareSuggestions
+import net.kourlas.voipms_sms.privacy.PrivateThreads
+import net.kourlas.voipms_sms.tools.LineProfiles
+import net.kourlas.voipms_sms.sms.InboxRules
+import net.kourlas.voipms_sms.sms.VerificationCode
 import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.R
@@ -70,6 +76,9 @@ private const val TAG = "Database"
 class Database private constructor(private val context: Context) {
     private val importExportLock = CoroutineReadWriteLock(readers = 100)
     private var database = createDatabase(context)
+
+    internal suspend fun <T> outboxTransaction(action: suspend AbstractDatabase.() -> T): T =
+        importExportLock.read { database.withTransaction { database.action() } }
 
     /**
      * Deletes the message with the specified DID, database ID, and optionally
@@ -241,7 +250,7 @@ class Database private constructor(private val context: Context) {
         itemLimit: Long?
     ): List<Message> =
         importExportLock.read {
-            if (itemLimit != null) {
+            val rows = if (itemLimit != null) {
                 database.smsDao().getConversationMessagesFilteredWithLimit(
                     conversationId.did, conversationId.contact,
                     filterConstraint, itemLimit
@@ -253,7 +262,13 @@ class Database private constructor(private val context: Context) {
                         conversationId.contact,
                         filterConstraint
                     )
-            }.map { it.toMessage() }
+            }
+            val queued = if (rows.any { it.incoming == 0L && it.delivered == 0L })
+                database.outboxDao().forMessages(conversationId.did, conversationId.contact).associateBy { it.messageId }
+                else emptyMap()
+            rows.map { row -> row.toMessage().apply {
+                queued[row.databaseId]?.let { outboxState = it.state; outboxDueAt = it.dueAt }
+            } }
         }
 
     /**
@@ -337,6 +352,83 @@ class Database private constructor(private val context: Context) {
     /**
      * Gets all DIDs used in the database.
      */
+    internal suspend fun readPortableThreads(visit: (ConversationId, List<Sms>) -> Unit) =
+        importExportLock.read {
+            database.withTransaction {
+                val dao = database.smsDao()
+                val lines = dao.getDids().toSet()
+                for (id in dao.getConversationIds(lines)) {
+                    if (!net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, id)) {
+                        visit(id, dao.getConversationMessagesUnsorted(id.did, id.contact))
+                    }
+                }
+            }
+        }
+
+    internal suspend fun restorePortableThreads(preview: net.kourlas.voipms_sms.privacy.PortableBackup.Preview,
+                                               selection: Set<ConversationId>): Int = importExportLock.write {
+        val created = mutableListOf<File>()
+        var added = 0
+        try {
+            java.util.zip.ZipFile(preview.zip).use { zip ->
+                database.withTransaction {
+                    val dao = database.smsDao()
+                    val installed = mutableSetOf<String>()
+                    for (id in selection) {
+                        require(id in preview.counts && !net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, id))
+                        val rows = mutableListOf<Sms>()
+                        net.kourlas.voipms_sms.privacy.PortableBackup.rows(zip, id, rows::add)
+                        // Match repeated local-only records by multiplicity when merging the same backup again.
+                        fun fingerprint(row: Sms) = row.copy(databaseId = 0, unread = 0, deliveryInProgress = 0,
+                            media1 = "", media2 = "", media3 = "", mediaJson = net.kourlas.voipms_sms.media.AttachmentList.encode(net.kourlas.voipms_sms.privacy.PortableBackup.attachments(row)))
+                        val existing = dao.getConversationMessagesUnsorted(id.did, id.contact).filter { it.voipId == null }
+                            .groupingBy(::fingerprint).eachCount().toMutableMap()
+                        for (row in rows) {
+                            val providerId = row.voipId
+                            if (providerId != null && (dao.getIdByVoipId(id.did, providerId) != null ||
+                                database.deletedDao().get(id.did, providerId) != null)) continue
+                            if (providerId == null) {
+                                val key = fingerprint(row)
+                                val count = existing.getOrDefault(key, 0)
+                                if (count > 0) { existing[key] = count - 1; continue }
+                            }
+                            for (ref in net.kourlas.voipms_sms.privacy.PortableBackup.attachments(row)) {
+                                if (ref.startsWith("mms-local:") && installed.add(ref)) {
+                                    net.kourlas.voipms_sms.privacy.PortableBackup.installMedia(
+                                        context, zip, ref.removePrefix("mms-local:"))?.let(created::add)
+                                }
+                            }
+                            dao.insert(row)
+                            added++
+                        }
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            created.forEach { it.delete() }
+            throw e
+        }
+        added
+    }
+
+    internal suspend fun purgeExpiredCodes(cutoff: Long) = importExportLock.read {
+        var after = 0L
+        while (true) {
+            val page = database.smsDao().codeRetentionCandidates(cutoff, after)
+            if (page.isEmpty()) break
+            database.withTransaction {
+                for (row in page) {
+                    if (net.kourlas.voipms_sms.privacy.PortableBackup.attachments(row).isEmpty() &&
+                        net.kourlas.voipms_sms.sms.VerificationCode.eligibleForRetention(row.text)) {
+                        row.voipId?.let { insertVoipIdDeleted(row.did, it) }
+                        database.smsDao().deleteById(row.databaseId)
+                    }
+                }
+            }
+            after = page.last().databaseId
+        }
+    }
+
     suspend fun getDids(): Set<String> =
         importExportLock.read {
             database.smsDao().getDids().toSet()
@@ -347,6 +439,49 @@ class Database private constructor(private val context: Context) {
      *
      * @return Null if the message does not exist.
      */
+    internal suspend fun searchMessages(query: androidx.sqlite.db.SupportSQLiteQuery) =
+        importExportLock.read { database.messageSearchDao().search(query) }
+
+    suspend fun setSearchOcr(databaseId: Long, text: String, expectedMedia: List<String>? = null) = withContext(Dispatchers.IO) {
+        importExportLock.read {
+            database.withTransaction {
+                val msg = database.messageSearchDao().search(androidx.sqlite.db.SimpleSQLiteQuery(
+                    "SELECT * FROM sms WHERE DatabaseId=?", arrayOf(databaseId))).firstOrNull()
+                if (msg == null || (expectedMedia != null && msg.toMessage().medias != expectedMedia) ||
+                    net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, ConversationId(msg.did, msg.contact))) {
+                    false
+                } else {
+                    database.openHelper.writableDatabase.execSQL(
+                        "UPDATE message_search SET ocr=? WHERE rowid=?", arrayOf<Any>(text, databaseId))
+                    true
+                }
+            }
+        }
+    }
+
+    internal suspend fun clearSearchOcr(id: ConversationId) = withContext(Dispatchers.IO) {
+        importExportLock.read {
+            database.openHelper.writableDatabase.execSQL(
+                "UPDATE message_search SET ocr='' WHERE rowid IN (SELECT DatabaseId FROM sms WHERE Did=? AND Contact=?)",
+                arrayOf(id.did, id.contact))
+        }
+    }
+
+    internal suspend fun messagesAtAnchor(id: ConversationId, databaseId: Long): List<Message> = importExportLock.read {
+        val dao = database.messageSearchDao()
+        val anchor = dao.search(androidx.sqlite.db.SimpleSQLiteQuery(
+            "SELECT * FROM sms WHERE Did=? AND Contact=? AND DatabaseId=?",
+            arrayOf<Any>(id.did, id.contact, databaseId))).firstOrNull() ?: return@read emptyList()
+        val bindings: Array<Any> = arrayOf(id.did, id.contact, anchor.date, anchor.date, databaseId)
+        val preceding = dao.search(androidx.sqlite.db.SimpleSQLiteQuery(
+            "SELECT * FROM sms WHERE Did=? AND Contact=? AND (Date<? OR (Date=? AND DatabaseId<?)) ORDER BY Date DESC,DatabaseId DESC LIMIT 25",
+            bindings))
+        val following = dao.search(androidx.sqlite.db.SimpleSQLiteQuery(
+            "SELECT * FROM sms WHERE Did=? AND Contact=? AND (Date>? OR (Date=? AND DatabaseId>?)) ORDER BY Date,DatabaseId LIMIT 25",
+            bindings))
+        (preceding.asReversed() + anchor + following).map { it.toMessage() }
+    }
+
     suspend fun getMessageDatabaseId(databaseId: Long): Message? =
         importExportLock.read {
             database.smsDao().getById(databaseId)?.toMessage()
@@ -393,6 +528,11 @@ class Database private constructor(private val context: Context) {
                     // here, so that the migration and the schema check run
                     // while the backup still exists.
                     database.openHelper.writableDatabase
+                    // Restoring someone else's backup never authorizes its future transmissions.
+                    database.withTransaction {
+                        database.outboxDao().clear()
+                        database.smsDao().resetUntrackedSends()
+                    }
                 } catch (e: Exception) {
                     database.close()
                     context.deleteDatabase(DATABASE_NAME)
@@ -457,7 +597,9 @@ class Database private constructor(private val context: Context) {
      */
     suspend fun insertConversationMessagesDeliveryInProgress(
         conversationId: ConversationId,
-        texts: List<String>
+        texts: List<String>,
+        media: List<String> = emptyList(),
+        outbox: net.kourlas.voipms_sms.database.entities.OutboxPart? = null
     ): List<Long> = coroutineScope {
         val messages = importExportLock.read {
             val smses = texts.map {
@@ -465,6 +607,7 @@ class Database private constructor(private val context: Context) {
                     did = conversationId.did,
                     contact = conversationId.contact,
                     text = it,
+                    mediaJson = net.kourlas.voipms_sms.media.AttachmentList.encode(media),
                     deliveryInProgress = 1
                 )
             }
@@ -473,6 +616,7 @@ class Database private constructor(private val context: Context) {
                     // No need to take the insertion lock, since there is no
                     // chance these messages already exist in the database.
                     val databaseId = database.smsDao().insert(it)
+                    if (outbox != null) database.outboxDao().add(outbox.copy(messageId = databaseId))
                     it.toMessage(databaseId)
                 }
             }
@@ -507,6 +651,7 @@ class Database private constructor(private val context: Context) {
                             media1 = message.media1,
                             media2 = message.media2,
                             media3 = message.media3,
+                            mediaJson = net.kourlas.voipms_sms.media.AttachmentList.encode(message.medias),
                         )
 
                         // Don't add the message if it already exists in our
@@ -572,6 +717,10 @@ class Database private constructor(private val context: Context) {
                             incomingMessage.did, incomingMessage.voipId
                         )
                         if (databaseId != null) {
+                            if (incomingMessage.medias.isNotEmpty()) {
+                                database.smsDao().updateAttachments(databaseId,
+                                    net.kourlas.voipms_sms.media.AttachmentList.encode(incomingMessage.medias))
+                            }
                             continue
                         }
 
@@ -586,6 +735,7 @@ class Database private constructor(private val context: Context) {
                             media1 = incomingMessage.media1 ?: "",
                             media2 = incomingMessage.media2 ?: "",
                             media3 = incomingMessage.media3 ?: "",
+                            mediaJson = net.kourlas.voipms_sms.media.AttachmentList.encode(incomingMessage.medias),
                             unread = if (incomingMessage.isIncoming)
                                 1L else 0L,
                             delivered = 1L,
@@ -623,6 +773,9 @@ class Database private constructor(private val context: Context) {
             }
 
             launch {
+                addedMessages.filter { it.isIncoming }.forEach {
+                    net.kourlas.voipms_sms.tools.ThreadReminders.inbound(context, it.conversationId, it.date.time / 1000)
+                }
                 if (addedMessages.isNotEmpty()) {
                     updateShortcuts()
                 }
@@ -782,126 +935,76 @@ class Database private constructor(private val context: Context) {
     /**
      * Update the app shortcuts.
      */
+    private val shortcutLock = kotlinx.coroutines.sync.Mutex()
+
     suspend fun updateShortcuts() = withContext(Dispatchers.IO) {
-        importExportLock.read {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-                // There is one static shortcut, which reduces the number of
-                // dynamic shortcut slots available.
-                val maxCount =
-                    ShortcutManagerCompat.getMaxShortcutCountPerActivity(
-                        context
-                    ) - 1
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return@withContext
+        shortcutLock.withLock {
+            val dids = net.kourlas.voipms_sms.preferences.getDids(context, onlyShowInConversationsView = true)
+            val names = mutableMapOf<String, String>()
+            val rows = if (BuildConfig.IS_DEMO) {
+                listOf(InboxPreview(getDemoNotification(), false, null, true))
+            } else inboxPreviews(dids, "", false, names)
+            val phrases = net.kourlas.voipms_sms.privacy.SpamReview.phrases(context)
+            val eligible = rows.filter { row ->
+                val id = row.message.conversationId
+                if (!ShareSuggestions.enabled(context, id) || PrivateThreads.isPrivate(context, id) ||
+                    row.otherFolder == true || row.latestIncoming?.let(VerificationCode::extract) != null) {
+                    return@filter false
+                }
+                // Query Contacts only if the text and lack of replies would classify this thread as junk.
+                row.otherFolder == false || InboxRules.reason(row.latestIncoming, row.hasReply, false, phrases) == null ||
+                    getContactName(context, id.contact, names) != null
+            }.map { it.message }
+            val eligibleIds = eligible.mapTo(hashSetOf()) { it.conversationId.getId() }
+            val pinned = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED)
+                .filter { it.id != "new_conversation" }
+            val cached = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_CACHED)
+            val staleDynamic = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
+                .map { it.id }.filterNot(eligibleIds::contains)
+            if (staleDynamic.isNotEmpty()) ShortcutManagerCompat.removeDynamicShortcuts(context, staleDynamic)
+            val stalePins = pinned.map { it.id }.filterNot(eligibleIds::contains)
+            val staleCached = cached.map { it.id }.filterNot(eligibleIds::contains)
+            if (stalePins.isNotEmpty()) {
+                ShortcutManagerCompat.disableShortcuts(context, stalePins, context.getString(R.string.pinned_shortcut_disable_error))
+            }
+            if (staleCached.isNotEmpty()) ShortcutManagerCompat.removeLongLivedShortcuts(context, staleCached)
 
-                // Update the dynamic shortcuts.
-                val messages = if (BuildConfig.IS_DEMO) {
-                    listOf(getDemoNotification())
-                } else {
-                    getConversationsMessageMostRecentFilteredWithoutLock(
-                        net.kourlas.voipms_sms.preferences.getDids(
-                            context, onlyShowInConversationsView = true
-                        )
-                    )
+            val limit = (ShortcutManagerCompat.getMaxShortcutCountPerActivity(context) - 1).coerceAtLeast(0)
+            val dynamicIds = eligible.take(limit).mapTo(hashSetOf()) { it.conversationId.getId() }
+            val existing = (pinned + cached).mapTo(hashSetOf()) { it.id }
+            // Only render bitmaps for shortcuts the OS can actually display.
+            val shortcuts = eligible.filter { it.conversationId.getId() in dynamicIds || it.conversationId.getId() in existing }
+                .mapIndexed { rank, message ->
+                    val id = message.conversationId
+                    val name = getContactName(context, id.contact, names)
+                    val peer = name ?: getFormattedPhoneNumber(id.contact)
+                    val line = LineProfiles.label(context, id.did)
+                    val shortLine = LineProfiles.name(context, id.did) ?: id.did.takeLast(4)
+                    val icon = IconCompat.createWithAdaptiveBitmap(getContactPhotoAdaptiveBitmap(context, name, id.contact))
+                    val target = Intent(context, ConversationActivity::class.java).setAction(Intent.ACTION_VIEW)
+                        .putExtra(context.getString(R.string.conversation_did), id.did)
+                        .putExtra(context.getString(R.string.conversation_contact), id.contact)
+                    ShortcutInfoCompat.Builder(context, id.getId())
+                        .setIcon(icon).setIntent(target)
+                        .setPerson(Person.Builder().setName(peer).setKey(id.contact).setIcon(icon).setUri("tel:${id.contact}").build())
+                        .setLongLabel(context.getString(R.string.line_conversation_label, peer, line))
+                        .setShortLabel(context.getString(R.string.line_conversation_label, shortLine, peer))
+                        .setLongLived(true).setLocusId(LocusIdCompat(id.getId()))
+                        .setCategories(setOf("existing_conversation_target")).setRank(rank).build()
                 }
-                val conversationIdStrings =
-                    messages.map { it.conversationId.getId() }
-                val shortcutInfoList = messages.map {
-                    val intent =
-                        Intent(context, ConversationActivity::class.java)
-                    intent.action = "android.intent.action.VIEW"
-                    intent.putExtra(
-                        context.getString(R.string.conversation_did),
-                        it.did
-                    )
-                    intent.putExtra(
-                        context.getString(R.string.conversation_contact),
-                        it.contact
-                    )
-
-                    val contactName = getContactName(context, it.contact)
-                    val label =
-                        contactName ?: getFormattedPhoneNumber(it.contact)
-                    val icon = IconCompat.createWithAdaptiveBitmap(
-                        getContactPhotoAdaptiveBitmap(
-                            context, contactName,
-                            it.contact
-                        )
-                    )
-                    ShortcutInfoCompat.Builder(
-                        context, it.conversationId.getId()
-                    )
-                        .setIcon(icon)
-                        .setIntent(intent)
-                        .setPerson(
-                            Person.Builder()
-                                .setName(label)
-                                .setKey(it.contact)
-                                .setIcon(icon)
-                                .setUri("tel:${it.contact}")
-                                .build()
-                        )
-                        .setLongLabel(label)
-                        .setShortLabel(
-                            if (contactName != null) label.split(
-                                " "
-                            )[0] else label
-                        )
-                        .setLongLived(true)
-                        .setLocusId(LocusIdCompat(it.conversationId.getId()))
-                        .setCategories(setOf("existing_conversation_target"))
-                        .setRank(0)
-                        .build()
-                }
-                val dynamicShortcutInfoList =
-                    shortcutInfoList.zip(0 until maxCount).map { it.first }
-                try {
-                    ShortcutManagerCompat.updateShortcuts(
-                        context,
-                        shortcutInfoList
-                    )
-                    ShortcutManagerCompat.setDynamicShortcuts(
-                        context, dynamicShortcutInfoList
-                    )
-                } catch (e: Exception) {
-                    // Occasionally this will fail because the maximum number of
-                    // dynamic shortcuts was exceeded? There's nothing we can do
-                    // about this, since we are following
-                    // getMaxShortcutCountPerActivity().
-                    Log.e(TAG, "Failed to update shortcuts", e)
-                }
-
-                // Look at our existing list of cached and pinned shortcuts to make
-                // sure they still exist. If not, delete or remove them.
-                val existingPinnedShortcutInfoList =
-                    ShortcutManagerCompat.getShortcuts(
-                        context,
-                        ShortcutManagerCompat.FLAG_MATCH_PINNED
-                    )
-                for (shortcutInfo in existingPinnedShortcutInfoList) {
-                    if (shortcutInfo.id !in conversationIdStrings) {
-                        ShortcutManagerCompat.disableShortcuts(
-                            context, listOf(
-                                shortcutInfo.id
-                            ), context.getString(
-                                R.string.pinned_shortcut_disable_error
-                            )
-                        )
-                    }
-                }
-                val existingCachedShortcutInfoList =
-                    ShortcutManagerCompat.getShortcuts(
-                        context,
-                        ShortcutManagerCompat.FLAG_MATCH_CACHED
-                    )
-                for (shortcutInfo in existingCachedShortcutInfoList) {
-                    if (shortcutInfo.id !in conversationIdStrings) {
-                        ShortcutManagerCompat.removeLongLivedShortcuts(
-                            context,
-                            listOf(shortcutInfo.id)
-                        )
-                    }
-                }
+            val reenabled = pinned.filter { !it.isEnabled && it.id in eligibleIds }.mapTo(hashSetOf()) { it.id }
+            if (reenabled.isNotEmpty()) {
+                ShortcutManagerCompat.enableShortcuts(context, shortcuts.filter { it.id in reenabled })
+            }
+            try {
+                if (existing.isNotEmpty()) ShortcutManagerCompat.updateShortcuts(context, shortcuts.filter { it.id in existing })
+                ShortcutManagerCompat.setDynamicShortcuts(context, shortcuts.filter { it.id in dynamicIds })
+            } catch (e: RuntimeException) {
+                Log.e(TAG, "Failed to update shortcuts", e)
             }
         }
+        Unit
     }
 
     /**
@@ -1059,7 +1162,7 @@ class Database private constructor(private val context: Context) {
     companion object {
         private const val DATABASE_NAME = "sms.db"
         private const val IMPORT_FILE_NAME = "import.db"
-        const val DATABASE_VERSION = 13
+        const val DATABASE_VERSION = 14
 
         // The oldest schema version with a migration path to
         // DATABASE_VERSION.
@@ -1098,6 +1201,11 @@ class Database private constructor(private val context: Context) {
                 DATABASE_NAME
             )
                 .addMigrations(migration9To10)
+                .addCallback(object : androidx.room.RoomDatabase.Callback() {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        net.kourlas.voipms_sms.tools.SearchIndex.install(db)
+                    }
+                })
                 .build()
         }
     }

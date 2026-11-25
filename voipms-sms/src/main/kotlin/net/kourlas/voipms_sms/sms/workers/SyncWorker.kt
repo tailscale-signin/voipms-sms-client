@@ -57,6 +57,11 @@ class SyncWorker(context: Context, params: WorkerParameters) :
         val did = inputData.getString(RECEIVE_DID)
         val sync = MessageSynchronization(
             applicationContext, forceRecent, targetDid = did,
+            route = when {
+                inputData.getString(PUSH_SLOT) != null -> "Push"
+                inputData.getBoolean("periodic_recovery", false) -> "Scheduled catch-up"
+                else -> "Inbox or manual refresh"
+            },
             onStarted = {
                 inputData.getString(PUSH_SLOT)?.let { slot -> pendingPushSlots.started(did, slot) }
             },
@@ -73,6 +78,7 @@ class SyncWorker(context: Context, params: WorkerParameters) :
                 }
             }
         )
+        net.kourlas.voipms_sms.delivery.CallFeedSync.refresh(applicationContext)
         sync.run()
         return when {
             sync.transientFailure && runAttemptCount < MAX_RETRIES -> Result.retry()
@@ -129,7 +135,7 @@ class SyncWorker(context: Context, params: WorkerParameters) :
             val minutes = (period * 24 * 60).roundToLong().coerceAtLeast(15)
             val recovery = PeriodicWorkRequestBuilder<SyncWorker>(minutes, TimeUnit.MINUTES)
                 .setConstraints(connected)
-                .setInputData(workDataOf(context.getString(R.string.sync_force_recent) to true))
+                .setInputData(workDataOf(context.getString(R.string.sync_force_recent) to true, "periodic_recovery" to true))
                 .setInitialDelay(minutes, TimeUnit.MINUTES)
                 .build()
             manager.enqueueUniquePeriodicWork(name, ExistingPeriodicWorkPolicy.UPDATE, recovery)

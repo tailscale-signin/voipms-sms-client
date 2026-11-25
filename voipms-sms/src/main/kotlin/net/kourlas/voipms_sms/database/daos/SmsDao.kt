@@ -25,6 +25,9 @@ import net.kourlas.voipms_sms.sms.ConversationId
 
 @Dao
 interface SmsDao {
+    @Query("UPDATE sms SET MediaJson = :media WHERE DatabaseId = :id AND MediaJson != :media")
+    suspend fun updateAttachments(id: Long, media: String)
+
     @Query("DELETE FROM ${Sms.TABLE_NAME}")
     suspend fun deleteAll()
 
@@ -125,8 +128,14 @@ interface SmsDao {
     )
     suspend fun getIdByVoipId(did: String, voipId: Long): Long?
 
+    @Query("SELECT * FROM sms WHERE Type = 1 AND Date < :cutoff AND DatabaseId > :after ORDER BY DatabaseId LIMIT 200")
+    suspend fun codeRetentionCandidates(cutoff: Long, after: Long): List<Sms>
+
     @Query("SELECT DISTINCT ${Sms.COLUMN_DID} FROM ${Sms.TABLE_NAME}")
     suspend fun getDids(): List<String>
+
+    @Query("UPDATE sms SET DeliveryInProgress=0 WHERE DeliveryInProgress=1 AND DatabaseId NOT IN (SELECT messageId FROM OutboxPart)")
+    suspend fun resetUntrackedSends()
 
     @Insert
     suspend fun insert(sms: Sms): Long

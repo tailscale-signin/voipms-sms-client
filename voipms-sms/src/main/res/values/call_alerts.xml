@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="call_alerts_missed">Missed calls</string>
+    <string name="call_alerts_voicemail">Voicemail</string>
+    <string name="call_alerts_unknown">Unknown caller</string>
+    <string name="call_alerts_route">%1$s · %2$s</string>
+</resources>

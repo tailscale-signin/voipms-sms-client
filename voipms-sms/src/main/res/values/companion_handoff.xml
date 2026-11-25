@@ -1,0 +1,26 @@
+<resources>
+    <string name="handoff_title">Desktop draft</string>
+    <string name="handoff_pair_title">Pair native drafts</string>
+    <string name="handoff_pair_message">Enter a one-time code from Devices on your companion. This pairs the Android composer with that identity.</string>
+    <string name="handoff_origin">Companion HTTPS address</string>
+    <string name="handoff_code">One-time pairing code</string>
+    <string name="handoff_pair">Pair</string>
+    <string name="handoff_load">Use desktop draft</string>
+    <string name="handoff_save">Save phone draft</string>
+    <string name="handoff_replace_phone">Replace the text in your phone composer with the desktop draft?</string>
+    <string name="handoff_replace_pc">Replace the existing desktop draft with the text in your phone composer?</string>
+    <string name="handoff_replace">Replace draft</string>
+    <string name="handoff_state">Companion: %1$s\nLine: %2$s\nContact: %3$s\n\nDesktop draft:\n%4$s</string>
+    <string name="handoff_empty">No draft saved</string>
+    <string name="handoff_saved">Draft saved on the companion.</string>
+    <string name="handoff_loaded">Desktop draft loaded into the composer.</string>
+    <string name="handoff_unavailable">The companion could not complete this request. Check its address and connection.</string>
+    <string name="handoff_denied">This companion identity lacks access to the selected line or action.</string>
+    <string name="handoff_wrong_account">The companion belongs to a different VoIP.ms account.</string>
+    <string name="handoff_unshared">This contact is excluded or has not been shared on the companion.</string>
+    <string name="handoff_changed">The desktop draft changed. Open Desktop draft again to review it.</string>
+    <string name="handoff_changed_local">The composer or active account changed. Open Desktop draft again.</string>
+    <string name="handoff_private">Private threads cannot transfer drafts.</string>
+    <string name="handoff_too_long">Keep a companion draft within 2,048 characters.</string>
+    <string name="handoff_invalid_pair">Enter a valid HTTPS origin and a current pairing code.</string>
+</resources>

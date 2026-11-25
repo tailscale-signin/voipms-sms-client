@@ -479,6 +479,8 @@ class Notifications private constructor(private val context: Context) {
 
         for (conversationId in conversationIds) {
             // Do not show notifications when notifications are disabled.
+            if (!bubbleOnly && (net.kourlas.voipms_sms.tools.LineProfiles.quiet(context, conversationId.did) ||
+                    net.kourlas.voipms_sms.tools.ThreadReminders.hidden(context, conversationId))) continue
             if (!getNotificationsEnabled(conversationId)) {
                 continue
             }
@@ -556,6 +558,10 @@ class Notifications private constructor(private val context: Context) {
         bubbleOnly: Boolean,
         autoLaunchBubble: Boolean
     ) {
+        if (net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, conversationId)) {
+            cancelNotification(conversationId)
+            return
+        }
         // Do not show notification if there are no messages, unless this is
         // for a bubble notification.
         if (messages.isEmpty()
@@ -609,6 +615,8 @@ class Notifications private constructor(private val context: Context) {
         notification.setSmallIcon(R.drawable.ic_chat_toolbar_24dp)
         notification.setLargeIcon(largeIcon)
         notification.setAutoCancel(true)
+        val line = net.kourlas.voipms_sms.tools.LineProfiles.label(context, did)
+        notification.setSubText(line)
         notification.addPerson(
             Person.Builder()
                 .setName(contactName)
@@ -618,7 +626,7 @@ class Notifications private constructor(private val context: Context) {
                 .build()
         )
         notification.setCategory(Notification.CATEGORY_MESSAGE)
-        val notificationAccent = context.getColor(R.color.notification_accent)
+        val notificationAccent = net.kourlas.voipms_sms.tools.LineProfiles.accent(context, did, context.getColor(R.color.notification_accent))
         notification.color = notificationAccent
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             @Suppress("DEPRECATION")
@@ -690,7 +698,7 @@ class Notifications private constructor(private val context: Context) {
         } else if (messages.isNotEmpty()) {
             val notificationMessages = messages.map {
                 NotificationCompat.MessagingStyle.Message(
-                    it.summaryDisplayText,
+                    net.kourlas.voipms_sms.privacy.CodePrivacy.notificationText(context, it),
                     it.date.time,
                     if (it.isIncoming)
                         Person.Builder()
@@ -753,7 +761,8 @@ class Notifications private constructor(private val context: Context) {
                 R.string.notifications_reply_key
             )
         )
-            .setLabel(context.getString(R.string.notifications_button_reply))
+            .setLabel(context.getString(R.string.line_conversation_label,
+                context.getString(R.string.notifications_button_reply), line))
             .build()
         val replyActionBuilder = NotificationCompat.Action.Builder(
             R.drawable.ic_reply_toolbar_24dp,
@@ -765,7 +774,9 @@ class Notifications private constructor(private val context: Context) {
             .setAllowGeneratedReplies(true)
             .addRemoteInput(remoteInput)
 
-        notification.addAction(replyActionBuilder.build())
+        val replyAction = replyActionBuilder.build()
+        notification.addAction(replyAction)
+        notification.extend(NotificationCompat.WearableExtender().addAction(replyAction).addAction(markReadAction))
 
         // Group notification
         val groupNotification = NotificationCompat.Builder(context, channel)
@@ -804,6 +815,7 @@ class Notifications private constructor(private val context: Context) {
         intent.data = targetUri
         val stackBuilder = TaskStackBuilder.create(context)
         stackBuilder.addNextIntentWithParentStack(intent)
+        stackBuilder.editIntentAt(0)?.putExtra(net.kourlas.voipms_sms.conversations.OPEN_NOTIFICATION_MESSAGES, true)
         notification.setContentIntent(
             stackBuilder.getPendingIntent(0, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         )
@@ -850,6 +862,9 @@ class Notifications private constructor(private val context: Context) {
             val manager = NotificationManagerCompat.from(context)
             try {
                 manager.notify(tag, MESSAGE_NOTIFICATION_ID, notification.build())
+                if (manager.areNotificationsEnabled()) {
+                    net.kourlas.voipms_sms.delivery.DeliveryTrace.posted(context, did, contact)
+                }
                 manager.notify(GROUP_NOTIFICATION_ID, groupNotification.build())
                 notificationManager.activeNotifications.filter {
                     it.tag == null && matchesConversation(it, conversationId)

@@ -37,6 +37,8 @@ internal object OnlineNumberLookup {
         ORIGIN(R.string.lookup_origin, R.string.lookup_origin_consent, R.string.lookup_origin),
         WIKIDATA(R.string.lookup_directory, R.string.lookup_consent, R.string.lookup_directory),
         SHADYCALL(R.string.lookup_reports, R.string.lookup_reports_consent, R.string.lookup_reports),
+        TELNYX_CARRIER(R.string.telnyx_carrier, R.string.telnyx_carrier_notice, R.string.telnyx_continue),
+        TELNYX_IDENTITY(R.string.telnyx_identity, R.string.telnyx_identity_notice, R.string.telnyx_continue),
         TRUECALLER(R.string.lookup_truecaller, R.string.lookup_truecaller_consent, R.string.lookup_copy_open)
     }
 
@@ -72,6 +74,7 @@ internal object OnlineNumberLookup {
         val choices = Service.entries.filter {
             when (it) {
                 Service.ORIGIN -> LocalCallingGuide.prefix(number) != null
+                Service.TELNYX_IDENTITY, Service.TELNYX_CARRIER -> number.startsWith("+1")
                 Service.SHADYCALL -> ShadyCallReputation.supports(number)
                 else -> true
             }
@@ -87,7 +90,13 @@ internal object OnlineNumberLookup {
                     .setPositiveButton(service.action) { _, _ ->
                         if (currentDirectoryAccountGeneration(activity) == key.generation && getContactName(activity, raw) == null) {
                             if (service == Service.TRUECALLER) openTruecaller(activity, number)
-                            else search(activity, key, service)
+                            else if (service == Service.TELNYX_CARRIER || service == Service.TELNYX_IDENTITY) {
+                                TelnyxLookup.requestKey(activity) { token ->
+                                    if (currentDirectoryAccountGeneration(activity) == key.generation && getContactName(activity, raw) == null) {
+                                        search(activity, key, service, token)
+                                    }
+                                }
+                            } else search(activity, key, service)
                         }
                     }
                     .show()
@@ -96,7 +105,7 @@ internal object OnlineNumberLookup {
             .show()
     }
 
-    private fun search(activity: AppCompatActivity, key: Key, service: Service) {
+    private fun search(activity: AppCompatActivity, key: Key, service: Service, telnyxKey: String? = null) {
         if (labels[key] is Label.Searching) return
         activity.lifecycleScope.launch {
             val progress = when (service) {
@@ -108,7 +117,15 @@ internal object OnlineNumberLookup {
             revision.value++
             var result = previous
             try {
-                if (service == Service.ORIGIN) {
+                if (telnyxKey != null) {
+                    val details = TelnyxLookup.search(key.number, telnyxKey, service == Service.TELNYX_IDENTITY)
+                    if (currentDirectoryAccountGeneration(activity) == key.generation) {
+                        if (details != null) {
+                            val stamp = java.text.DateFormat.getDateTimeInstance().format(java.util.Date())
+                            result = Label.Match("$details · $stamp", R.string.telnyx_result)
+                        } else Toast.makeText(activity, R.string.telnyx_no_match, Toast.LENGTH_LONG).show()
+                    }
+                } else if (service == Service.ORIGIN) {
                     val area = LocalCallingGuide.search(key.number)
                     if (area != null) result = Label.Match(area, R.string.lookup_origin_result)
                     else if (currentDirectoryAccountGeneration(activity) == key.generation) {

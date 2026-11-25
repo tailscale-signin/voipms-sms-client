@@ -93,11 +93,7 @@ class NewConversationActivity : AppCompatActivity(), View.OnClickListener {
      */
     private fun getMessageTextFromIntent() {
         val intent = intent
-        val action = intent.action
-        val type = intent.type
-        if (Intent.ACTION_SEND == action && type != null
-            && type == "text/plain"
-        ) {
+        if (net.kourlas.voipms_sms.media.IncomingShare.isShare(intent)) {
             this.messageText = intent.getStringExtra(Intent.EXTRA_TEXT)
         }
     }
@@ -350,6 +346,7 @@ class NewConversationActivity : AppCompatActivity(), View.OnClickListener {
      */
     private fun startConversationActivity(contact: String) {
         val intent = Intent(this, ConversationActivity::class.java)
+        net.kourlas.voipms_sms.media.IncomingShare.forward(this, this.intent, intent)
         intent.putExtra(
             this.getString(R.string.conversation_contact),
             getDigitsOfString(contact)
@@ -376,7 +373,7 @@ class NewConversationActivity : AppCompatActivity(), View.OnClickListener {
                 AlertDialog.Builder(this).apply {
                     setTitle("Select DID")
                     setSingleChoiceItems(
-                        dids.map(::getFormattedPhoneNumber).toTypedArray(),
+                        dids.map { net.kourlas.voipms_sms.tools.LineProfiles.styled(this@NewConversationActivity, it) }.toTypedArray(),
                         selectedIndex
                     ) { _, which ->
                         selectedIndex = which

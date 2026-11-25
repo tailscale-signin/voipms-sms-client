@@ -68,7 +68,10 @@ class SynchronizationPreferencesFragment : PreferenceFragmentCompat(),
 
         // Add listeners to preferences
         for (preference in preferenceScreen.preferences) {
+            val tools = net.kourlas.voipms_sms.delivery.DeliveryTools(requireActivity())
             when (preference.key) {
+                "delivery_trace" -> preference.setOnPreferenceClickListener { tools.selectLine(tools::trace); true }
+                "unified_push" -> preference.setOnPreferenceClickListener { tools.selectLine(tools::distributor); true }
                 "live_listening" -> preference.setOnPreferenceClickListener {
                     val context = requireContext()
                     when {

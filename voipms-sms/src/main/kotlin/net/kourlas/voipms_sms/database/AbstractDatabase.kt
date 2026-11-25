@@ -21,15 +21,20 @@ import net.kourlas.voipms_sms.database.entities.Sms
         Archived::class,
         Draft::class,
         Deleted::class,
-        SyncCheckpoint::class],
+        SyncCheckpoint::class,
+        net.kourlas.voipms_sms.database.entities.OutboxPart::class,
+        net.kourlas.voipms_sms.tools.MessageSearchIndex::class],
     autoMigrations = [
         AutoMigration(from = 10, to = 11),
         AutoMigration(from = 11, to = 12, spec = NormalizeDidMigration::class),
-        AutoMigration(from = 12, to = 13)
+        AutoMigration(from = 12, to = 13),
+        AutoMigration(from = 13, to = 14, spec = SearchMigration::class)
     ],
     version = DATABASE_VERSION
 )
 abstract class AbstractDatabase : RoomDatabase() {
+    abstract fun messageSearchDao(): net.kourlas.voipms_sms.tools.MessageSearchDao
+    abstract fun outboxDao(): net.kourlas.voipms_sms.database.daos.OutboxDao
     abstract fun syncCheckpointDao(): SyncCheckpointDao
     abstract fun smsDao(): SmsDao
     abstract fun deletedDao(): DeletedDao

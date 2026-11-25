@@ -34,6 +34,7 @@ class FcmListenerService : FirebaseMessagingService() {
             pushTopicForDid(it) == topic
         }
         if (did != null) {
+            net.kourlas.voipms_sms.delivery.DeliveryTrace.wake(this, did, "Firebase", message.data["callbackTime"]?.toLongOrNull())
             SyncWorker.receivePush(this, did)
         } else if (topic.startsWith("did-") && pushTopicForDid(topic.removePrefix("did-")) == topic) {
             // Older installations subscribed without recording their memberships.

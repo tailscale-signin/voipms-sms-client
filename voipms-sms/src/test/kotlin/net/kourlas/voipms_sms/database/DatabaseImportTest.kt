@@ -72,6 +72,38 @@ class DatabaseImportTest {
     }
 
     @Test
+    fun portableBackupPreviewsAndMergesOnlySelectedHistoryWithoutRequeueing() = runBlocking {
+        val peer = ConversationId(conversationId.did, "5145550117")
+        val attachmentDir = File(context.filesDir, "mms_outgoing").apply { mkdirs() }
+        val media = (1..4).map { index ->
+            File(attachmentDir, "${java.util.UUID.randomUUID()}.jpg").apply { writeBytes(byteArrayOf(index.toByte())) }
+        }
+        database.insertConversationMessagesDeliveryInProgress(conversationId, listOf("with four images"),
+            media.map { "mms-local:" + it.name })
+        insertMessages(1)
+        database.insertConversationMessagesDeliveryInProgress(peer, listOf("leave behind"))
+        val uri = android.net.Uri.fromFile(File(context.cacheDir, "portable-test.vsms"))
+        val pass = "local test archive".toCharArray()
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        archive.export(context, uri, pass)
+        assertThrows(Exception::class.java) { archive.preview(context, uri, "incorrect".toCharArray()) }
+        assertEquals(2, messageCount())
+        val contents = archive.preview(context, uri, pass)
+        try {
+            assertEquals(mapOf(conversationId to 2, peer to 1), contents.counts)
+            assertEquals(0, database.restorePortableThreads(contents, setOf(conversationId)))
+            database.deleteTablesContents()
+            media.forEach { assertTrue(it.delete()) }
+            assertEquals(2, database.restorePortableThreads(contents, setOf(conversationId)))
+            assertEquals(listOf(1, 2, 3, 4), media.map { it.readBytes().single().toInt() })
+            assertEquals(4, database.getConversationMessagesUnsorted(conversationId).first { it.text == "with four images" }.medias.size)
+            assertEquals(0, database.restorePortableThreads(contents, setOf(conversationId)))
+            assertTrue(database.getConversationMessagesUnsorted(peer).isEmpty())
+            assertTrue(database.getConversationMessagesUnsorted(conversationId).none { it.isDeliveryInProgress })
+        } finally { contents.zip.delete() }
+    }
+
+    @Test
     fun importValidExportReplacesMessages() = runBlocking {
         insertMessages(3)
         val exportFile = exportDatabase()

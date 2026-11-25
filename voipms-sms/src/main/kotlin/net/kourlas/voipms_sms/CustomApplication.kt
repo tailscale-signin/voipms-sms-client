@@ -140,6 +140,7 @@ class CustomApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        net.kourlas.voipms_sms.privacy.PortableBackup.clearInterruptedWork(this)
         ChatFont.start(this)
 
         // Create static reference to self.
@@ -176,12 +177,10 @@ class CustomApplication : Application() {
 
         // Schedule a database synchronization, if required.
         SyncWorker.scheduleBackgroundSync(applicationContext)
+        net.kourlas.voipms_sms.delivery.CallFeedSync.refresh(applicationContext)
 
-        // If any messages are still marked as "sending" for some reason, mark
-        // them as "not sent" -- clearly, they weren't.
         applicationScope.launch(Dispatchers.Default) {
-            Database.getInstance(applicationContext)
-                .markAllDeliveryInProgressMessagesAsNotSent()
+            net.kourlas.voipms_sms.sms.workers.Outbox.recover(applicationContext)
         }
     }
 

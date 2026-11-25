@@ -43,13 +43,22 @@
                 android:id="@+id/inbox_tabs"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@color/inbox_surface"
+                android:background="@color/surface"
+                android:paddingStart="@dimen/inbox_gutter"
+                android:paddingEnd="@dimen/inbox_gutter"
+                android:paddingTop="8dp"
+                android:paddingBottom="6dp"
+                app:tabBackground="@drawable/tab_capsule"
+                app:tabIndicatorHeight="0dp"
                 android:visibility="gone"
                 app:tabGravity="fill"
                 app:tabIndicatorColor="@color/primary"
                 app:tabIndicatorFullWidth="false"
                 app:tabMode="fixed"
-                app:tabSelectedTextColor="@color/primary"
+                app:tabMinWidth="0dp"
+                app:tabPaddingStart="4dp"
+                app:tabPaddingEnd="4dp"
+                app:tabSelectedTextColor="@color/on_message_outgoing"
                 app:tabTextAppearance="@style/ButtonLabel"
                 app:tabTextColor="@color/on_surface" />
         </com.google.android.material.appbar.AppBarLayout>
@@ -74,7 +83,7 @@
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/list"
-                    android:paddingTop="6dp"
+                    android:paddingTop="4dp"
                     android:paddingBottom="88dp"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
@@ -83,6 +92,13 @@
                     android:clipToPadding="false"
                     android:scrollbars="vertical" />
             </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            <FrameLayout
+                android:id="@+id/call_home_container"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@color/surface"
+                android:visibility="gone" />
         </FrameLayout>
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -94,6 +110,8 @@
             android:contentDescription="@string/conversations_action_chat"
             android:src="@drawable/ic_chat_toolbar_24dp"
             app:backgroundTint="@color/primary"
+            app:elevation="3dp"
+            app:maxImageSize="26dp"
             app:shapeAppearanceOverlay="@style/ComposeButtonShape"
             app:tint="@color/colorOnPrimary" />
     </androidx.coordinatorlayout.widget.CoordinatorLayout>

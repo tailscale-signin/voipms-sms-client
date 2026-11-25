@@ -40,6 +40,10 @@ class PreferencesFragment : PreferenceFragmentCompat() {
     ) {
         // Add preferences
         addPreferencesFromResource(R.xml.preferences)
+        findPreference<androidx.preference.Preference>("browser_companion")?.setOnPreferenceClickListener {
+            net.kourlas.voipms_sms.delivery.DeliveryTools(requireActivity()).companion()
+            true
+        }
 
         context?.let {
             for (preference in preferenceScreen.preferences) {

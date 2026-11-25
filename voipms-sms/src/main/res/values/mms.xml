@@ -1,0 +1,37 @@
+<resources>
+    <string name="mms_unsupported">Choose a JPEG, PNG, GIF, MP3, WAV, MIDI, MP4, or 3GP attachment.</string>
+    <string name="mms_unavailable">Could not open this attachment. Check your connection or choose the file again.</string>
+    <string name="mms_too_large">This attachment exceeds the 1.2 MB VoIP.ms upload limit.</string>
+    <string name="mms_max">VoIP.ms accepts up to three attachments per outgoing MMS.</string>
+    <string name="mms_caption_limit">MMS captions can contain up to 2,048 characters.</string>
+    <string name="mms_preparing">Preparing your attachments…</string>
+    <string name="mms_attach_symbol" translatable="false">+</string>
+    <string name="mms_attach_number">+%1$d</string>
+    <string name="mms_attach_description">Manage attachments, %1$d selected</string>
+    <string name="mms_add">Add attachment</string>
+    <string name="mms_file_label">%1$d. %2$s · %3$d kB</string>
+    <string name="mms_attachments">Attachments to send</string>
+    <string name="mms_preview">Preview attachment</string>
+    <string name="mms_edit">Edit photo for privacy</string>
+    <string name="mms_remove">Remove from draft</string>
+    <string name="mms_mode_cover">Tool · Cover information</string>
+    <string name="mms_mode_crop">Tool · Crop photo</string>
+    <string name="mms_edit_help">Drag over an area to cover or crop it. Tap the tool to switch. Photo location and metadata are removed from the outgoing copy.</string>
+    <string name="mms_reset">Reset</string>
+    <string name="mms_apply">Apply</string>
+    <string name="mms_gallery_count">View attachments (%1$d)</string>
+    <string name="mms_gallery_position">Attachment %1$d of %2$d</string>
+    <string name="mms_next">Next</string>
+    <string name="mms_previous">Previous</string>
+    <string name="mms_play_pause">Play / pause</string>
+    <string name="mms_transcribe">Transcribe on this device</string>
+    <string name="mms_read_image">Read image text</string>
+    <string name="mms_ocr_empty">No text was recognized in this image.</string>
+    <string name="mms_ocr_failed">Could not recognize the image text. If the language model has not been installed, check your connection.</string>
+    <string name="mms_ocr_model">Download the English recognition model (4 MB)? Your images are processed on this device.</string>
+    <string name="mms_download">Download</string>
+    <string name="mms_index">Index message images</string>
+    <string name="mms_indexed">Image text added to search</string>
+    <string name="thread_voicemail_event">Voicemail</string>
+    <string name="thread_missed_event">Missed call</string>
+</resources>

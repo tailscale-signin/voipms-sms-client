@@ -52,6 +52,9 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="25" />
 
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
     <application
         android:name=".CustomApplication"
         android:allowBackup="true"
@@ -64,6 +67,14 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.message_media"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/message_media_paths" />
+        </provider>
+
         <!-- METADATA -->
 
         <meta-data
@@ -71,7 +82,9 @@
             android:resource="@xml/automotive_app_desc" />
 
         <!-- ACTIVITIES -->
+        <activity android:name=".tools.SpeechReviewActivity" android:exported="false" android:excludeFromRecents="true" />
 
+        <activity android:name=".privacy.PrivateThreadGateActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity
             android:name=".conversations.ConversationsActivity"
             android:exported="true"
@@ -95,8 +108,12 @@
             android:parentActivityName=".conversations.ConversationsActivity">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
             </intent-filter>
 
             <meta-data
@@ -228,6 +245,9 @@
             android:name=".sms.receivers.SendMessageReceiver"
             android:exported="false" />
         <!-- SERVICES -->
+        <service android:name=".delivery.UnifiedDeliveryService" android:exported="false">
+            <intent-filter><action android:name="org.unifiedpush.android.connector.PUSH_EVENT" /></intent-filter>
+        </service>
         <service
             android:name=".sms.LiveDeliveryService"
             android:exported="false"

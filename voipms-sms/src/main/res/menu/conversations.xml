@@ -24,6 +24,10 @@
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
     <item
+        android:id="@+id/global_outbox_button"
+        android:title="@string/outbox_title"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/archived_button"
         android:title="@string/conversations_action_archived"
         app:showAsAction="never" />
