@@ -158,6 +158,7 @@ ksp {
 
 dependencies {
     implementation(libs.matrix.rust)
+    implementation(libs.rustls.android)
     coreLibraryDesugaring(libs.android.desugar)
     // Kotlin libraries
     implementation(libs.kotlinx.coroutines.android)

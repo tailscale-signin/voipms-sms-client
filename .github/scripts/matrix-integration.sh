@@ -1,8 +1,31 @@
 #!/usr/bin/env bash
 set -eu
 dir="${RUNNER_TEMP:?}/matrix-ci"
-mode="${1:?setup or test}"
-if [[ "$mode" == setup ]]; then
+mode="${1:?prepare, setup or test}"
+if [[ "$mode" == prepare ]]; then
+  # Only the CI debug APK trusts the disposable user CA on localhost. Preserve the official
+  # verifier's HTTPS-only default and its existing certificate-revocation-list exceptions.
+  mkdir -p "$dir" voipms-sms/src/debug/res/xml
+  archive="$dir/verifier.aar"
+  curl -fsSL --retry 3 -o "$archive" \
+    https://raw.githubusercontent.com/rustls/rustls-platform-verifier/1aa691352a5e0c215210dfc9a3c2f2078639dc91/android-release-support/maven/org/rustls/rustls-platform-verifier/0.2.0/rustls-platform-verifier-0.2.0.aar
+  echo "aa021794230fbc2f0be355999e2cf67398dd563de066a2e17001ffbd0b69101b  $archive" | sha256sum -c
+  python3 - "$archive" <<'PYCODE'
+from pathlib import Path
+import sys
+import xml.etree.ElementTree as ET
+from zipfile import ZipFile
+with ZipFile(sys.argv[1]) as archive:
+    policy = ET.fromstring(archive.read("res/xml/network_security_config.xml"))
+domain = ET.SubElement(policy, "domain-config")
+ET.SubElement(domain, "domain").text = "localhost"
+anchors = ET.SubElement(domain, "trust-anchors")
+for source in ("system", "user"):
+    ET.SubElement(anchors, "certificates", src=source)
+ET.ElementTree(policy).write(Path("voipms-sms/src/debug/res/xml/network_security_config.xml"),
+                             encoding="utf-8", xml_declaration=True)
+PYCODE
+elif [[ "$mode" == setup ]]; then
   mkdir -p "$dir"
   cd "$dir"
   umask 077
@@ -48,15 +71,30 @@ YAML
   done
 elif [[ "$mode" == test ]]; then
   # SMS smoke intentionally takes the emulator offline. adb reverse only exposes our own local test service.
+  # NetworkSecurityConfig in the debug app accepts user CAs exclusively on localhost. Restore
+  # the KeyChain directory ownership and SELinux labels before the app starts reading trust.
+  adb root
+  adb wait-for-device
+  user_certs=/data/misc/user/0/cacerts-added
+  cert_name=$(openssl x509 -in "$dir/ca.pem" -noout -subject_hash_old).0
+  adb shell mkdir -p "$user_certs"
+  adb shell chown system:system "$user_certs"
+  adb shell chmod 775 "$user_certs"
+  adb push "$dir/ca.pem" "$user_certs/$cert_name"
+  adb shell chown system:system "$user_certs/$cert_name"
+  adb shell chmod 644 "$user_certs/$cert_name"
+  adb shell restorecon -RF "$user_certs"
   adb reverse tcp:18443 tcp:18443
   adb shell pm clear net.kourlas.voipms_sms
   adb install -r matrix-test-apk/*.apk
-  ca=$(openssl x509 -in "$dir/ca.pem" -outform DER | base64 -w0)
   output=$(adb shell am instrument -w -r -e class net.kourlas.voipms_sms.rich.MatrixIntegrationTest \
-    -e matrixCa "$ca" -e matrixPassword "$(cat "$dir/password")" \
+    -e matrixPassword "$(cat "$dir/password")" \
     net.kourlas.voipms_sms.test/androidx.test.runner.AndroidJUnitRunner)
   echo "$output"
-  grep -Fq 'OK (1 test)' <<<"$output"
+  if ! grep -Fq 'OK (1 test)' <<<"$output"; then
+    adb logcat -d -s MatrixCI:I AndroidRuntime:E rustls-platform-verifier-android:W
+    exit 1
+  fi
 else
   exit 2
 fi

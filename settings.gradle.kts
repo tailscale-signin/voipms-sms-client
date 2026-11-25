@@ -18,6 +18,13 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         exclusiveContent {
+            forRepository {
+                // Official rustls Android release archive, pinned to the immutable 0.2.0 publication.
+                maven(url = "https://raw.githubusercontent.com/rustls/rustls-platform-verifier/1aa691352a5e0c215210dfc9a3c2f2078639dc91/android-release-support/maven")
+            }
+            filter { includeModule("org.rustls", "rustls-platform-verifier") }
+        }
+        exclusiveContent {
             forRepository { maven(url = "https://jitpack.io") }
             filter {
                 includeModule("com.github.mukeshsolanki", "MarkdownView-Android")

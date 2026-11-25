@@ -90,6 +90,7 @@ internal object MatrixSessions {
 
     private fun path(c: Context, id: String) = File(c.noBackupFilesDir, "matrix/" + UUID.fromString(id))
     private suspend fun build(c: Context, cfg: Config): Client {
+        MatrixPlatform.initialize(c)
         val data = path(c, cfg.id)
         val cache = File(c.cacheDir, "matrix/" + cfg.id)
         require(data.isDirectory || data.mkdirs())
@@ -109,7 +110,7 @@ internal object MatrixSessions {
                 } == true)
             }
         }
-        return ClientBuilder().configureTrust(URI(cfg.url).host).homeserverUrl(cfg.url).disableWellKnownLookup(true)
+        return ClientBuilder().homeserverUrl(cfg.url).disableWellKnownLookup(true)
             .slidingSyncVersionBuilder(SlidingSyncVersionBuilder.NONE)
             .sqliteStore(SqliteStoreBuilder(data.path, cache.path).key(cfg.key))
             .setSessionDelegate(delegate).build()
