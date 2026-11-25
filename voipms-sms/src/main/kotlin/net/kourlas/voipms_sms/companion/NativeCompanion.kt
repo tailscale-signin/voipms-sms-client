@@ -67,16 +67,19 @@ internal class NativeCompanion(val origin: String, val generation: Long, email: 
         }
     }
 
-    suspend fun verify(token: String, did: String): String {
+    suspend fun grants(token: String): Map<String, String> {
         val info = api("me", token).json
         if (info.optString("accountTag") != accountTag) throw CompanionFailure(412)
         val lines = info.getJSONArray("lines")
-        for (i in 0 until lines.length()) {
-            val line = lines.getJSONObject(i)
-            if (line.optString("did") == did) return line.getString("role")
+        return buildMap {
+            for (i in 0 until lines.length()) {
+                val line = lines.getJSONObject(i)
+                put(line.getString("did"), line.getString("role"))
+            }
         }
-        throw CompanionFailure(403)
     }
+
+    suspend fun verify(token: String, did: String) = grants(token)[did] ?: throw CompanionFailure(403)
 
     fun fields(id: ConversationId) = JSONObject().put("did", id.did).put("peer", id.contact)
         .put("accountTag", accountTag)
@@ -111,9 +114,14 @@ class CompanionPrivacyWorker(context: Context, parameters: WorkerParameters) : C
                 val pendingKey = host.key + ".pending"
                 val entries = withSecurePreferences(applicationContext) { it.getStringSet(pendingKey, emptySet()).orEmpty().toSet() }
                     ?: return@withCurrentAccount Result.retry()
+                if (entries.isEmpty()) return@withCurrentAccount Result.success()
+                val permitted = try { host.grants(token) } catch (failure: CompanionFailure) {
+                    if (failure.code in listOf(401, 403, 412)) return@withCurrentAccount Result.success()
+                    throw failure
+                }
                 for (entry in entries) {
                     val parts = entry.split('|')
-                    if (parts.size != 2) continue
+                    if (parts.size != 2 || parts[0] !in permitted) continue
                     val id = ConversationId(parts[0], parts[1])
                     try {
                         host.api("private", token, host.fields(id))

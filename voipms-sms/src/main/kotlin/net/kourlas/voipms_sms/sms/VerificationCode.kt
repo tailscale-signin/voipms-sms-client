@@ -14,6 +14,11 @@ internal object VerificationCode {
     // Deletion needs an explicit authentication context. A naked number may be a price or reference.
     private val authentication = Regex("""\b(?:verification|security|login|sign[- ]in|one[- ]time|authentication|otp|passcode|vérification|sécurité|verificação|segurança)\b""", RegexOption.IGNORE_CASE)
 
+    private val personalCode = Regex("""\b(?:your (?:code|pin)|votre (?:code|nip)|seu (?:código|pin))\s*(?:is|est|é|:|=)""", RegexOption.IGNORE_CASE)
+
+    fun shouldMaskNotification(text: String) = eligibleForRetention(text) ||
+        (personalCode.containsMatchIn(text) && extract(text) != null)
+
     fun eligibleForRetention(text: String) = (authentication.containsMatchIn(text) ||
         originBound.matchEntire(text.trim().substringAfterLast('\n')) != null) && extract(text) != null
 

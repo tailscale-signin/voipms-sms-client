@@ -57,7 +57,7 @@ internal object CallFeedStore {
                     if (prior != 0L && item.receivedAt >= prior - 86_400_000L) added.add(item)
                 } else if (item.voicemail) db.update("events",values,"account=? AND id=?",arrayOf(account,item.id))
             }
-            db.execSQL("INSERT OR REPLACE INTO checkpoints VALUES (?,?,?)",arrayOf(account,source,now))
+            db.execSQL("INSERT OR REPLACE INTO checkpoints VALUES (?,?,?)",arrayOf<Any>(account,source,now))
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
         revision.value++

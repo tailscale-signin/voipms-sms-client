@@ -20,7 +20,7 @@ internal object CodePrivacy {
     private fun prefs(c: Context) = c.getSharedPreferences("code-privacy", 0)
     fun days(c: Context) = prefs(c).getInt("days", 0)
     fun notificationText(c: Context, message: Message): String {
-        return if (prefs(c).getBoolean("mask", true) && message.isIncoming && VerificationCode.eligibleForRetention(message.text))
+        return if (prefs(c).getBoolean("mask", true) && message.isIncoming && VerificationCode.shouldMaskNotification(message.text))
             c.getString(R.string.code_masked) else message.summaryDisplayText
     }
 

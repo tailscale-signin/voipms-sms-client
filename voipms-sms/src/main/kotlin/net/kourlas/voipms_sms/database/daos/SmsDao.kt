@@ -128,6 +128,9 @@ interface SmsDao {
     )
     suspend fun getIdByVoipId(did: String, voipId: Long): Long?
 
+    @Query("SELECT * FROM sms WHERE Did = :did AND Contact = :contact AND VoipId IS NULL")
+    suspend fun localOnlyMessages(did: String, contact: String): List<Sms>
+
     @Query("SELECT * FROM sms WHERE Type = 1 AND Date < :cutoff AND DatabaseId > :after ORDER BY DatabaseId LIMIT 200")
     suspend fun codeRetentionCandidates(cutoff: Long, after: Long): List<Sms>
 

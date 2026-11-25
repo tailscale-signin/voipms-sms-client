@@ -376,12 +376,11 @@ class Database private constructor(private val context: Context) {
                     val installed = mutableSetOf<String>()
                     for (id in selection) {
                         require(id in preview.counts && !net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, id))
-                        val rows = mutableListOf<Sms>()
-                        net.kourlas.voipms_sms.privacy.PortableBackup.rows(zip, id, rows::add)
+                        val rows = net.kourlas.voipms_sms.privacy.PortableBackup.rows(zip, id)
                         // Match repeated local-only records by multiplicity when merging the same backup again.
                         fun fingerprint(row: Sms) = row.copy(databaseId = 0, unread = 0, deliveryInProgress = 0,
                             media1 = "", media2 = "", media3 = "", mediaJson = net.kourlas.voipms_sms.media.AttachmentList.encode(net.kourlas.voipms_sms.privacy.PortableBackup.attachments(row)))
-                        val existing = dao.getConversationMessagesUnsorted(id.did, id.contact).filter { it.voipId == null }
+                        val existing = dao.localOnlyMessages(id.did, id.contact)
                             .groupingBy(::fingerprint).eachCount().toMutableMap()
                         for (row in rows) {
                             val providerId = row.voipId

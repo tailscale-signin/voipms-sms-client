@@ -99,12 +99,16 @@ internal class CompanionDraftHandoff(
                     val result = host.api("pair", data = JSONObject().put("code", pairing)
                         .put("label", "Android app · " + Build.MODEL.take(48)))
                     val token = result.session ?: throw CompanionFailure(401)
-                    host.verify(token, id.did)
+                    val granted = host.grants(token)
+                    if (id.did !in granted) throw CompanionFailure(403)
                     if (!eligible(account.generation)) return@run
                     withCurrentAccount(activity, host.generation) {
                         if (!host.remember(activity, token)) throw CompanionFailure(503)
                         DeliveryTrace.store(activity).edit().putString("companion_origin", origin).apply()
-                        val known = PrivateThreads.ids(activity, visibleOnly = false)
+                        val selected = getDids(activity)
+                        val known = PrivateThreads.ids(activity, visibleOnly = false).filter {
+                            it.did in selected && it.did in granted
+                        }
                         if (known.isNotEmpty()) {
                             val saved = withSecurePreferences(activity) { prefs ->
                                 val key = host.key + ".pending"

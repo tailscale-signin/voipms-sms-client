@@ -31,6 +31,9 @@ class PrivacyRulesTest {
 
     @Test fun protectsOrdinaryNumbersAndShowsRulePrecedence() {
         assertTrue(VerificationCode.eligibleForRetention("Your security code is 005199."))
+        assertTrue(VerificationCode.shouldMaskNotification("Your code is 004275"))
+        assertFalse(VerificationCode.shouldMaskNotification("514438"))
+        assertFalse(VerificationCode.shouldMaskNotification("Invoice code: 514438"))
         assertFalse(VerificationCode.eligibleForRetention("514438"))
         assertFalse(VerificationCode.eligibleForRetention("Invoice 123456: your balance is 482.50"))
         assertNotNull(InboxRules.reason("Collect the package", false, false, setOf("COLLECT")))

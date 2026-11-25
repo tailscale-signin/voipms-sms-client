@@ -42,6 +42,7 @@ object ConversationSpeech {
 class SpeechReviewActivity : AppCompatActivity(), RecognitionListener {
     private var engine: SpeechRecognizer? = null
     private var pipe: ParcelFileDescriptor? = null
+    private var writer: ParcelFileDescriptor? = null
     private var encoding: kotlinx.coroutines.Job? = null
     private lateinit var status: TextView
     private lateinit var review: EditText
@@ -56,7 +57,11 @@ class SpeechReviewActivity : AppCompatActivity(), RecognitionListener {
         status = TextView(this)
         review = EditText(this).apply { setHint(R.string.tools_transcript); minLines = 3 }
         action = Button(this).apply { setText(R.string.tools_start_listening); setOnClickListener {
-            if (engine != null) { engine?.stopListening(); return@setOnClickListener }
+            if (engine != null) {
+                if (intent.data == null) engine?.stopListening()
+                else { reset(); status.setText(R.string.tools_audio_prompt) }
+                return@setOnClickListener
+            }
             if (ContextCompat.checkSelfPermission(this@SpeechReviewActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) recognize()
             else permission.launch(Manifest.permission.RECORD_AUDIO)
         } }
@@ -96,6 +101,7 @@ class SpeechReviewActivity : AppCompatActivity(), RecognitionListener {
                 if (Build.VERSION.SDK_INT < 33) return
                 val descriptors = ParcelFileDescriptor.createPipe()
                 pipe = descriptors[0]
+                writer = descriptors[1]
                 request.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, descriptors[0])
                     .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
                     .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16000)
@@ -110,7 +116,7 @@ class SpeechReviewActivity : AppCompatActivity(), RecognitionListener {
             engine?.setRecognitionListener(this)
             engine?.startListening(request)
             action.setText(R.string.tools_stop)
-            action.isEnabled = uri == null
+            action.isEnabled = true
             status.setText(if (uri == null) R.string.tools_listening else R.string.tools_transcribing)
         } catch (_: RuntimeException) { reset(); status.setText(R.string.tools_speech_failed) }
     }
@@ -175,6 +181,7 @@ class SpeechReviewActivity : AppCompatActivity(), RecognitionListener {
     private fun reset() {
         runCatching { engine?.cancel(); engine?.destroy() }; engine = null
         runCatching { pipe?.close() }; pipe = null
+        runCatching { writer?.close() }; writer = null
         encoding?.cancel(); encoding = null
         action.isEnabled = true
         action.setText(if (intent.data == null) R.string.tools_start_listening else R.string.tools_transcribe)

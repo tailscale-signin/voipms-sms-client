@@ -45,7 +45,7 @@ internal class DeliveryTools(private val activity: FragmentActivity) {
             .setPositiveButton(if (token == null) R.string.delivery_start else R.string.delivery_refresh) { _, _ ->
                 if (token == null) DeliveryTrace.begin(activity, did)
                 trace(did)
-            }.setNegativeButton(android.R.string.closeButtonLabel, null).apply {
+            }.setNegativeButton(android.R.string.cancel, null).apply {
                 if (token != null) setNeutralButton(R.string.delivery_restart) { _, _ -> DeliveryTrace.begin(activity, did); trace(did) }
             }.show()
     }

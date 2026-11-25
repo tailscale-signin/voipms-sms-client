@@ -29,7 +29,7 @@ internal object PortableBackup {
         File(context.cacheDir, "portable-messages-stage").listFiles()?.forEach { if (it.isFile) it.delete() }
     }
 
-    private fun records(input: InputStream, id: ConversationId, visit: (Sms) -> Unit) {
+    private fun records(input: InputStream, id: ConversationId): Sequence<Sms> = sequence {
         val data = DataInputStream(input.buffered())
         while (true) {
             val length = data.readInt()
@@ -46,7 +46,7 @@ internal object PortableBackup {
                 text = o.getString("text"), unread = bit("unread"), delivered = bit("sent"),
                 media1 = refs.getOrNull(0).orEmpty(), media2 = refs.getOrNull(1).orEmpty(), media3 = refs.getOrNull(2).orEmpty(),
                 mediaJson = net.kourlas.voipms_sms.media.AttachmentList.encode(refs))
-            visit(row)
+            yield(row)
         }
         require(data.read() == -1)
     }
@@ -54,8 +54,8 @@ internal object PortableBackup {
     fun attachments(row: Sms) = net.kourlas.voipms_sms.media.AttachmentList.decode(row.mediaJson)
         .ifEmpty { listOf(row.media1, row.media2, row.media3).filter(String::isNotBlank) }
 
-    fun rows(zip: ZipFile, id: ConversationId, visit: (Sms) -> Unit) {
-        zip.getInputStream(requireNotNull(zip.getEntry("threads/" + id.getId()))).use { records(it, id, visit) }
+    fun rows(zip: ZipFile, id: ConversationId): Sequence<Sms> = sequence {
+        zip.getInputStream(requireNotNull(zip.getEntry("threads/" + id.getId()))).use { yieldAll(records(it, id)) }
     }
 
     suspend fun export(context: Context, uri: Uri, password: CharArray) {
@@ -124,7 +124,7 @@ internal object PortableBackup {
                         match != null -> {
                             val id = ConversationId(match.groupValues[1], match.groupValues[2])
                             var count = 0
-                            rows(zip, id) { row ->
+                            rows(zip, id).forEach { row ->
                                 count++
                                 attachments(row).filter { it.startsWith("mms-local:") }
                                     .mapTo(referenced) { "media/" + it.removePrefix("mms-local:") }
