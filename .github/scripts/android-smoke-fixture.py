@@ -316,6 +316,22 @@ def verify_private_pull(adb, element, screenshot):
         adb("shell", "locksettings", "clear", "--old", pin)
 
 
+def tap_contact_dialog_button(adb, element, button_id, expected_name=None):
+    # Hide the keyboard before using screen coordinates. Its suggestion strip can cover the button
+    # at the bounds from a stale UIAutomator snapshot while Android animates the dialog.
+    field = PACKAGE + ":id/local_contact_name_input"
+    element("resource-id", field, expected_text=expected_name)
+    if "mInputShown=true" in adb("shell", "dumpsys", "input_method"):
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        deadline = time.monotonic() + 10
+        while "mInputShown=true" in adb("shell", "dumpsys", "input_method"):
+            if time.monotonic() >= deadline:
+                raise AssertionError("The keyboard is still covering the contact editor")
+            time.sleep(.2)
+    element("resource-id", field, expected_text=expected_name)
+    element("resource-id", button_id, tap=True)
+
+
 def run(adb, element, screenshot):
     install_fixture(adb)
     # Launch a fresh task. Before seeding, the signed-out smoke path ends on
@@ -447,7 +463,7 @@ def verify_contacts(adb, element):
     element("resource-id", PACKAGE + ":id/contact", expected_text="(416) 555-0111", tap=True)
     element("resource-id", PACKAGE + ":id/local_contact_name_input", tap=True)
     adb("shell", "input", "text", "Studio%sFixture")
-    element("resource-id", "android:id/button1", tap=True)
+    tap_contact_dialog_button(adb, element, "android:id/button1", alias)
     element("resource-id", PACKAGE + ":id/contact", expected_text=alias)
     sealed = base64.b64decode(adb("shell", "run-as", PACKAGE, "base64", "no_backup/local_contacts.v1"))
     if alias.encode() in sealed or CONTACT.encode() in sealed or len(sealed) < 32:
@@ -461,8 +477,7 @@ def verify_contacts(adb, element):
     element("resource-id", PACKAGE + ":id/contact", expected_text=alias)
     element("text", LAST_MESSAGE, tap=True)
     element("text", alias, tap=True)
-    element("resource-id", PACKAGE + ":id/local_contact_name_input", expected_text=alias)
-    element("resource-id", "android:id/button2", tap=True)
+    tap_contact_dialog_button(adb, element, "android:id/button2", alias)
     launch_home(adb)
     element("text", "Messages", tap=True)
     element("resource-id", PACKAGE + ":id/chat_button", tap=True)
@@ -471,8 +486,7 @@ def verify_contacts(adb, element):
     element("resource-id", PACKAGE + ":id/search_src_text", tap=True)
     adb("shell", "input", "text", typed_number)
     element("resource-id", PACKAGE + ":id/phone_number", expected_text=typed_number, tap=True)
-    element("resource-id", PACKAGE + ":id/local_contact_name_input")
-    element("resource-id", "android:id/button2", tap=True)
+    tap_contact_dialog_button(adb, element, "android:id/button2")
     element("text", "Manual entry", tap=True)
     element("text", "(416) 555-0176")
     print("App-local contact survived a cold start and supports local editing or composing from the picker", flush=True)

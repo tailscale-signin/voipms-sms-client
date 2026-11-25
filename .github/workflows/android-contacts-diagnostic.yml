@@ -14,19 +14,19 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           name: voipms-sms-fdroid-debug
-          run-id: 45698053207
+          run-id: 45700130252
           github-token: ${{ github.token }}
           path: smoke-apk
       - name: Enable emulator acceleration
         run: sudo chown "$(id -u):$(id -g)" /dev/kvm
-      - name: Exercise the encrypted address book on Android 14
+      - name: Exercise the encrypted address book on Android 16
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         env:
           SMS_SMOKE_SCREENSHOTS: ${{ runner.temp }}/contacts-smoke
         with:
-          api-level: 34
+          api-level: 36
           arch: x86_64
-          target: default
+          target: google_apis
           disable-animations: true
           script: python3 .github/scripts/android-contacts-smoke.py smoke-apk/*.apk
       - if: always()
