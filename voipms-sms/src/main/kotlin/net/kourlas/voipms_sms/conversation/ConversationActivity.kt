@@ -80,7 +80,7 @@ import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.demo.getDemoNotification
 import net.kourlas.voipms_sms.newConversation.NewConversationActivity
 import net.kourlas.voipms_sms.notifications.Notifications
-import net.kourlas.voipms_sms.preferences.accountConfigured
+import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.preferences.getDidShowInConversationsView
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.getMessageTextBoxMaximumSize
@@ -618,8 +618,9 @@ open class ConversationActivity(val bubble: Boolean = false) :
         val messageEditText = findViewById<EditText>(R.id.message_edit_text)
         val messageText = messageEditText.text.toString()
 
+        val account = readAccountCredentials(applicationContext) ?: return
         if (messageText.trim() != ""
-            && accountConfigured(applicationContext)
+            && account.configured
             && did in getDids(applicationContext)
         ) {
             // Clear the message text box.
@@ -640,7 +641,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                             ),
                             getMessageTexts(applicationContext, messageText)
                         )
-                    SendMessageWorker.sendMessages(applicationContext, ids)
+                    SendMessageWorker.sendMessages(applicationContext, ids, account.generation)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -1107,6 +1108,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
      * Handles the resend button.
      */
     private fun onResendButtonClick(mode: ActionMode) {
+        val account = readAccountCredentials(applicationContext)?.takeIf { it.configured } ?: return
         // Resend all checked items.
         val databaseIds = adapter.messageItems.filter { it.checked }
             .map { it.message.databaseId }
@@ -1117,7 +1119,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 for (databaseId in databaseIds) {
                     Database.getInstance(applicationContext)
                         .markMessageDeliveryInProgress(databaseId)
-                    SendMessageWorker.sendMessage(applicationContext, databaseId)
+                    SendMessageWorker.sendMessage(applicationContext, databaseId, account.generation)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -1387,6 +1389,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 val messageItem = adapter[position]
                 val message = messageItem.message
                 if (!message.isDelivered && !message.isDeliveryInProgress) {
+                    val account = readAccountCredentials(applicationContext)?.takeIf { it.configured } ?: return
                     CustomApplication.getApplication().applicationScope.launch(
                         Dispatchers.Default
                     ) {
@@ -1397,7 +1400,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                                 )
                             SendMessageWorker.sendMessage(
                                 applicationContext,
-                                messageItem.message.databaseId
+                                messageItem.message.databaseId, account.generation
                             )
                         } catch (e: CancellationException) {
                             throw e

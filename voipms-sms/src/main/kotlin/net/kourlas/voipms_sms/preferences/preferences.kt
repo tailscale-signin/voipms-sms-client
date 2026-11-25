@@ -526,10 +526,10 @@ internal fun reconcileAccountSelection(context: Context, generation: Long) {
 }
 
 /** Keep credential changes mutually exclusive with applying a completed network response. */
-internal suspend fun <T> withCurrentAccount(context: Context, generation: Long, action: suspend () -> T): T? =
+internal suspend fun <T> withCurrentAccount(context: Context, generation: Long, action: suspend (AccountCredentials) -> T): T? =
     accountChanges.withLock {
         val current = readAccountCredentials(context) ?: throw IOException("Account storage unavailable")
-        if (current.generation == generation && current.configured) action() else null
+        if (current.generation == generation && current.configured) action(current) else null
     }
 
 suspend fun saveAccountCredentials(context: Context, email: String, password: String): Boolean =

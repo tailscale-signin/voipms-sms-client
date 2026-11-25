@@ -38,9 +38,9 @@ import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.network.NetworkManager
 import net.kourlas.voipms_sms.notifications.Notifications
-import net.kourlas.voipms_sms.preferences.accountConfigured
-import net.kourlas.voipms_sms.preferences.getEmail
-import net.kourlas.voipms_sms.preferences.getPassword
+import net.kourlas.voipms_sms.preferences.AccountCredentials
+import net.kourlas.voipms_sms.preferences.getDids
+import net.kourlas.voipms_sms.preferences.withCurrentAccount
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.Message
 import net.kourlas.voipms_sms.utils.httpPostWithMultipartFormData
@@ -67,6 +67,8 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
             )
         ) ?: return Result.failure()
 
+        // Work created by an older build has no verified originating session.
+        val generation = inputData.getLong(ACCOUNT_GENERATION, -1)
         var success = true
         for (databaseId in databaseIds) {
             try {
@@ -77,7 +79,17 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                 markedAsNotSent = false
 
                 // Send the message.
-                sendMessage(databaseId)
+                try {
+                    val applied = withCurrentAccount(applicationContext, generation) { credentials ->
+                        sendMessage(databaseId, credentials)
+                        true
+                    }
+                    if (applied != true) {
+                        error = applicationContext.getString(R.string.send_message_account_changed)
+                    }
+                } catch (_: IOException) {
+                    error = applicationContext.getString(R.string.credentials_storage_unavailable)
+                }
                 if (error != null) {
                     success = false
                 }
@@ -115,11 +127,16 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                         ).markMessageNotSent(
                             databaseId
                         )
+                        markedAsNotSent = true
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to mark message as not sent", e)
                     }
+                }
+                if (markedAsSent || markedAsNotSent) {
+                    val attempts = applicationContext.getSharedPreferences(ATTEMPTS, Context.MODE_PRIVATE)
+                    attempts.edit().remove(attemptKey(databaseId)).apply()
                 }
             }
         }
@@ -153,14 +170,8 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
      * Sends the message we were asked to send using the VoIP.ms API and
      * updates the database accordingly.
      */
-    private suspend fun sendMessage(databaseId: Long) {
+    private suspend fun sendMessage(databaseId: Long, credentials: AccountCredentials) {
         try {
-            // Terminate quietly if it is impossible to send messages due to
-            // account configuration.
-            if (!accountConfigured(applicationContext)) {
-                return
-            }
-
             // Retrieve the message we are supposed to send. Terminate quietly
             // if it is not in a valid state.
             val message = Database.getInstance(applicationContext)
@@ -189,7 +200,21 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
 
             // Send the message using the VoIP.ms API. If we succeed, mark the
             // the message was sent. If not, mark it as not having been sent.
-            val voipId = sendMessageWithVoipMsApi(message)
+            if (message.did !in getDids(applicationContext)) {
+                error = applicationContext.getString(R.string.send_message_account_changed)
+                return
+            }
+            val attempts = applicationContext.getSharedPreferences(ATTEMPTS, Context.MODE_PRIVATE)
+            val key = attemptKey(databaseId)
+            if (attempts.contains(key)) {
+                error = applicationContext.getString(R.string.send_message_error_api_request)
+                return
+            }
+            if (!attempts.edit().putBoolean(key, true).commit()) {
+                error = applicationContext.getString(R.string.send_message_attempt_unavailable)
+                return
+            }
+            val voipId = sendMessageWithVoipMsApi(message, credentials)
             if (voipId != null) {
                 Database.getInstance(
                     applicationContext
@@ -213,7 +238,7 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                     R.string.send_message_inline_reply
                 ), false
             )
-            if (inlineReply) {
+            if (inlineReply && markedAsSent) {
                 val inlineReplyDid = inputData.getString(
                     applicationContext.getString(
                         R.string.send_message_inline_reply_did
@@ -247,9 +272,9 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
      *
      * @return Null if the message could not be sent.
      */
-    private suspend fun sendMessageWithVoipMsApi(message: Message): Long? {
+    private suspend fun sendMessageWithVoipMsApi(message: Message, credentials: AccountCredentials): Long? {
         // Get JSON response from API
-        val response: MessageResponse? = getMessageResponse(message)
+        val response: MessageResponse? = getMessageResponse(message, credentials)
 
         // Get VoIP.ms ID from response
         if (response == null) return null // The request already set the failure reason.
@@ -308,14 +333,14 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
         return response.sms
     }
 
-    private suspend fun getMessageResponse(message: Message): MessageResponse? {
+    private suspend fun getMessageResponse(message: Message, credentials: AccountCredentials): MessageResponse? {
         try {
             return httpPostWithMultipartFormData<MessageResponse>(
                 applicationContext,
                 "https://voip.ms/api/v1/rest.php",
                 mapOf(
-                    "api_username" to getEmail(applicationContext),
-                    "api_password" to getPassword(applicationContext),
+                    "api_username" to credentials.email,
+                    "api_password" to credentials.password,
                     "method" to "sendSMS",
                     "did" to message.did,
                     "dst" to message.contact,
@@ -346,18 +371,27 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
         }
     }
 
+    // WorkManager keeps the same UUID when resuming an interrupted WorkRequest.
+    // A manual resend creates a new UUID and a separately authorized attempt.
+    private fun attemptKey(databaseId: Long) = "$id/$databaseId"
+
     companion object {
+        internal const val ACCOUNT_GENERATION = "send_account_generation"
+        private const val ATTEMPTS = "outbound_submission_attempts"
+
         /**
          * Sends the message associated with the specified database ID.
          */
         fun sendMessages(
             context: Context,
             databaseIds: List<Long>,
+            generation: Long,
             inlineReplyConversationId: ConversationId? = null
         ) {
             val work = OneTimeWorkRequestBuilder<SendMessageWorker>()
                 .setInputData(
                     workDataOf(
+                        ACCOUNT_GENERATION to generation,
                         context.getString(
                             R.string.send_message_database_ids
                         ) to databaseIds.toLongArray(),
@@ -390,9 +424,10 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
         fun sendMessage(
             context: Context,
             databaseId: Long,
+            generation: Long,
             inlineReplyConversationId: ConversationId? = null
         ) {
-            sendMessages(context, listOf(databaseId), inlineReplyConversationId)
+            sendMessages(context, listOf(databaseId), generation, inlineReplyConversationId)
         }
     }
 }

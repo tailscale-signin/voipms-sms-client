@@ -296,6 +296,8 @@
     <string name="send_message_error_api_error_sms_toolong">Not sent: SMS too long</string>
     <string name="send_message_error_api_parse">Delivery unconfirmed. Check the VoIP.ms Message Center before resending.</string>
     <string name="send_message_error_api_request">VoIP.ms did not confirm delivery. Check the Message Center before resending.</string>
+    <string name="send_message_account_changed">Sending stopped. The original account or selected number is no longer active.</string>
+    <string name="send_message_attempt_unavailable">Sending stopped. The app could not save the submission state.</string>
     <string name="send_message_error_network">Not sent: network unavailable</string>
     <string name="send_message_error_unknown">Not sent: unknown error</string>
 
