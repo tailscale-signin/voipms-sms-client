@@ -62,7 +62,14 @@ class MatrixIntegrationTest {
                     while (bob.getRoom(room)?.use { it.membership() } != Membership.JOINED) delay(300)
                     Log.i("MatrixCI", "Peer joined the encrypted room")
                     val aliceId = requireNotNull(MatrixChat.account(context))
-                    val listed = MatrixChat.rooms(context).first { it.id == room }
+                    // Bob's client can see its join before Alice's /sync observes m.direct and membership.
+                    val session = MatrixSessions.open(context)
+                    val listed = withTimeout(20_000) {
+                        session.updates.first {
+                            MatrixChat.rooms(context).any { it.id == room && it.directPeer == bobId }
+                        }
+                        MatrixChat.rooms(context).first { it.id == room }
+                    }
                     assertEquals(bobId, listed.directPeer)
                     verifyPhoneLink(context, requireNotNull(MatrixChat.identity(context)), room, bobId)
                     requireNotNull(bob.getRoom(room)).use { remote ->
