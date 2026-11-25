@@ -35,7 +35,7 @@ class LiveDeliveryServiceLifecycleTest {
         assertFalse(info.exported)
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC, info.foregroundServiceType)
         val permissions = manager.getPackageInfo(app.packageName, PackageManager.GET_PERMISSIONS)
-            .requestedPermissions.toSet()
+            .requestedPermissions.orEmpty().toSet()
         assertTrue(Manifest.permission.FOREGROUND_SERVICE in permissions)
         assertTrue(Manifest.permission.FOREGROUND_SERVICE_DATA_SYNC in permissions)
     }
