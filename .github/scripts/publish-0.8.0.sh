@@ -93,6 +93,7 @@ case "${1:?supply prepare, sign or publish}" in
     check_target
     check_run "$PRIMARY_RUN" android-primary.yml
     check_run "$FDROID_RUN" android-fdroid.yml
+    check_run "$PAGES_RUN" static.yml
     gh api "$api/actions/artifacts/$ARTIFACT_ID" | jq -e --arg rev "$REV" --arg run "$PRIMARY_RUN" --arg digest "sha256:$ARTIFACT_SHA256" \
       '.name == "voipms-sms-primary-release-unsigned" and .expired == false and .digest == $digest and
        .workflow_run.head_sha == $rev and (.workflow_run.id | tostring) == $run' >/dev/null
@@ -101,6 +102,7 @@ case "${1:?supply prepare, sign or publish}" in
     mapfile -t files < <(unzip -Z1 artifact.zip)
     [[ "${#files[@]}" == 1 && "${files[0]}" == *-unsigned.apk ]]
     unzip -p artifact.zip "${files[0]}" > unsigned.apk
+    printf '%s  unsigned.apk\n' "$UNSIGNED_SHA256" | sha256sum --check
     check_package unsigned.apk
     python3 - <<'PY'
 import struct
@@ -146,7 +148,7 @@ PY
     ;;
   sign)
     if [[ -z "${SIGNING_STORE:-}" || -z "${SIGNING_PASSWORD:-}" ]]; then
-      echo '::error::The original SMS signing identity is required. Configure VOIPMS_SMS_KEYSTORE_BASE64 and VOIPMS_SMS_KEYSTORE_PASSWORD or provide the maintainer-signed APK.'
+      echo '::error::The original SMS signing identity is required. Configure VOIPMS_RELEASE_KEYSTORE_BASE64 and VOIPMS_RELEASE_STORE_PASSWORD or provide the maintainer-signed APK.'
       exit 1
     fi
     trap 'rm -f -- "$work/release.keystore"' EXIT
@@ -164,12 +166,19 @@ PY
     release=$(release_json)
     if [[ -z "$release" ]]; then
       cat > notes.md <<'NOTES'
-**VoIP.ms SMS 0.8.0 (build 158)** targets Android 16.
+**VoIP.ms SMS 0.8.0 (158)** is a signed Android update for installations of the fork’s 0.7.1 release.
 
-* The inbox has Home, Messages and Other. Home keeps missed calls and voicemail in time order and lets you play, pause, stop or text back. Other explains junk classifications and lets you correct them. Use the themed copy button on a message to copy a verification code.
-* Identify unknown numbers with an on-device numbering-plan estimate and optional online sources for caller names, carrier data, numbering assignments and spam reports. You choose which services receive a lookup. Truecaller is available as a manual web search.
-* Tap a number to save an encrypted app-only contact. Encrypted portable backups include those contacts. Private threads open with device authentication.
-* Use your VoIP.ms line over Wi-Fi, link an encrypted Matrix room, or pair nearby Android devices for Wi-Fi Direct messaging. The carrier messaging app handles RCS drafts.
+* Send ordinary SMS and MMS from your VoIP.ms number over internet-connected Wi-Fi. The outbox keeps queued messages when connectivity drops and lets you review uncertain sends.
+* Link a Matrix account to use encrypted direct and group chat, attachments, typing indicators and receipts with participating accounts. Nearby lets two compatible Android devices exchange messages over Wi-Fi Direct after you confirm the pairing on both phones.
+* Open a draft in the phone’s carrier messaging app to use your mobile line. The carrier app and provider determine whether RCS is available for that conversation.
+* Review suspicious messages using on-device English, French and Portuguese analysis. The Other tab explains why a conversation was flagged, and you can correct its placement.
+* Look up an unfamiliar number using the on-device numbering plan and optional directory, carrier and reputation sources. You choose which services receive the number.
+* Save names in the encrypted app address book. Passphrase-protected portable backups include saved app contacts by default. You can exclude them on export or select individual contacts on restore.
+* The refreshed Home, Messages and Other tabs use a simpler layout with new icons and buttons. Home lists missed calls and voicemails by receipt time after VoIP.ms synchronization. Play, pause or stop voicemail there or in the matching conversation. A long pull at the top of Messages opens private threads after device authentication. Repeat the gesture to return.
+
+[Full change list](https://github.com/tailscale-signin/voipms-sms-client/blob/v0.8.0/CHANGES.md) · [Setup and usage](https://github.com/tailscale-signin/voipms-sms-client/blob/v0.8.0/HELP.md)
+
+APK signing certificate SHA-256 `023103fb5ca64728235d8786f2404f47050f2fb3fe7e8b1aab50e924d07bf43a`.
 NOTES
       release=$(gh api --method POST "$api/releases" -f tag_name="$tag" -f target_commitish="$REV" \
         -f name='VoIPms SMS 0.8.0' -F draft=true -F prerelease=false -F body=@notes.md)

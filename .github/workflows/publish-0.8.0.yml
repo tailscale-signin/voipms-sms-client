@@ -21,6 +21,8 @@ jobs:
       REV: 'e2474813d04cf3242817ff0924a7f2368bf9e460'
       PRIMARY_RUN: '45708391204'
       FDROID_RUN: '45708391277'
+      PAGES_RUN: '45708391405'
+      UNSIGNED_SHA256: 'a8e96bfe9ff5006236ec10b4febb55f6da09b2cd2aef0140ccd8f45b340f1e7b'
       ARTIFACT_ID: '15067166676'
       ARTIFACT_SHA256: 'dc12137772ec66138e3efe04cd092786367815a5725bd909428afa782d1640ad'
     steps:
@@ -35,10 +37,10 @@ jobs:
       - name: Sign the verified release APK
         if: steps.prepare.outputs.has_signed_asset != 'true'
         env:
-          SIGNING_STORE: ${{ secrets.VOIPMS_SMS_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
-          SIGNING_PASSWORD: ${{ secrets.VOIPMS_SMS_KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
-          SIGNING_ALIAS: ${{ secrets.VOIPMS_SMS_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.VOIPMS_SMS_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
+          SIGNING_STORE: ${{ secrets.VOIPMS_SMS_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 || secrets.VOIPMS_RELEASE_KEYSTORE_BASE64 }}
+          SIGNING_PASSWORD: ${{ secrets.VOIPMS_SMS_KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD || secrets.VOIPMS_RELEASE_STORE_PASSWORD }}
+          SIGNING_ALIAS: ${{ secrets.VOIPMS_SMS_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS || secrets.VOIPMS_RELEASE_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.VOIPMS_SMS_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD || secrets.VOIPMS_RELEASE_KEY_PASSWORD }}
         run: bash .github/scripts/publish-0.8.0.sh sign
       - name: Verify, publish and download the signed APK
         env:
