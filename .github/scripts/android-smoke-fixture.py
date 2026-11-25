@@ -234,7 +234,30 @@ def reveal_older_thread_item(adb, resource):
     raise AssertionError("Conversation never displayed " + resource)
 
 
-def verify_private_pull(adb, element):
+def foreground_activities(adb):
+    windows = adb("shell", "dumpsys", "window", "displays")
+    activities = adb("shell", "dumpsys", "activity", "activities")
+    return [line.strip() for line in (windows + "\n" + activities).splitlines()
+            if re.search(r"mCurrentFocus=|mFocusedApp=|mResumedActivity[:=]|topResumedActivity[:=]|ResumedActivity:", line)]
+
+
+def credential_prompt(focus, tree):
+    system = {"com.android.settings", "com.google.android.settings", "com.android.systemui", "com.google.android.systemui", "android"}
+    for line in focus:
+        if re.search(r"mCurrentFocus=.*\bBiometricPrompt\b", line, re.I):
+            return True
+        if any(package + "/" in line for package in system) and re.search(
+                r"Confirm(?:Lock|DeviceCredential)|BiometricPrompt|AuthCredential|CredentialSelector", line, re.I):
+            return True
+    return any(n.get("package") in system and
+               (n.get("password") == "true" or
+                re.search(r"pin(?:_| )?(?:entry|view|area)|lockPassword|password_entry|credential_(?:pin|password)",
+                          n.get("resource-id", ""), re.I) or
+                re.search(r"\bPIN\b", n.get("text", "") + " " + n.get("content-desc", ""), re.I))
+               for n in tree.iter("node"))
+
+
+def verify_private_pull(adb, element, screenshot):
     pin = "528946"
     if adb("shell", "pm", "has-feature", "android.software.secure_lock_screen") != "true":
         print("Private credential gesture unavailable on this emulator image (no secure lock screen feature)", flush=True)
@@ -243,26 +266,27 @@ def verify_private_pull(adb, element):
     configured = adb("shell", "locksettings", "set-pin", pin)
     if "set to" not in configured.lower():
         raise AssertionError("Could not configure the emulator credential for the private-list gesture")
+    gesture = None
     try:
         def pull():
+            nonlocal gesture
             tree = read_tree(adb)
             view = next(n for n in tree.iter("node") if n.get("resource-id") == PACKAGE + ":id/list")
             x1, y1, x2, y2 = bounds(view)
             x = str((x1+x2)//2)
-            adb("shell", "input", "swipe", x, str(y1 + (y2-y1)//9), x, str(y1 + 4*(y2-y1)//5), "650")
+            start, end = y1 + (y2-y1)//9, y1 + 4*(y2-y1)//5
+            gesture = f"list={x1,y1,x2,y2} swipe=({x},{start})→({x},{end})"
+            print("Private fixture gesture " + gesture, flush=True)
+            adb("shell", "input", "swipe", x, str(start), x, str(end), "650")
         if any(n.get("text") == PRIVATE_TEXT for n in read_tree(adb).iter("node")):
             raise AssertionError("Private fixture was visible before credential confirmation")
         pull()
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            focus = adb("shell", "dumpsys", "window", "windows")
-            on_prompt = re.search(r"mCurrentFocus=.*(?:ConfirmLock|ConfirmDeviceCredential|BiometricPrompt|CredentialSelector)", focus, re.I)
-            if on_prompt:
-                break
-            system_credential = any(n.get("package") in {"com.android.settings", "com.android.systemui"}
-                                    and "pin" in (n.get("text", "") + n.get("content-desc", "")).lower()
-                                    for n in read_tree(adb).iter("node"))
-            if system_credential:
+            focus = foreground_activities(adb)
+            tree = read_tree(adb)
+            if credential_prompt(focus, tree):
+                print("Credential confirmation foreground: " + " | ".join(focus), flush=True)
                 break
             time.sleep(.3)
         else:
@@ -275,6 +299,18 @@ def verify_private_pull(adb, element):
         element("text", LAST_MESSAGE)
         if any(n.get("text") == PRIVATE_TEXT for n in read_tree(adb).iter("node")):
             raise AssertionError("Private message remained visible after returning to Messages")
+    except Exception:
+        screenshot("unexpected-private-gesture")
+        try:
+            focus = foreground_activities(adb)
+            tree = read_tree(adb)
+            visible = [(n.get("package"), n.get("resource-id"), n.get("text"), n.get("content-desc"), n.get("bounds"))
+                       for n in tree.iter("node") if n.get("password") != "true"]
+            print(f"Private gesture failure: {gesture}, density={adb('shell', 'wm', 'density')}, "
+                  f"size={adb('shell', 'wm', 'size')}, foreground={focus}, visible={visible}", flush=True)
+        except Exception as diagnostic_error:
+            print(f"Private gesture diagnostic could not finish: {diagnostic_error}", flush=True)
+        raise
     finally:
         adb("shell", "locksettings", "clear", "--old", pin)
 
@@ -301,7 +337,7 @@ def run(adb, element, screenshot):
     element("text", LAST_MESSAGE)
     element("resource-id", PACKAGE + ":id/sender_region")
     screenshot("sample-inbox")
-    verify_private_pull(adb, element)
+    verify_private_pull(adb, element, screenshot)
     element("text", "Other", tap=True)
     element("text", f"Link and request mentioning “Unpaid tolls” · {JUNK}", hold=True)
     element("content-desc", "More options", tap=True)
