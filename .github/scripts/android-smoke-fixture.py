@@ -83,7 +83,7 @@ def run(adb, element, screenshot):
     install_fixture(adb)
     # Launch a fresh task. Before seeding, the signed-out smoke path ends on
     # SignInActivity, which Android can otherwise restore over the inbox.
-    adb("shell", "am", "start", "-W", "--activity-new-task", "--activity-clear-task",
+    adb("shell", "am", "start", "-W", "-f", "0x10008000",
         "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
         "-n", PACKAGE + "/.conversations.ConversationsActivity")
     element("text", LAST_MESSAGE)
