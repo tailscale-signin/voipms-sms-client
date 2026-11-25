@@ -63,9 +63,18 @@ jobs:
       - name: Enable emulator acceleration
         run: sudo chown "$(id -u):$(id -g)" /dev/kvm
       - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          SMS_SMOKE_SCREENSHOTS: ${{ runner.temp }}/voipms-smoke-screenshots
         with:
           api-level: 34
           arch: x86_64
           target: default
           disable-animations: true
           script: python3 .github/scripts/android-smoke.py smoke-apk/*.apk
+      - name: Upload emulator screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-14-smoke-screenshots
+          path: ${{ runner.temp }}/voipms-smoke-screenshots/*.png
+          if-no-files-found: ignore
