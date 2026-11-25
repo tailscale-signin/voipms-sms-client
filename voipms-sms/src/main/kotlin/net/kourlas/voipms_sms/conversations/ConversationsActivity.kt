@@ -561,7 +561,9 @@ open class ConversationsActivity(val archived: Boolean = false) :
                 && firstRun(applicationContext)
             ) {
                 startActivity(
-                    Intent(applicationContext, SignInActivity::class.java)
+                    Intent(this@ConversationsActivity, SignInActivity::class.java)
+                        .putExtra(SignInActivity.EXTRA_FIRST_RUN, true)
+                        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 )
             }
         }
