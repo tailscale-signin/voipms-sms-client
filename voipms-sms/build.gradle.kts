@@ -1,5 +1,6 @@
 import com.android.build.api.dsl.ApplicationExtension
 import java.net.URI
+import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.android.application)
@@ -29,6 +30,9 @@ if (pushCallbackUrl.isNotEmpty()) {
 }
 if (hasFirebaseConfig) {
     apply(plugin = "com.google.gms.google-services")
+    // Google Services registers tasks for every flavor even though only primary uses Firebase.
+    tasks.matching { it.name.startsWith("processFdroid") && it.name.endsWith("GoogleServices") }
+        .configureEach { enabled = false }
 }
 // fdroid-remove-end
 
@@ -99,6 +103,8 @@ configure<ApplicationExtension> {
     }
     sourceSets.getByName("main") {
         kotlin.directories += "src/main/kotlin"
+        // Previously generated in the source tree. Each variant now owns its packaged notices.
+        assets.directories.clear()
     }
     // fdroid-remove-start
     sourceSets.getByName("primary") {
@@ -192,47 +198,52 @@ dependencies {
     testImplementation(libs.robolectric)
 }
 
-tasks.register<Delete>("cleanAssets") {
-    delete("src/main/assets")
-}
+abstract class GenerateNoticeAssets @Inject constructor(
+    private val execOperations: ExecOperations
+) : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val documents: ConfigurableFileCollection
 
-tasks.register<Copy>("copyToAssets") {
-    from("../PRIVACY.md")
-    from("../CHANGES.md")
-    from("../NOTICE")
-    from("../LICENSE.md")
-    from("../HELP.md")
-    into("src/main/assets")
-}
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val licenseTemplates: DirectoryProperty
 
-tasks.getByName("preBuild") {
-    dependsOn("copyToAssets")
-}
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val licenseMetadata: RegularFileProperty
 
-tasks.getByName("copyToAssets") {
-    dependsOn("cleanAssets")
-}
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
 
-androidComponents {
-    onVariants(selector().all()) { variant ->
-        val variantName = variant.name
-
-        val generatePackageLicenses =
-            tasks.register<Exec>("generatePackageLicenses${variantName.replaceFirstChar { it.uppercaseChar() }}") {
-                commandLine(
-                    "python",
-                    "../licenses/packageLicenseParser.py",
-                    variantName
-                )
-            }.get()
-
-        tasks.matching { it.name == "${variant.name}OssLicensesTask" }
-            .configureEach {
-                this.dependsOn("cleanAssets")
-                generatePackageLicenses.dependsOn(this)
-            }
-
-        tasks.matching { it.name == "generate${variant.name.replaceFirstChar { it.uppercaseChar() }}Assets" }
-            .configureEach { this.dependsOn(generatePackageLicenses) }
+    @TaskAction
+    fun generate() {
+        val destination = outputDirectory.get().asFile
+        destination.mkdirs()
+        for (document in documents.files) {
+            document.copyTo(destination.resolve(document.name), overwrite = true)
+        }
+        execOperations.exec {
+            commandLine(
+                "python3",
+                licenseTemplates.file("packageLicenseParser.py").get().asFile,
+                licenseMetadata.get().asFile,
+                destination.resolve("PACKAGE_LICENSES.md")
+            )
+        }
     }
+}
+
+androidComponents.onVariants { variant ->
+    val notices = tasks.register<GenerateNoticeAssets>(
+        "generatePackageLicenses${variant.name.replaceFirstChar { it.uppercaseChar() }}"
+    ) {
+        documents.from(rootProject.files("PRIVACY.md", "CHANGES.md", "NOTICE", "LICENSE.md", "HELP.md"))
+        licenseTemplates.set(rootProject.layout.projectDirectory.dir("licenses"))
+        licenseMetadata.set(layout.buildDirectory.file(
+            "generated/oss_licenses/${variant.name}/dependencies_with_licenses.json"
+        ))
+        dependsOn("${variant.name}OssLicensesTask")
+    }
+    variant.sources.assets?.addGeneratedSourceDirectory(notices, GenerateNoticeAssets::outputDirectory)
 }

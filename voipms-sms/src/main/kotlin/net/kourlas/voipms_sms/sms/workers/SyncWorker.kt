@@ -224,11 +224,12 @@ class SyncWorker(context: Context, params: WorkerParameters) :
         email: String,
         password: String
     ) = coroutineScope {
-        val failedDids = mutableSetOf<String>()
+        val rejectedDids = mutableSetOf<String>()
+        val incompleteDids = mutableSetOf<String>()
         val database = Database.getInstance(applicationContext)
         for ((index, request) in retrievalRequests.withIndex()) {
             ensureActive()
-            if (request.did in failedDids) continue
+            if (request.did in rejectedDids) continue
             val response = try {
                 httpPostWithMultipartFormData<MessagesResponse>(
                     applicationContext,
@@ -262,13 +263,14 @@ class SyncWorker(context: Context, params: WorkerParameters) :
                 null -> null
                 else -> {
                     error = applicationContext.getString(R.string.sync_error_api_error, response.status)
-                    failedDids.add(request.did)
+                    if (response.status == "invalid_did") rejectedDids.add(request.did)
+                    incompleteDids.add(request.did)
                     continue
                 }
             }
             if (rows == null) {
                 error = applicationContext.getString(R.string.sync_error_api_parse)
-                failedDids.add(request.did)
+                incompleteDids.add(request.did)
                 continue
             }
 
@@ -277,14 +279,14 @@ class SyncWorker(context: Context, params: WorkerParameters) :
             val complete = rows.size == messages.size
             if (!complete) {
                 error = applicationContext.getString(R.string.sync_error_api_parse)
-                failedDids.add(request.did)
+                incompleteDids.add(request.did)
             }
             if (messages.isNotEmpty() || complete) {
                 // Commit each inclusive window before starting another network request.
                 // A later failure leaves earlier messages both visible and notified.
                 val conversations = try {
                     database.insertMessagesVoipMsApi(
-                        messages, retrieveDeletedMessages, request.checkpoint.takeIf { complete },
+                        messages, retrieveDeletedMessages, request.checkpoint.takeIf { request.did !in incompleteDids },
                         request.previousThrough
                     )
                 } catch (e: CancellationException) {

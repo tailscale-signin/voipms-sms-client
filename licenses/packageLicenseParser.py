@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 
 licenseMap = {
     # Android SDK
@@ -23,7 +24,9 @@ licenseGroupMap = {
     ('MIT License', 'com.github.mukeshsolanki', 'MarkdownView-Android', '2.0.0'): 'MarkdownView-Android.txt'
 }
 
-dependencies = json.load(open(f'build/generated/oss_licenses/{sys.argv[1]}/dependencies_with_licenses.json'))
+license_dir = Path(__file__).resolve().parent
+with open(sys.argv[1], encoding="utf-8") as metadata:
+    dependencies = json.load(metadata)
 dependencies.sort(key=lambda e: e['name'])
 for entry in dependencies:
     for l in entry['licenses']:
@@ -38,11 +41,11 @@ for entry in dependencies:
                     if key in licenseGroupMap:
                         fileName = licenseGroupMap[key]
             if fileName is not None:
-                l['text'] = open(f'../licenses/{fileName}').read()
+                l['text'] = (license_dir / fileName).read_text(encoding='utf-8')
             else:
                 raise Exception(entry)
 
-with open('src/main/assets/PACKAGE_LICENSES.md', 'w', encoding='utf-8') as f:
+with open(sys.argv[2], 'w', encoding='utf-8') as f:
     for entry in dependencies:
         artifactInfo = entry['artifactInfo']
         if artifactInfo is not None:

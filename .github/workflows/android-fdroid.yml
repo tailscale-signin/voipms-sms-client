@@ -41,3 +41,26 @@ jobs:
         with:
           name: lint-report-fdroid
           path: voipms-sms/build/reports/lint-results-fdroidFullRelease.html
+
+  emulator:
+    name: Android 14 app smoke test
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: voipms-sms-fdroid-debug
+          path: smoke-apk
+      - name: Enable emulator acceleration
+        run: sudo chown "$(id -u):$(id -g)" /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: python3 .github/scripts/android-smoke.py smoke-apk/*.apk

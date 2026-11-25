@@ -24,10 +24,13 @@ import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import net.kourlas.voipms_sms.R
+import net.kourlas.voipms_sms.database.entities.SyncCheckpoint
+import net.kourlas.voipms_sms.sms.workers.IncomingMessage
 import net.kourlas.voipms_sms.sms.ConversationId
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
@@ -36,6 +39,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.Date
 
 /**
  * Tests for [Database.import]. The tests use the plain Application class, so
@@ -161,6 +165,44 @@ class DatabaseImportTest {
         // The restored database accepts new messages.
         insertMessages(1)
         assertEquals(4, messageCount())
+    }
+
+    @Test
+    fun emptyWindowsAdvanceOnlyTheirOwnCheckpointAndSurviveExport() = runBlocking {
+        val start = "2026-08-01"
+        val account = "first-account"
+        val did = conversationId.did
+        val checkpoint = SyncCheckpoint(account, did, start, "2026-10-29")
+        database.insertMessagesVoipMsApi(emptyList(), false, checkpoint, null)
+        val exportFile = exportDatabase()
+        database.insertMessagesVoipMsApi(emptyList(), false, checkpoint.copy(throughDay = "2026-11-01"), checkpoint.throughDay)
+        // A late or repeated run cannot move a cursor backwards.
+        database.insertMessagesVoipMsApi(emptyList(), false, checkpoint, null)
+        assertEquals("2026-11-01", database.checkedThrough(account, did, start))
+        assertNull(database.checkedThrough("second-account", did, start))
+        assertNull(database.checkedThrough(account, "5145550101", start))
+        assertNull(database.checkedThrough(account, did, "2026-07-01"))
+
+        importFile(exportFile)
+        assertEquals(checkpoint.throughDay, database.checkedThrough(account, did, start))
+        database.deleteTablesContents()
+        assertNull(database.checkedThrough(account, did, start))
+        // A worker planned against the previous database cannot establish a later cursor.
+        database.insertMessagesVoipMsApi(emptyList(), false, checkpoint.copy(throughDay = "2026-11-01"), checkpoint.throughDay)
+        assertNull(database.checkedThrough(account, did, start))
+    }
+
+    @Test
+    fun providerReplayAndSendResponseKeepOneComposerRow() = runBlocking {
+        val id = database.insertConversationMessagesDeliveryInProgress(conversationId, listOf("Hi")).single()
+        val echo = IncomingMessage(42, Date(), false, conversationId.did, conversationId.contact,
+            "Hi", null, null, null)
+        database.insertMessagesVoipMsApi(listOf(echo, echo), false, null, null)
+        database.markMessageSent(id, echo.voipId)
+        database.insertMessagesVoipMsApi(listOf(echo), false, null, null)
+        val message = database.getConversationMessagesUnsorted(conversationId).single()
+        assertEquals(id, message.databaseId)
+        assertEquals(echo.voipId, message.voipId)
     }
 
     private suspend fun insertMessages(count: Int) {
