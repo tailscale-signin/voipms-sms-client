@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="net.kourlas.voipms_sms_encrypted.xml" />
+        <exclude domain="sharedpref" path="net.kourlas.voipms_sms.demo_encrypted.xml" />
+        <exclude domain="sharedpref" path="SecurePreferences.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="net.kourlas.voipms_sms_encrypted.xml" />
+        <exclude domain="sharedpref" path="net.kourlas.voipms_sms.demo_encrypted.xml" />
+        <exclude domain="sharedpref" path="SecurePreferences.xml" />
+    </device-transfer>
+</data-extraction-rules>

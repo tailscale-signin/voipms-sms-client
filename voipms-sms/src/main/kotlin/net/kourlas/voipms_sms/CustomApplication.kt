@@ -38,9 +38,9 @@ import net.kourlas.voipms_sms.preferences.didsConfigured
 import net.kourlas.voipms_sms.preferences.fragments.AppearancePreferencesFragment
 import net.kourlas.voipms_sms.preferences.getAppTheme
 import net.kourlas.voipms_sms.preferences.getSyncInterval
-import net.kourlas.voipms_sms.preferences.migrateLegacySecurePreferences
 import net.kourlas.voipms_sms.preferences.setRawSyncInterval
 import net.kourlas.voipms_sms.sms.ConversationId
+import net.kourlas.voipms_sms.preferences.migrateDidPreferences
 import net.kourlas.voipms_sms.sms.workers.SyncWorker
 import net.kourlas.voipms_sms.utils.subscribeToDidTopics
 import kotlin.math.roundToLong
@@ -140,9 +140,7 @@ class CustomApplication : Application() {
 
         // Create static reference to self.
         self = this
-
-        // Migrate legacy secure preferences.
-        migrateLegacySecurePreferences(applicationContext)
+        migrateDidPreferences(applicationContext)
 
         // Limit synchronization interval to 15 minutes. Previous versions
         // supported a shorter interval.

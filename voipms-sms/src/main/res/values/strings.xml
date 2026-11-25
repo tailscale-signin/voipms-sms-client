@@ -394,7 +394,7 @@
     <string name="utils_date_minutes_ago">min</string>
 
     <!-- URLS -->
-    <string name="github_url" translatable="false">https://github.com/michaelkourlas/voipms-sms-client</string>
+    <string name="github_url" translatable="false">https://github.com/tailscale-signin/voipms-sms-client</string>
 
     <!-- SHORTCUTS -->
     <string name="new_conversation_shortcut_short">Compose</string>
@@ -416,7 +416,8 @@
     <!-- MISCELLANEOUS -->
     <string name="app_name">VoIP.ms SMS</string>
     <string name="copyright">Copyright © 2015–2026 Michael Kourlas</string>
-    <string name="version">Version 0.6.33</string>
+    <string name="version">Version %1$s</string>
     <string name="toast_error">Error: %1$s</string>
     <string name="toast_unexpected_error">An unexpected error occurred</string>
+    <string name="credentials_storage_unavailable">Secure account storage is unavailable. Unlock the device and try again.</string>
 </resources>

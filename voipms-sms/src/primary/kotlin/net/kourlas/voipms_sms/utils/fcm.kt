@@ -31,7 +31,7 @@ import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.notifications.workers.NotificationsRegistrationWorker
 import net.kourlas.voipms_sms.notifications.PushRegistration
-import net.kourlas.voipms_sms.preferences.accountConfigured
+import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.setSetupCompletedForVersion
 
@@ -65,7 +65,8 @@ fun subscribeToDidTopics(context: Context) {
     if (pushUnavailableMessage(context) != null) return
 
     val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-    val desired = if (accountConfigured(context)) getDids(context, onlyRetrieveMessages = true)
+    val credentials = readAccountCredentials(context) ?: return
+    val desired = if (credentials.configured) getDids(context, onlyRetrieveMessages = true)
         else emptySet()
     val recorded = PushRegistration.read(context).keys
     if (desired.isEmpty() && recorded.isEmpty() &&
@@ -90,7 +91,8 @@ fun enablePushNotifications(
         setSetupCompletedForVersion(context, BuildConfig.VERSION_CODE.toLong())
         return
     }
-    if (accountConfigured(context)) {
+    if (readAccountCredentials(context)?.configured != false) {
+        // A token refresh while secure storage is unavailable still needs a retry.
         NotificationsRegistrationWorker.enqueue(context, explicit = true)
     }
 }

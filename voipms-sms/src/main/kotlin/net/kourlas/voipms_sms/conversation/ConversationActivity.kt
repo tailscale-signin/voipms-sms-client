@@ -72,6 +72,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.CustomApplication
+import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.conversations.ConversationsActivity
 import net.kourlas.voipms_sms.conversations.ConversationsArchivedActivity
@@ -251,7 +252,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                     )
                     return false
                 }
-                did = components[0]
+                did = normalizeVoipMsDid(components[0])
                 contact = components[1]
             }
         } else {
@@ -273,7 +274,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 )
                 return false
             } else {
-                did = d
+                did = normalizeVoipMsDid(d)
                 contact = c
             }
         }

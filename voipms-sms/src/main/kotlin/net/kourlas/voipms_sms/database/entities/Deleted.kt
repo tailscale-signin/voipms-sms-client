@@ -19,9 +19,13 @@ package net.kourlas.voipms_sms.database.entities
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = Deleted.TABLE_NAME)
+@Entity(
+    tableName = Deleted.TABLE_NAME,
+    indices = [Index(value = [Deleted.COLUMN_DID, Deleted.COLUMN_VOIP_ID])]
+)
 class Deleted(
     @PrimaryKey(autoGenerate = true)
     @ColumnInfo(name = COLUMN_DATABASE_ID) val databaseId: Long = 0,

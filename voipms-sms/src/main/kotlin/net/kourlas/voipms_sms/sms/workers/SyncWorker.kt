@@ -47,11 +47,9 @@ import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.entities.SyncCheckpoint
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.notifications.Notifications
-import net.kourlas.voipms_sms.preferences.accountConfigured
+import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.preferences.didsConfigured
 import net.kourlas.voipms_sms.preferences.getDids
-import net.kourlas.voipms_sms.preferences.getEmail
-import net.kourlas.voipms_sms.preferences.getPassword
 import net.kourlas.voipms_sms.preferences.getRetrieveDeletedMessages
 import net.kourlas.voipms_sms.preferences.getRetrieveOnlyRecentMessages
 import net.kourlas.voipms_sms.preferences.getStartDate
@@ -153,7 +151,13 @@ class SyncWorker(context: Context, params: WorkerParameters) :
         try {
             // Terminate quietly if it is impossible to sync due to account
             // configuration, unless it is a full sync.
-            if (!accountConfigured(applicationContext)) {
+            val credentials = readAccountCredentials(applicationContext)
+            if (credentials == null) {
+                transientFailure = true
+                error = applicationContext.getString(R.string.credentials_storage_unavailable)
+                return
+            }
+            if (!credentials.configured) {
                 if (!forceRecent) {
                     error = applicationContext.getString(
                         R.string.sync_error_account
@@ -179,8 +183,8 @@ class SyncWorker(context: Context, params: WorkerParameters) :
                 !forceRecent && getRetrieveDeletedMessages(applicationContext)
 
             // Process retrieval requests separately
-            val email = getEmail(applicationContext)
-            val password = getPassword(applicationContext)
+            val email = credentials.email
+            val password = credentials.password
             val retrievalRequests = createRetrievalRequests(retrieveOnlyRecentMessages, accountKey(email))
             processRequests(retrievalRequests, retrieveDeletedMessages, email, password)
         } catch (e: CancellationException) {
@@ -337,9 +341,12 @@ class SyncWorker(context: Context, params: WorkerParameters) :
             // Older releases used one name for both periodic and one-time work.
             // WorkManager cannot update one type into the other.
             val oldName = context.getString(R.string.sync_work_id)
+            // An inaccessible keystore must not look like a sign-out and cancel delivery.
+            val enabled = period > 0.0 && didsConfigured(context) &&
+                (readAccountCredentials(context)?.configured ?: return)
             manager.cancelUniqueWork(oldName)
             val name = oldName + ".recovery"
-            if (period <= 0.0 || !accountConfigured(context) || !didsConfigured(context)) {
+            if (!enabled) {
                 manager.cancelUniqueWork(name)
                 return
             }

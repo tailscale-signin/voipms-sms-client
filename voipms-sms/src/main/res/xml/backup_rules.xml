@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="net.kourlas.voipms_sms_encrypted.xml" />
+    <exclude domain="sharedpref" path="net.kourlas.voipms_sms.demo_encrypted.xml" />
+    <exclude domain="sharedpref" path="SecurePreferences.xml" />
+</full-backup-content>

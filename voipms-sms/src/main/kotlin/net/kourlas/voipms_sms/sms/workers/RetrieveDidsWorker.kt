@@ -44,6 +44,7 @@ import net.kourlas.voipms_sms.preferences.getPassword
 import net.kourlas.voipms_sms.preferences.setDids
 import net.kourlas.voipms_sms.utils.enablePushNotifications
 import net.kourlas.voipms_sms.utils.httpPostWithMultipartFormData
+import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
 import java.io.IOException
 
 private const val TAG = "RetrieveDidsWorker"
@@ -226,7 +227,7 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
 
         return response.dids
             ?.filter { it.smsEnabled == "1" }
-            ?.map { it.did }
+            ?.map { normalizeVoipMsDid(it.did) }
             ?.toSet()
     }
 

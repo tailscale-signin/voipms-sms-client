@@ -19,11 +19,15 @@ package net.kourlas.voipms_sms.database.entities
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import net.kourlas.voipms_sms.sms.Message
 import java.util.Date
 
-@Entity(tableName = Sms.TABLE_NAME)
+@Entity(
+    tableName = Sms.TABLE_NAME,
+    indices = [Index(value = [Sms.COLUMN_DID, Sms.COLUMN_VOIP_ID])]
+)
 data class Sms(
     @PrimaryKey(autoGenerate = true)
     @ColumnInfo(name = COLUMN_DATABASE_ID) val databaseId: Long = 0,

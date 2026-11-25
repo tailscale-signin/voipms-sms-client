@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 12,
-    "identityHash": "1c53dcc2b0213d378aff95abf0f06fe8",
+    "identityHash": "efe79d55bc68b8d920fc3d536e9be271",
     "entities": [
       {
         "tableName": "sms",
@@ -94,7 +94,19 @@
           "columnNames": [
             "DatabaseId"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_sms_Did_VoipId",
+            "unique": false,
+            "columnNames": [
+              "Did",
+              "VoipId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sms_Did_VoipId` ON `${TABLE_NAME}` (`Did`, `VoipId`)"
+          }
+        ]
       },
       {
         "tableName": "archived",
@@ -196,7 +208,19 @@
           "columnNames": [
             "DatabaseId"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_deleted_Did_VoipId",
+            "unique": false,
+            "columnNames": [
+              "Did",
+              "VoipId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_deleted_Did_VoipId` ON `${TABLE_NAME}` (`Did`, `VoipId`)"
+          }
+        ]
       },
       {
         "tableName": "sync_checkpoint",
@@ -239,7 +263,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1c53dcc2b0213d378aff95abf0f06fe8')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'efe79d55bc68b8d920fc3d536e9be271')"
     ]
   }
 }

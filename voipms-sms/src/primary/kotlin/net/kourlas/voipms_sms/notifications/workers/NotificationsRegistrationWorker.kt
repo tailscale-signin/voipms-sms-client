@@ -43,7 +43,7 @@ import net.kourlas.voipms_sms.notifications.pushTopicForDid
 import net.kourlas.voipms_sms.preferences.accountConfigured
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.getEmail
-import net.kourlas.voipms_sms.preferences.getPassword
+import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.utils.httpPostWithMultipartFormData
 import net.kourlas.voipms_sms.utils.pushUnavailableMessage
 import java.io.IOException
@@ -59,10 +59,11 @@ class NotificationsRegistrationWorker(context: Context, params: WorkerParameters
     override suspend fun doWork(): Result {
         val context = applicationContext
         if (pushUnavailableMessage(context) != null) return Result.success()
-        val email = getEmail(context)
-        val desired = if (accountConfigured(context)) getDids(context, onlyRetrieveMessages = true)
+        val credentials = readAccountCredentials(context) ?: return Result.retry()
+        val email = credentials.email
+        val desired = if (credentials.configured) getDids(context, onlyRetrieveMessages = true)
             else emptySet()
-        val auth = mapOf("api_username" to email, "api_password" to getPassword(context))
+        val auth = mapOf("api_username" to email, "api_password" to credentials.password)
         val topics = prefs.getStringSet(TOPICS_KEY, emptySet()).orEmpty().toMutableSet()
         val outcomes = mutableMapOf<String, PushRegistration>()
         var cleanupFailed = false

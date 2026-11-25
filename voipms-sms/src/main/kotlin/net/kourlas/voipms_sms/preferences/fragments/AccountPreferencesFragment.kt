@@ -19,12 +19,12 @@ package net.kourlas.voipms_sms.preferences.fragments
 
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.widget.Toast
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.preferences.getEmail
-import net.kourlas.voipms_sms.preferences.setEmail
-import net.kourlas.voipms_sms.preferences.setPassword
+import net.kourlas.voipms_sms.preferences.saveAccountCredentials
 import net.kourlas.voipms_sms.utils.preferences
 import net.kourlas.voipms_sms.utils.subscribeToDidTopics
 
@@ -61,10 +61,12 @@ class AccountPreferencesFragment : PreferenceFragmentCompat(),
                     activity?.let { activity ->
                         preference.onPreferenceClickListener =
                             Preference.OnPreferenceClickListener {
-                                setEmail(activity, "")
-                                setPassword(activity, "")
-                                subscribeToDidTopics(activity)
-                                activity.finish()
+                                if (saveAccountCredentials(activity, "", "")) {
+                                    subscribeToDidTopics(activity)
+                                    activity.finish()
+                                } else {
+                                    Toast.makeText(activity, R.string.credentials_storage_unavailable, Toast.LENGTH_LONG).show()
+                                }
                                 true
                             }
                     }

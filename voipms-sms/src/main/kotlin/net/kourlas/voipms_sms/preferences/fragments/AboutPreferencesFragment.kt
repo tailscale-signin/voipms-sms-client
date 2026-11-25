@@ -19,8 +19,10 @@ package net.kourlas.voipms_sms.preferences.fragments
 
 import android.os.Bundle
 import androidx.lifecycle.lifecycleScope
+import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import kotlinx.coroutines.launch
+import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.utils.getInstallationId
 import net.kourlas.voipms_sms.utils.preferences
@@ -32,6 +34,7 @@ class AboutPreferencesFragment : PreferenceFragmentCompat() {
     ) {
         // Add preferences
         addPreferencesFromResource(R.xml.preferences_about)
+        findPreference<Preference>("app_version")?.summary = getString(R.string.version, BuildConfig.VERSION_NAME)
     }
     override fun onResume() {
         super.onResume()

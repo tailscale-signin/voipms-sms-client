@@ -40,10 +40,9 @@ import net.kourlas.voipms_sms.preferences.accountConfigured
 import net.kourlas.voipms_sms.preferences.activities.AccountPreferencesActivity
 import net.kourlas.voipms_sms.preferences.didsConfigured
 import net.kourlas.voipms_sms.preferences.firstRun
-import net.kourlas.voipms_sms.preferences.setEmail
+import net.kourlas.voipms_sms.preferences.saveAccountCredentials
 import net.kourlas.voipms_sms.preferences.setFirstRun
 import net.kourlas.voipms_sms.preferences.setFirstSyncAfterSignIn
-import net.kourlas.voipms_sms.preferences.setPassword
 import net.kourlas.voipms_sms.sms.workers.RetrieveDidsWorker
 import net.kourlas.voipms_sms.sms.workers.VerifyCredentialsWorker
 import net.kourlas.voipms_sms.utils.registerNonExportedReceiver
@@ -102,14 +101,13 @@ class SignInActivity : AppCompatActivity() {
                         val password = findViewById<TextInputEditText>(
                             R.id.password
                         )
-                        setEmail(
-                            applicationContext,
-                            username.text?.toString() ?: ""
-                        )
-                        setPassword(
-                            applicationContext,
-                            password.text?.toString() ?: ""
-                        )
+                        if (!saveAccountCredentials(applicationContext,
+                                username.text?.toString().orEmpty(), password.text?.toString().orEmpty())) {
+                            toggleControls(enabled = true)
+                            showSnackbar(this@SignInActivity, R.id.coordinator_layout,
+                                getString(R.string.credentials_storage_unavailable))
+                            return
+                        }
 
                         if (!didsConfigured(applicationContext)) {
                             setFirstSyncAfterSignIn(this@SignInActivity, true)

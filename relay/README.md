@@ -42,7 +42,7 @@ The relay writes no application request logs. Cloud Run infrastructure request l
 ## Connect the Android app and verify receipt
 
 1. Register the Android application ID `net.kourlas.voipms_sms` in the same Firebase project. Save its client configuration at `voipms-sms/src/primary/google-services.json`.
-2. Build the primary app with `VOIPMS_PUSH_CALLBACK_URL` exported as above, for example `./gradlew assemblePrimaryFullDebug`. For the GitHub build, set the repository variable `VOIPMS_PUSH_CALLBACK_URL` to the full URL with the literal `{TO}`, and the secret `GOOGLE_SERVICES_JSON` to the Base64-encoded client configuration.
+2. Build the primary app with `VOIPMS_PUSH_CALLBACK_URL` exported as above, for example `./gradlew assemblePrimaryFullDebug`. For the GitHub build, set the repository variable `VOIPMS_PUSH_CALLBACK_URL` to the full URL with the literal `{TO}`, and the secret `GOOGLE_SERVICES_JSON` to the Base64-encoded client configuration. After the workflow is on your default branch, run **Actions → Android CI (primary) → Run workflow** to build with those settings.
 3. Sign into the app, enable message retrieval for your DID, and allow notifications. Check its push registration in Settings. In the VoIP.ms portal under **DID Numbers → Manage DIDs**, confirm the SMS/MMS callback matches that URL. To retry failed relay calls, turn on **URL Callback Retry** there. VoIP.ms retries if it does not receive the exact text `ok`.
 4. Send a new SMS from another number while the app is in the background with the screen locked. Verify the notification, open it, and check that the correct thread contains one copy. A relay response of `ok` confirms FCM accepted the hint. The SMS in the Android thread confirms device receipt.
 

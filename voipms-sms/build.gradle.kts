@@ -37,7 +37,7 @@ if (hasFirebaseConfig) {
 // fdroid-remove-end
 
 configure<ApplicationExtension> {
-    compileSdk = 37
+    compileSdk { version = release(37) { minorApiLevel = 2 } }
     defaultConfig {
         applicationId = "net.kourlas.voipms_sms"
         minSdk = 24

@@ -1,6 +1,7 @@
 name: Android CI (F-Droid)
 
 on:
+  workflow_dispatch:
   push:
     branches: [ master ]
   pull_request:
@@ -16,6 +17,8 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '21'
+      - name: Install compile SDK
+        run: sdkmanager "platforms;android-37.2" "build-tools;36.0.0"
       - name: Set up Python 3.10
         uses: actions/setup-python@v7
         with:

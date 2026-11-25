@@ -6,6 +6,7 @@ import com.squareup.moshi.JsonClass
 import com.squareup.moshi.JsonDataException
 import com.squareup.moshi.JsonReader
 import com.squareup.moshi.ToJson
+import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
 import net.kourlas.voipms_sms.utils.normalizeVoipMsPhoneNumber
 import java.security.MessageDigest
 import java.text.ParsePosition
@@ -110,12 +111,8 @@ internal data class MessageResponse(
     val media: List<String?>? = null
 ) {
     fun incoming(requestedDid: String, formatter: SimpleDateFormat): IncomingMessage? {
-        val line = normalizeVoipMsPhoneNumber(requestedDid)
-        val wireLine = did?.let(::normalizeVoipMsPhoneNumber) ?: return null
-        fun nanp(number: String) = if (number.length == 11 && number.startsWith('1')) {
-            number.substring(1)
-        } else number
-        if (line.isEmpty() || !line.all(Char::isDigit) || nanp(wireLine) != nanp(line)) return null
+        val line = normalizeVoipMsDid(requestedDid)
+        if (line.isEmpty() || !line.all(Char::isDigit) || did?.let(::normalizeVoipMsDid) != line) return null
         val address = contact?.let(::normalizeVoipMsPhoneNumber) ?: return null
         if (address.isEmpty() || !address.all(Char::isDigit)) return null
         val voipId = id?.toLongOrNull()?.takeIf { it > 0 } ?: return null
