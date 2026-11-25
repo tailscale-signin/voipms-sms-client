@@ -26,6 +26,7 @@ def screenshot(name):
 
 def element(attribute, value, *, tap=False):
     expected = value if isinstance(value, tuple) else (value,)
+    visible = []
     deadline = time.monotonic() + 35
     while time.monotonic() < deadline:
         try:
@@ -35,6 +36,8 @@ def element(attribute, value, *, tap=False):
             time.sleep(1)
             continue
         nodes = list(tree.iter("node"))
+        visible = [node.get("text") or node.get("content-desc") for node in nodes
+                   if node.get("text") or node.get("content-desc")]
         permission_text = [node.get("text") for node in nodes if node.get("package") in {
             "com.android.permissioncontroller", "com.google.android.permissioncontroller"
         } and node.get("text")]
@@ -48,7 +51,8 @@ def element(attribute, value, *, tap=False):
                 print(f"{'Tapped' if tap else 'Found'} {value}", flush=True)
                 return
         time.sleep(1)
-    raise AssertionError(f"Missing UI element {attribute}={value}")
+    screenshot("unexpected-screen")
+    raise AssertionError(f"Missing UI element {attribute}={value}; visible labels: {visible}")
 
 
 def main():

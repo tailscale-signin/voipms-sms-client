@@ -1,6 +1,7 @@
 """Exercise real Android live-listening controls on an isolated, offline debug emulator."""
 
 import json
+import hashlib
 from pathlib import Path
 import re
 import sqlite3
@@ -30,16 +31,25 @@ def install_fixture(adb):
         raise RuntimeError("The emulator still has a default network")
 
     def put(path, content):
-        subprocess.run(["adb", "exec-in", "run-as", PACKAGE, "tee", path],
-                       input=content, stdout=subprocess.DEVNULL, check=True, timeout=45)
+        # A shell-v2 session waits for the app UID to finish the entire write and
+        # propagates its exit status. A raw exec-in stream can close at host EOF.
+        subprocess.run(["adb", "shell", "-T", f"run-as {PACKAGE} sh -c 'cat > {path}'"],
+                       input=content, check=True, timeout=45)
+        digest = adb("shell", "run-as", PACKAGE, "sha256sum", path).split()[0]
+        if digest != hashlib.sha256(content).hexdigest():
+            raise AssertionError(f"Incomplete Android fixture write to {path}")
 
     prefs = f"""<map>
       <string name="api_email">fixture@example.invalid</string>
       <string name="api_password">offline-fixture</string>
       <set name="dids"><string>{DID}</string></set>
+      <string name="active_did">{DID}</string>
+      <boolean name="preferences_did_{DID}_show_in_conversations_view" value="true" />
+      <boolean name="preferences_did_{DID}_retrieve_messages" value="true" />
       <boolean name="first_run" value="false" />
     </map>"""
     adb("shell", "run-as", PACKAGE, "mkdir", "-p", "shared_prefs", "databases")
+    adb("shell", "run-as", PACKAGE, "rm", "-f", f"shared_prefs/{PACKAGE}_preferences.xml.bak")
     put(f"shared_prefs/{PACKAGE}_preferences.xml", prefs.encode())
 
     schema_dir = Path(__file__).resolve().parents[2] / "voipms-sms/schemas/net.kourlas.voipms_sms.database.AbstractDatabase"
@@ -64,13 +74,18 @@ def install_fixture(adb):
             db.executemany("INSERT INTO sms (VoipId,Date,Type,Did,Contact,Text,Unread,Delivered,DeliveryInProgress) "
                            "VALUES (?, ?, ?, ?, ?, ?, 0, 1, 0)", messages)
         db.close()
-        adb("shell", "run-as", PACKAGE, "rm", "-f", "databases/sms.db-wal", "databases/sms.db-shm")
+        adb("shell", "run-as", PACKAGE, "rm", "-f", "databases/sms.db-wal", "databases/sms.db-shm",
+            "databases/sms.db-journal")
         put("databases/sms.db", file.read_bytes())
 
 
 def run(adb, element, screenshot):
     install_fixture(adb)
-    adb("shell", "am", "start", "-W", "--activity-clear-top", "-n", PACKAGE + "/.conversations.ConversationsActivity")
+    # Launch a fresh task. Before seeding, the signed-out smoke path ends on
+    # SignInActivity, which Android can otherwise restore over the inbox.
+    adb("shell", "am", "start", "-W", "--activity-new-task", "--activity-clear-task",
+        "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
+        "-n", PACKAGE + "/.conversations.ConversationsActivity")
     element("text", LAST_MESSAGE)
     screenshot("sample-inbox")
     element("text", LAST_MESSAGE, tap=True)
