@@ -26,6 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          trap 'echo "::error::Release verification or publication stopped on script line $LINENO"' ERR
           cd "$RUNNER_TEMP"
           api="repos/$GH_REPO"
           check_refs() {
@@ -51,13 +52,13 @@ jobs:
           printf '%s  %s\n' "$SHA256" "$APK" | sha256sum --check
           unzip -p "$APK" META-INF/version-control-info.textproto | grep -Fx "  revision: \"$REV\""
           tools="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"
-          if [[ -d "$tools" ]]; then
+          signer="$tools/36.0.0/apksigner"
+          if [[ ! -x "$signer" ]]; then
             signer=$(find "$tools" -name apksigner -type f | sort -V | tail -n1)
-            if [[ -n "$signer" ]]; then
-              "$signer" verify --verbose --print-certs "$APK" > signer.txt
-              grep -Fx "Signer #1 certificate SHA-256 digest: $CERT" signer.txt
-            fi
           fi
+          test -x "$signer"
+          "$signer" verify --verbose --print-certs "$APK" | tee signer.txt
+          grep -Ei "certificate SHA-256 digest: *$CERT[[:space:]]*$" signer.txt
           release=$(lookup)
           if [[ -z "$release" ]]; then
             cat > release-notes.md <<'NOTES'
