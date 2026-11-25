@@ -90,12 +90,13 @@ class MatrixIntegrationTest {
                                     peerUpdates.first { it.events.any { e -> e.body == message } }.events.first { it.body == message }
                                 }
                                 MatrixChat.send(context, room, message, bobId)
-                                val received = inbound.await()
+                                val received = withTimeout(35_000) { inbound.await() }
                                 assertEquals(aliceId, received.sender)
                                 Log.i("MatrixCI", "Peer decrypted the first text")
                                 val wire = rawEvent(url, room, received.id, bob.session().accessToken)
                                 assertEquals("m.room.encrypted", wire.getString("type"))
                                 assertFalse(wire.toString().contains(message))
+                                Log.i("MatrixCI", "Homeserver stored ciphertext")
                                 val typing = async(start = CoroutineStart.UNDISPATCHED) {
                                     peerUpdates.first { aliceId in it.typing }
                                 }
@@ -104,13 +105,17 @@ class MatrixIntegrationTest {
                                 MatrixChat.typing(context, room, false, bobId)
                                 Log.i("MatrixCI", "Peer received typing notice")
                                 remote.markAsRead(ReceiptType.READ)
-                                MatrixChat.observe(context, room, bobId).first { state ->
-                                    state.events.any { it.body == message && it.status == "Read" }
+                                withTimeout(25_000) {
+                                    MatrixChat.observe(context, room, bobId).first { state ->
+                                        state.events.any { it.body == message && it.status == "Read" }
+                                    }
                                 }
                                 Log.i("MatrixCI", "Sender saw read receipt")
                                 messageEventContentFromMarkdown("Peer reply").use { timeline.send(it).close() }
-                                MatrixChat.observe(context, room, bobId).first { state ->
-                                    state.events.any { !it.mine && it.body == "Peer reply" }
+                                withTimeout(25_000) {
+                                    MatrixChat.observe(context, room, bobId).first { state ->
+                                        state.events.any { !it.mine && it.body == "Peer reply" }
+                                    }
                                 }
                                 Log.i("MatrixCI", "Sender received peer reply")
                                 val bytes = "Private attachment contents".toByteArray()
@@ -122,7 +127,7 @@ class MatrixIntegrationTest {
                                     peerUpdates.first { state -> state.events.any { it.mime != null } }.events.first { it.mime != null }
                                 }
                                 MatrixChat.attach(context, room, uri, bobId)
-                                val event = attachment.await()
+                                val event = withTimeout(35_000) { attachment.await() }
                                 assertEquals("m.room.encrypted", rawEvent(url, room, event.id, bob.session().accessToken).getString("type"))
                                 Log.i("MatrixCI", "Peer received encrypted attachment")
                                 val opened = MatrixChat.media(context, room, event.id, bobId)
