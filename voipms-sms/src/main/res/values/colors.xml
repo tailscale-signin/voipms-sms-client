@@ -42,8 +42,8 @@
     <color name="primary_variant">#004E5B</color>
     <color name="search_cursor">#FFFFFF</color>
     <color name="search_hint">#E6FFFFFF</color>
-    <color name="send_icon">@color/primary</color>
-    <color name="send_icon_background">@color/message_section</color>
+    <color name="send_icon">@color/colorOnPrimary</color>
+    <color name="send_icon_background">@color/primary</color>
     <color name="settings_icon">@color/primary</color>
     <color name="sign_in_progress_bar">@color/primary</color>
     <color name="swipe_refresh_icon">#006878</color>
@@ -69,4 +69,7 @@
     <color name="colorPrimaryVariant">@color/primary_variant</color>
     <color name="colorSecondary">#4A6267</color>
     <color name="colorSecondaryVariant">#334B4F</color>
+    <color name="surface_outline">#C6D9DD</color>
+    <color name="inbox_surface">#FFFFFF</color>
+    <color name="toolbar_end">#004752</color>
 </resources>

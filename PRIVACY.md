@@ -33,4 +33,18 @@ VoIP.ms sends the destination number to the relay in the callback URL. The relay
 
 Google processes the topic subscription and associates it with a Firebase installation. Relay infrastructure can process request metadata, including the callback URL. The build operator is responsible for its logging and retention settings. The F-Droid build retrieves messages directly from VoIP.ms using synchronization.
 
+## Live listening
+
+When you start a listening session, the app repeatedly contacts VoIP.ms using your configured account. Android displays the session as a foreground service. You can stop it from the notification or Synchronization settings.
+
+## Optional number lookup
+
+Opening the inbox or receiving a message does not send numbers to any lookup provider. When you select a lookup, the selected service receives that phone number and the connection’s network information. SMS content, your address book, and VoIP.ms credentials are excluded from these requests.
+
+* Wikidata receives a query for the number in several common formats and may return a public organization name. The app keeps directory results in memory for the current account session. [Wikimedia privacy policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy)
+* Choosing Truecaller copies the selected number to the Android clipboard and opens its official search page. You choose whether to paste and submit it in the browser. [Truecaller privacy policy](https://www.truecaller.com/privacy-policy)
+* Choosing ShadyCall sends the number to its US reputation service. Its reports are shown on request. [ShadyCall privacy policy](https://shadycall.com/privacy)
+
+A selected custom font stays on the device.
+
 For questions about a fork build, use the [project issue tracker](https://github.com/tailscale-signin/voipms-sms-client/issues). Keep account details and message content private.

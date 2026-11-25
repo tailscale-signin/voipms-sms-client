@@ -171,7 +171,7 @@ class Notifications private constructor(private val context: Context) {
      * Creates the notification channel for the notification displayed during
      * database synchronization.
      */
-    private fun createSyncNotificationChannel() {
+    internal fun createSyncNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             createOtherNotificationChannelGroup()
 

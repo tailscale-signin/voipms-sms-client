@@ -18,7 +18,17 @@
 package net.kourlas.voipms_sms.preferences.fragments
 
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.kourlas.voipms_sms.ui.ChatFont
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
@@ -29,6 +39,21 @@ import net.kourlas.voipms_sms.utils.preferences
 
 class AppearancePreferencesFragment : PreferenceFragmentCompat(),
     SharedPreferences.OnSharedPreferenceChangeListener {
+    private val chooseFont = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        val app = requireContext().applicationContext
+        lifecycleScope.launch {
+            try {
+                val face = withContext(Dispatchers.IO) { ChatFont.import(app, uri) }
+                ChatFont.change(face)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Toast.makeText(app, R.string.chat_font_import_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     override fun onCreatePreferences(
         savedInstanceState: Bundle?,
         rootKey: String?
@@ -40,6 +65,26 @@ class AppearancePreferencesFragment : PreferenceFragmentCompat(),
         preferenceScreen
             .sharedPreferences
             ?.registerOnSharedPreferenceChangeListener(this)
+
+        val font = requireNotNull(findPreference<Preference>("chat_font"))
+        font.setSummary(if (ChatFont.hasCustomFont) R.string.chat_font_custom else R.string.chat_font_default)
+        font.setOnPreferenceClickListener {
+            // Android file providers frequently mark local TTFs as application/octet-stream.
+            if (!ChatFont.hasCustomFont) {
+                chooseFont.launch(arrayOf("*/*"))
+            } else {
+                AlertDialog.Builder(requireContext()).setTitle(R.string.chat_font_title)
+                    .setItems(arrayOf(getString(R.string.chat_font_choose), getString(R.string.chat_font_restore))) { _, index ->
+                        if (index == 0) chooseFont.launch(arrayOf("*/*"))
+                        else try {
+                            ChatFont.reset(requireContext())
+                        } catch (_: java.io.IOException) {
+                            Toast.makeText(requireContext(), R.string.chat_font_reset_failed, Toast.LENGTH_LONG).show()
+                        }
+                    }.show()
+            }
+            true
+        }
 
         // Assign listeners to preferences
         for (preference in preferenceScreen.preferences) {

@@ -79,7 +79,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:layout_margin="@dimen/margin"
-            android:background="@color/message_section"
+            android:background="@drawable/composer_surface"
             android:orientation="horizontal">
 
             <EditText
@@ -124,8 +124,8 @@
 
                 <ImageButton
                     android:id="@+id/send_button"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
                     android:layout_gravity="center_horizontal"
                     android:background="@drawable/conversation_button_send"
                     android:contentDescription="@string/conversation_action_send"

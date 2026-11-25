@@ -79,15 +79,13 @@ fun subscribeToDidTopics(context: Context) {
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 fun enablePushNotifications(
     context: Context,
     activityToShowError: FragmentActivity? = null
 ) {
     val unavailable = pushUnavailableMessage(context)
     if (unavailable != null) {
-        activityToShowError?.let {
-            showSnackbar(it, R.id.coordinator_layout, it.getString(unavailable))
-        }
         setSetupCompletedForVersion(context, BuildConfig.VERSION_CODE.toLong())
         return
     }

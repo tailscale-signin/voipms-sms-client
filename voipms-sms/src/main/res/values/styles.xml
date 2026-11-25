@@ -37,6 +37,11 @@
         <item name="appBarLayoutStyle">@style/AppBar</item>
         <item name="colorError">@color/send_error</item>
 
+        <item name="android:fontFamily">@font/sms_font</item>
+        <item name="fontFamily">@font/sms_font</item>
+        <item name="textAppearanceButton">@style/ButtonLabel</item>
+        <item name="toolbarStyle">@style/SmsToolbar</item>
+
         <!-- Theme fonts -->
         <item name="textAppearanceBody1">@style/Body1</item>
         <item name="textAppearanceBody2">@style/Body2</item>
@@ -59,31 +64,65 @@
     </style>
 
     <style name="AppBar" parent="Widget.MaterialComponents.AppBarLayout.PrimarySurface">
-        <item name="android:background">@color/toolbar_background</item>
+        <item name="android:background">@drawable/sms_toolbar_surface</item>
     </style>
 
     <style name="ToolbarTheme" parent="ThemeOverlay.AppCompat.DayNight.ActionBar">
+        <item name="toolbarStyle">@style/SmsToolbar</item>
+        <item name="android:fontFamily">@font/sms_font</item>
+        <item name="fontFamily">@font/sms_font</item>
         <!-- Toolbar button colour -->
         <item name="colorControlNormal">@android:color/white</item>
     </style>
 
     <style name="Body1" parent="TextAppearance.MaterialComponents.Body1">
+        <item name="fontFamily">@font/sms_font</item>
+        <item name="android:fontFamily">@font/sms_font</item>
         <item name="android:letterSpacing">0</item>
     </style>
 
     <style name="Body2" parent="TextAppearance.MaterialComponents.Body2">
+        <item name="fontFamily">@font/sms_font</item>
+        <item name="android:fontFamily">@font/sms_font</item>
         <item name="android:letterSpacing">0</item>
     </style>
 
     <style name="Caption" parent="TextAppearance.MaterialComponents.Caption">
+        <item name="fontFamily">@font/sms_font</item>
+        <item name="android:fontFamily">@font/sms_font</item>
         <item name="android:letterSpacing">0</item>
     </style>
 
     <style name="Headline5" parent="TextAppearance.MaterialComponents.Headline5">
+        <item name="fontFamily">@font/sms_font</item>
+        <item name="android:fontFamily">@font/sms_font</item>
         <item name="android:letterSpacing">0</item>
     </style>
 
     <style name="Subtitle1" parent="TextAppearance.MaterialComponents.Subtitle1">
+        <item name="fontFamily">@font/sms_font</item>
+        <item name="android:fontFamily">@font/sms_font</item>
         <item name="android:letterSpacing">0</item>
+    </style>
+    <style name="SmsToolbar" parent="Widget.AppCompat.Toolbar">
+        <item name="titleTextAppearance">@style/ToolbarTitle</item>
+        <item name="subtitleTextAppearance">@style/Caption</item>
+    </style>
+
+    <style name="ToolbarTitle" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
+        <item name="fontFamily">@font/dm_sans_bold</item>
+        <item name="android:fontFamily">@font/dm_sans_bold</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="ButtonLabel" parent="TextAppearance.MaterialComponents.Button">
+        <item name="fontFamily">@font/dm_sans_medium</item>
+        <item name="android:fontFamily">@font/dm_sans_medium</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="ComposeButtonShape" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">18dp</item>
     </style>
 </resources>

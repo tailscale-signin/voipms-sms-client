@@ -42,8 +42,8 @@ configure<ApplicationExtension> {
         applicationId = "net.kourlas.voipms_sms"
         minSdk = 24
         targetSdk = 36
-        versionCode = 155
-        versionName = "0.7.0"
+        versionCode = 156
+        versionName = "0.7.1"
     }
     flavorDimensions += "version"
     flavorDimensions += "demo"

@@ -1,3 +1,10 @@
+### 0.7.1 ###
+
+* Start live listening from Synchronization settings. The phone checks VoIP.ms directly and shows an ongoing notification with a Stop action. Scheduled recovery remains available when the session ends.
+* Look up an unknown sender from the inbox or conversation. Online directory matches display the number in blue and name the source. Saved contacts retain priority.
+* Use the official Truecaller web search for a manual lookup or check US spam reports on demand.
+* Refresh the inbox, message bubbles, composer and typography. Appearance settings allow a local font file.
+
 ### 0.7.0 ###
 
 * Receive wake-ups for selected numbers with a configured Firebase relay and inspect per-number registration in Synchronization settings.

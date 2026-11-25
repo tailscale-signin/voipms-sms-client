@@ -8,13 +8,19 @@ Send and receive SMS from your VoIP.ms numbers, search conversations, and reply 
 
 | While using the app | When the app is closed |
 | --- | --- |
-| The conversation list and open threads check for messages every 30 seconds. A configured push can trigger an earlier check. | A push-enabled primary build wakes on a VoIP.ms callback. Both builds also schedule background catch-up, every 15 minutes by default. Android controls when scheduled work runs. |
+| The inbox and open conversations check every 30 seconds. | Start live listening for direct VoIP.ms checks about every 15 seconds. A configured push build also supports callback wake-ups. Scheduled catch-up defaults to 15 minutes and follows Android scheduling. |
 
 1. Enable API access for your VoIP.ms account and SMS on the numbers you want to use.
 2. Sign in with the account email and **API password**, select the numbers to retrieve, and allow Android notifications to see incoming alerts.
-3. Open **Settings → Synchronization → Live delivery** to see how this installation receives messages and check registration for each number.
+3. Open **Settings → Synchronization → Start live listening** for direct checks while the inbox is closed. Stop the session from its notification or this screen.
 
-The F-Droid flavor uses scheduled synchronization. Primary builds use the same fallback until the operator supplies a Firebase project and a matching relay. See the [setup and troubleshooting guide](HELP.md) and [push relay deployment instructions](relay/README.md).
+Both full builds support direct listening with your VoIP.ms account. Android may pause network access or stop the session. Android 15 and later limit background data-sync foreground services to a shared six-hour budget. Scheduled checks continue according to your selected interval. When Firebase and a matching relay are configured, **Push registration** shows the status per number. See the [setup and troubleshooting guide](HELP.md) and [push relay deployment instructions](relay/README.md).
+
+## Unknown numbers and appearance
+
+Open an unknown sender’s conversation and choose **Look up number online**. Wikidata searches public organization listings. ShadyCall provides US complaint and community reports. Truecaller opens an optional browser search. You choose which service receives the number. A blue number and a source label distinguish online information from a saved contact.
+
+**Settings → Appearance → Chat font** lets you select a local TTF or OTF, including a licensed copy of GPT Mobile Improved’s Proxima Nova. The bundled family is DM Sans.
 
 ## Build and install
 

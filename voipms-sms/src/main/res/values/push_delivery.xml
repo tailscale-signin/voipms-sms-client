@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="push_delivery_title">Live delivery</string>
+    <string name="push_delivery_title">Push registration</string>
     <string name="push_delivery_retry">Tap to check registration again.</string>
     <string name="push_no_dids">Select a VoIP.ms number and enable message retrieval to set up live delivery.</string>
     <string name="push_pending">Waiting for registration</string>
@@ -12,4 +12,18 @@
     <string name="push_retrying">Connection failed. Registration will retry.</string>
     <string name="push_failed">Registration failed. Tap to try again.</string>
     <string name="push_did_status">%1$s — %2$s</string>
+    <string name="live_start">Start live listening</string>
+    <string name="live_stop">Stop listening</string>
+    <string name="live_notification">Listening for VoIP.ms messages</string>
+    <string name="live_notification_detail">Direct checks are active. Tap for delivery settings.</string>
+    <string name="live_idle">Check VoIP.ms directly about every 15 seconds, even with the inbox closed. Uses more battery. You or Android can end the session.</string>
+    <string name="live_active">Checking VoIP.ms for new messages…</string>
+    <string name="live_last_check">Listening. Last successful check at %1$s.</string>
+    <string name="live_retry">%1$s Retrying in %2$d seconds.</string>
+    <string name="live_timeout">Android ended the listening session. Tap to listen again.</string>
+    <string name="live_start_declined">Android could not start listening. Reopen the app and try again.</string>
+    <string name="live_sign_in">Sign in to VoIP.ms to start a listening session.</string>
+    <string name="live_alert_settings">Allow message notifications</string>
+    <string name="live_alert_settings_summary">Android notifications are off. Tap to enable incoming alerts and the listening notification.</string>
+    <string name="preferences_sync_info">The inbox refreshes while open. Live listening checks VoIP.ms directly until the session ends. The synchronization interval controls scheduled checks when the app is closed. Android may delay background activity.</string>
 </resources>
