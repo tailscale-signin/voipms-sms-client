@@ -1,5 +1,6 @@
 package net.kourlas.voipms_sms.privacy
 
+import androidx.core.content.edit
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -24,7 +25,7 @@ internal object SpamReview {
             if (i > 0) {
                 AlertDialog.Builder(activity).setTitle(R.string.spam_remove).setMessage(existing[i-1])
                     .setPositiveButton(android.R.string.ok) { _, _ ->
-                        prefs(activity).edit().putStringSet("phrases", phrases(activity) - existing[i-1]).apply()
+                        prefs(activity).edit { putStringSet("phrases", phrases(activity) - existing[i - 1]) }
                         refresh()
                     }.setNegativeButton(android.R.string.cancel, null).show()
             } else {
@@ -50,9 +51,9 @@ internal object SpamReview {
         }
         val list = matches.take(12).joinToString("\n") { getFormattedPhoneNumber(it.message.contact) }
         AlertDialog.Builder(activity).setTitle(R.string.spam_preview)
-            .setMessage(activity.getString(R.string.spam_preview_count, matches.size, phrase) + "\n\n" + list)
+            .setMessage(activity.resources.getQuantityString(R.plurals.spam_preview_count, matches.size, matches.size, phrase) + "\n\n" + list)
             .setPositiveButton(R.string.spam_apply) { _, _ ->
-                prefs(activity).edit().putStringSet("phrases", phrases(activity) + phrase).apply()
+                prefs(activity).edit { putStringSet("phrases", phrases(activity) + phrase) }
                 refresh()
             }.setNegativeButton(android.R.string.cancel, null).show()
     }

@@ -1,5 +1,6 @@
 package net.kourlas.voipms_sms.privacy
 
+import androidx.core.content.edit
 import android.app.Activity
 import android.app.KeyguardManager
 import android.content.Context
@@ -50,7 +51,7 @@ internal object PrivateThreads {
             .setMessage(if (turnOn) R.string.private_scope else R.string.private_remove_notice)
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                prefs(activity).edit().putBoolean(id.getId(), turnOn).apply()
+                prefs(activity).edit { putBoolean(id.getId(), turnOn) }
                 if (turnOn) net.kourlas.voipms_sms.companion.CompanionDraftHandoff.privateChanged(activity.applicationContext, id)
                 Notifications.getInstance(activity).cancelNotification(id)
                 if (turnOn) net.kourlas.voipms_sms.delivery.CallAlerts.cancel(activity, id)

@@ -280,11 +280,6 @@
     <string name="push_notifications_fail_unknown">Register failed: unknown error</string>
 
     <!-- SendMessageWorker -->
-    <string name="send_message_work_id" translatable="false">net.kourlas.voipms_sms.SEND_MESSAGE_WORK_ID_%1$d</string>
-    <string name="send_message_database_ids" translatable="false">net.kourlas.voipms_sms.SEND_MESSAGE_DATABASE_IDS</string>
-    <string name="send_message_inline_reply" translatable="false">net.kourlas.voipms_sms.SEND_MESSAGE_INLINE_REPLY</string>
-    <string name="send_message_inline_reply_contact" translatable="false">net.kourlas.voipms_sms.SEND_MESSAGE_INLINE_REPLY_CONTACT</string>
-    <string name="send_message_inline_reply_did" translatable="false">net.kourlas.voipms_sms.SEND_MESSAGE_INLINE_REPLY_DID</string>
     <string name="send_message_error_api_error">Not sent: API error \'%1$s\'</string>
     <string name="send_message_error_api_error_invalid_credentials">Not sent: invalid credentials</string>
     <string name="send_message_error_api_error_invalid_dst">Not sent: invalid phone number</string>
@@ -297,8 +292,6 @@
     <string name="send_message_error_api_parse">Delivery unconfirmed. Check the VoIP.ms Message Center before resending.</string>
     <string name="send_message_error_api_request">VoIP.ms did not confirm delivery. Check the Message Center before resending.</string>
     <string name="send_message_account_changed">Sending stopped. The original account or selected number is no longer active.</string>
-    <string name="send_message_attempt_unavailable">Sending stopped. The app could not save the submission state.</string>
-    <string name="send_message_error_network">Not sent: network unavailable</string>
     <string name="send_message_error_unknown">Not sent: unknown error</string>
 
     <!-- RetrieveDidsWorker -->

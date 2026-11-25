@@ -24,6 +24,8 @@ licenseGroupMap = {
     ('MIT License', 'com.github.mukeshsolanki', 'MarkdownView-Android', '2.0.0'): 'MarkdownView-Android.txt'
 }
 
+mlkitTermsUrl = 'https://developers.google.com/ml-kit/terms'
+
 license_dir = Path(__file__).resolve().parent
 with open(sys.argv[1], encoding="utf-8") as metadata:
     dependencies = json.load(metadata)
@@ -37,6 +39,12 @@ for entry in dependencies:
             else:
                 artifactInfo = entry['artifactInfo']
                 if artifactInfo is not None:
+                    # Google publishes these SDK terms by reference in its Maven metadata.
+                    # Keep ordinary OSS licenses on the full-text path.
+                    if (artifactInfo['group'] == 'com.google.mlkit' and
+                            l['name'] == 'ML Kit Terms of Service' and l.get('url') == mlkitTermsUrl):
+                        l['publisherTermsReference'] = True
+                        continue
                     key = (l['name'], artifactInfo['group'], artifactInfo['name'], artifactInfo['version'])
                     if key in licenseGroupMap:
                         fileName = licenseGroupMap[key]
@@ -53,6 +61,11 @@ with open(sys.argv[2], 'w', encoding='utf-8') as f:
         else:
             f.write(f'## {entry["name"]}')
         for l in entry['licenses']:
+            if l.get('publisherTermsReference'):
+                f.write(f'\n\n[ML Kit Terms of Service]({mlkitTermsUrl})\n\n'
+                        'Google publishes the terms for this SDK at the link above. '
+                        'They incorporate the [Google APIs Terms of Service](https://developers.google.com/terms).\n\n')
+                continue
             f.write('\n\n```\n')
             f.write(l['text'].strip('\n'))
             f.write('\n```\n\n')

@@ -54,8 +54,12 @@ Notification masking replaces detected verification codes with a generic message
 
 Private threads require a device credential to open. The app hides these threads from regular inbox searches, message notifications, sharing shortcuts and portable backups. The legacy SQLite export requires device authentication when the app has private threads and includes them in the resulting database.
 
-Portable backups encrypt message history and locally stored outgoing attachments with your passphrase. A preview lets you select conversations to merge. Remote attachment references remain links to the original provider. API keys, pending send jobs and private threads stay out of the portable archive.
+Portable backups encrypt message history and locally stored outgoing attachments with your passphrase. A preview lets you select conversations to merge. Received attachments keep their provider links. In the export dialog you can include already-downloaded files or authorize fetching missing media over HTTPS from VoIP.ms. The downloader sends no account credentials. Restored attachment bytes are stored privately on the device for offline viewing. API keys, pending send jobs and private threads stay out of the portable archive.
 
 A selected custom font stays on the device.
+
+The Home call trail retrieves call records and voicemail metadata from the signed-in VoIP.ms account. The phone stores the trail by account. Playing a recording requests the audio from VoIP.ms. A device that receives a notification can display the call or voicemail according to the line, conversation and Android lock-screen settings.
+
+With UnifiedPush enabled, the relay forwards an encrypted wake-up containing the event and callback time to the distributor endpoint you configure. The endpoint and Web Push keys are private subscription information. The browser companion is a separately configured service. Its operator controls which users and devices can see messages, notes and drafts for each line. Native draft handoff transfers the selected draft to the paired companion. Review the [companion setup and access controls](companion/README.md).
 
 For questions about a fork build, use the [project issue tracker](https://github.com/tailscale-signin/voipms-sms-client/issues). Keep account details and message content private.

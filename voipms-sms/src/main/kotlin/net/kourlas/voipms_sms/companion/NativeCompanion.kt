@@ -1,6 +1,7 @@
 package net.kourlas.voipms_sms.companion
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -38,6 +39,13 @@ private fun digest(text: String) = MessageDigest.getInstance("SHA-256").digest(t
 internal class CompanionFailure(val code: Int) : IOException("Companion HTTP $code")
 internal data class CompanionResult(val json: JSONObject, val session: String?)
 
+/** A failed disk write must keep pending privacy changes eligible for retry. KTX edit returns Unit. */
+internal fun SharedPreferences.commitCompanionChanges(update: SharedPreferences.Editor.() -> Unit): Boolean {
+    val editor = edit()
+    editor.update()
+    return editor.commit()
+}
+
 internal class NativeCompanion(val origin: String, val generation: Long, email: String) {
     val accountTag = digest(email.trim().lowercase(Locale.ROOT))
     val key = "companion.$generation." + digest(origin)
@@ -49,7 +57,10 @@ internal class NativeCompanion(val origin: String, val generation: Long, email: 
     fun remember(context: Context, session: String): Boolean = withSecurePreferences(context) { prefs ->
         val index = "companion.origins.$generation"
         val known = prefs.getStringSet(index, emptySet()).orEmpty() + origin
-        prefs.edit().putString(key, session).putStringSet(index, known).commit()
+        prefs.commitCompanionChanges {
+            putString(key, session)
+            putStringSet(index, known)
+        }
     } == true
 
     suspend fun api(route: String, token: String? = null, data: JSONObject? = null): CompanionResult {
@@ -133,7 +144,7 @@ class CompanionPrivacyWorker(context: Context, parameters: WorkerParameters) : C
                     }
                     val saved = withSecurePreferences(applicationContext) { prefs ->
                         val remaining = prefs.getStringSet(pendingKey, emptySet()).orEmpty() - entry
-                        prefs.edit().putStringSet(pendingKey, remaining).commit()
+                        prefs.commitCompanionChanges { putStringSet(pendingKey, remaining) }
                     }
                     if (saved != true) return@withCurrentAccount Result.retry()
                 }

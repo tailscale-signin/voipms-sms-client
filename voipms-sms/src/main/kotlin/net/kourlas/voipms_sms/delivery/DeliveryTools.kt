@@ -4,13 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.PersistableBundle
 import android.text.InputType
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.net.toUri
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import net.kourlas.voipms_sms.R
@@ -71,8 +70,8 @@ internal class DeliveryTools(private val activity: FragmentActivity) {
                         }
                         entry != null && i == packages.size -> {
                             val clip = ClipData.newPlainText("UnifiedPush", "{\"$did\":[$entry]}")
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                                clip.description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+                            clip.description.extras = PersistableBundle().apply {
+                                putBoolean("android.content.extra.IS_SENSITIVE", true)
                             }
                             activity.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
                             Toast.makeText(activity, R.string.delivery_config_copied, Toast.LENGTH_LONG).show()
@@ -90,7 +89,7 @@ internal class DeliveryTools(private val activity: FragmentActivity) {
             .setPositiveButton(R.string.delivery_open, null).setNegativeButton(android.R.string.cancel, null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val url = Uri.parse(field.text.toString().trim())
+                val url = field.text.toString().trim().toUri()
                 if (url.scheme != "https" || url.host.isNullOrBlank() || url.userInfo != null ||
                     url.query != null || url.fragment != null) { field.error = activity.getString(R.string.delivery_https); return@setOnClickListener }
                 val launched = runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, url)) }.isSuccess

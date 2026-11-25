@@ -34,7 +34,7 @@ internal object BackupEnvelope {
         }
     }
 
-    fun write(source: InputStream, dest: OutputStream, password: CharArray) {
+    fun write(source: InputStream, dest: OutputStream, password: CharArray, checkActive: () -> Unit = {}) {
         val random = SecureRandom()
         val salt = ByteArray(16).also(random::nextBytes)
         val prefix = ByteArray(8).also(random::nextBytes)
@@ -47,6 +47,7 @@ internal object BackupEnvelope {
         var sequence = 0
         var total = 0L
         while (true) {
+            checkActive()
             val read = source.read(block)
             if (read == 0) continue
             val size = read.coerceAtLeast(0)

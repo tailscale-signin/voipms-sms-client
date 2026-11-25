@@ -4,6 +4,7 @@ import android.content.Context
 import android.text.InputType
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.sms.ConversationId
@@ -36,7 +37,10 @@ internal object SendPreflight {
             .setMessage(R.string.outbox_rate_prompt).setView(input)
             .setNegativeButton(android.R.string.cancel, null)
             .setNeutralButton(R.string.outbox_rate_remove) { _, _ ->
-                prefs.edit().remove(key).remove(key + "/date").apply()
+                prefs.edit {
+                    remove(key)
+                    remove(key + "/date")
+                }
                 complete()
             }.setPositiveButton(android.R.string.ok, null).show()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -44,7 +48,10 @@ internal object SendPreflight {
             val decimal = value.takeIf { it.matches(Regex("""[0-9]{1,5}(?:\.[0-9]{1,8})?""")) }?.toBigDecimalOrNull()
             if (decimal == null) input.error = activity.getString(R.string.outbox_rate_invalid)
             else {
-                prefs.edit().putString(key, decimal.toPlainString()).putLong(key + "/date", System.currentTimeMillis()).apply()
+                prefs.edit {
+                    putString(key, decimal.toPlainString())
+                    putLong(key + "/date", System.currentTimeMillis())
+                }
                 dialog.dismiss()
                 complete()
             }

@@ -384,8 +384,22 @@ class Database private constructor(private val context: Context) {
                             .groupingBy(::fingerprint).eachCount().toMutableMap()
                         for (row in rows) {
                             val providerId = row.voipId
-                            if (providerId != null && (dao.getIdByVoipId(id.did, providerId) != null ||
-                                database.deletedDao().get(id.did, providerId) != null)) continue
+                            if (providerId != null && database.deletedDao().get(id.did, providerId) != null) continue
+                            val existingId = providerId?.let { dao.getIdByVoipId(id.did, it) }
+                            // Hydrate even if synchronization already populated this record, but never
+                            // attach media to a different local conversation with a reused provider ID.
+                            val canHydrate = existingId == null || dao.getById(existingId)?.let { existingRow ->
+                                existingRow.contact == id.contact && existingRow.incoming == 1L
+                            } == true
+                            if (canHydrate && row.incoming == 1L) {
+                                for (ref in net.kourlas.voipms_sms.privacy.PortableBackup.attachments(row)) {
+                                    val hash = net.kourlas.voipms_sms.media.MmsMedia.receivedHash(ref) ?: continue
+                                    val name = preview.received[hash] ?: continue
+                                    if (installed.add("received/$name")) net.kourlas.voipms_sms.privacy.PortableBackup.installMedia(
+                                        context, zip, name, received = true)?.let(created::add)
+                                }
+                            }
+                            if (existingId != null) continue
                             if (providerId == null) {
                                 val key = fingerprint(row)
                                 val count = existing.getOrDefault(key, 0)
@@ -501,7 +515,7 @@ class Database private constructor(private val context: Context) {
         importExportLock.write {
             val dbFile = context.getDatabasePath(DATABASE_NAME)
             val backupFile = File("${dbFile.absolutePath}.backup")
-            val importFile = File(context.cacheDir, IMPORT_FILE_NAME)
+            val importFile = File.createTempFile("sms-import-", ".db", context.cacheDir)
 
             try {
                 // Copy the file to a temporary file and check it before the
@@ -540,7 +554,7 @@ class Database private constructor(private val context: Context) {
                     throw e
                 }
             } finally {
-                importFile.delete()
+                SQLiteDatabase.deleteDatabase(importFile)
                 backupFile.delete()
             }
         }
@@ -549,41 +563,30 @@ class Database private constructor(private val context: Context) {
     /**
      * Checks that the specified file is an undamaged SQLite database with a
      * schema version that can be migrated to the current version. Uses the
-     * framework SQLite API rather than Room, so that the check does not
-     * change the file.
+     * framework SQLite API on the disposable staging file.
      *
      * @throws DatabaseImportException If the check fails.
      */
     private fun checkImportFile(file: File) {
-        val version = try {
-            SQLiteDatabase.openDatabase(
-                file.path, null, SQLiteDatabase.OPEN_READONLY
-            ).use { db ->
-                val result = db.rawQuery("PRAGMA quick_check", null).use {
-                    if (it.moveToFirst()) it.getString(0) else null
+        fun damaged(cause: Throwable? = null) = DatabaseImportException(
+            context.getString(R.string.preferences_database_import_fail_damaged), cause)
+        try {
+            SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                val version = db.version
+                if (version !in MIN_IMPORT_DATABASE_VERSION..DATABASE_VERSION) {
+                    throw DatabaseImportException(context.getString(R.string.preferences_database_import_fail_version))
                 }
-                if (result != "ok") {
-                    throw DatabaseImportException(
-                        context.getString(
-                            R.string.preferences_database_import_fail_damaged
-                        )
-                    )
+                if (!ImportSchema.matches(context, db, version)) throw damaged()
+            }
+            // SQLite checks FTS4 shadow indexes via a temporary write transaction. Only the
+            // disposable, validated import copy is opened writable, never the source document.
+            SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                db.rawQuery("PRAGMA quick_check", null).use { rows ->
+                    if (!rows.moveToFirst() || rows.getString(0) != "ok" || rows.moveToNext()) throw damaged()
                 }
-                db.version
             }
         } catch (e: SQLiteException) {
-            throw DatabaseImportException(
-                context.getString(
-                    R.string.preferences_database_import_fail_damaged
-                ), e
-            )
-        }
-        if (version !in MIN_IMPORT_DATABASE_VERSION..DATABASE_VERSION) {
-            throw DatabaseImportException(
-                context.getString(
-                    R.string.preferences_database_import_fail_version
-                )
-            )
+            throw damaged(e)
         }
     }
 
@@ -1160,7 +1163,6 @@ class Database private constructor(private val context: Context) {
 
     companion object {
         private const val DATABASE_NAME = "sms.db"
-        private const val IMPORT_FILE_NAME = "import.db"
         const val DATABASE_VERSION = 14
 
         // The oldest schema version with a migration path to

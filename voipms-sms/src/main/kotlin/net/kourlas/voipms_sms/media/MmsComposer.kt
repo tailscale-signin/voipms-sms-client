@@ -5,6 +5,7 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.edit
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -64,11 +65,14 @@ internal class MmsComposer(private val owner: AppCompatActivity, val draftKey: S
         }
     }
     fun clear() { refs.clear(); persist() }
-    private fun persist() { prefs.edit().putString(draftKey, AttachmentList.encode(refs)).apply(); render() }
+    private fun persist() {
+        prefs.edit { putString(draftKey, AttachmentList.encode(refs)) }
+        render()
+    }
     private fun notify(message: String) = Toast.makeText(owner, message, Toast.LENGTH_LONG).show()
     private fun render() {
         button.text = if (refs.isEmpty()) owner.getString(R.string.mms_attach_symbol) else owner.getString(R.string.mms_attach_number, refs.size)
-        button.contentDescription = owner.getString(R.string.mms_attach_description, refs.size)
+        button.contentDescription = owner.resources.getQuantityString(R.plurals.mms_attach_description, refs.size, refs.size)
         button.isEnabled = !importing
     }
     private fun pick() = pickMedia()

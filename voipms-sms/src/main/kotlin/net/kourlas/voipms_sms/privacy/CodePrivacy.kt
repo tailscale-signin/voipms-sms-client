@@ -1,5 +1,6 @@
 package net.kourlas.voipms_sms.privacy
 
+import androidx.core.content.edit
 import android.content.Context
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceFragmentCompat
@@ -32,7 +33,7 @@ internal object CodePrivacy {
             isChecked = prefs(c).getBoolean("mask", true)
             setOnPreferenceChangeListener { _, value ->
                 val enabled = value as Boolean
-                prefs(c).edit().putBoolean("mask", enabled).apply()
+                prefs(c).edit { putBoolean("mask", enabled) }
                 if (enabled) Notifications.getInstance(c).cancelMessageNotifications()
                 true
             }
@@ -46,7 +47,7 @@ internal object CodePrivacy {
             summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
             setOnPreferenceChangeListener { _, raw ->
                 val value = (raw as String).toInt()
-                prefs(c).edit().putInt("days", value).apply()
+                prefs(c).edit { putInt("days", value) }
                 val manager = WorkManager.getInstance(c)
                 if (value == 0) manager.cancelUniqueWork("code-retention")
                 else manager.enqueueUniquePeriodicWork("code-retention", ExistingPeriodicWorkPolicy.UPDATE,

@@ -40,6 +40,30 @@ class CallProviderSemanticsTest {
         assertNull(CallHistory.locateSlot(listOf(row(1).put("folder","Old")), item))
     }
 
+    @Test fun originEpochIdentifiesTwoSameDayRecordingsAfterFolderRenumbering() {
+        val zone = TimeZone.getTimeZone("America/Toronto")
+        val firstEpoch = 1795636800L
+        val secondEpoch = firstEpoch + 3600
+        fun row(slot: Int, epoch: Long?) = JSONObject().put("mailbox",1001).put("folder","INBOX")
+            .put("message_num",slot).put("callerid","4165550100").put("date","2026-11-25")
+            .put("duration","00:00:18").apply { if (epoch != null) put("origtime",epoch) }
+        val oldRows = listOf(row(0,firstEpoch), row(1,secondEpoch))
+        val (early,late) = CallHistory.voicemailItems(oldRows,"1001","6475550100",zone)
+        assertNotEquals(early.id,late.id)
+        assertFalse(early.dateOnly)
+        assertEquals(firstEpoch * 1000, early.receivedAt)
+        assertEquals(firstEpoch, early.providerEpoch)
+        val moved = listOf(row(3,secondEpoch), row(5,firstEpoch))
+        assertEquals("5",CallHistory.locateSlot(moved,early))
+        assertEquals("3",CallHistory.locateSlot(moved,late))
+        assertNull(CallHistory.locateSlot(listOf(row(3,null)),early))
+        assertNull(CallHistory.locateSlot(listOf(row(3,firstEpoch), row(5,firstEpoch)),early))
+        val dateOnly = CallHistory.voicemailItems(listOf(row(0,null)),"1001","6475550100",zone).single()
+        assertTrue(dateOnly.dateOnly)
+        assertNull(dateOnly.providerEpoch)
+        assertNull(CallHistory.locateSlot(moved,dateOnly))
+    }
+
     @Test fun stopReleasesInMemoryRecordingAndDecoderReadsHaveBounds() {
         val source = VoicemailDataSource(byteArrayOf(1,2,3,4))
         val buffer = ByteArray(5)

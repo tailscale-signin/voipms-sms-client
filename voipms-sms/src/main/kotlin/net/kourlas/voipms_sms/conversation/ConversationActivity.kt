@@ -728,12 +728,18 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
         val destination = destinationSupport(did, contact)
         if (preview || smsParts.size > 1 || mms || destination != DestinationSupport.STANDARD) {
-            val transport = if (!mms) getString(R.string.outbox_sms_parts, parts.size, text.toByteArray().size)
-                else if (media.isEmpty()) getString(R.string.outbox_text_mms, text.codePointCount(0, text.length))
-                else {
-                    val bytes = media.sumOf { net.kourlas.voipms_sms.media.MmsMedia.localFile(this, it).length() }
-                    getString(R.string.outbox_mms_parts, media.size, bytes)
-                }
+            val transport = if (!mms) {
+                val bytes = text.toByteArray().size
+                val sizeLabel = resources.getQuantityString(R.plurals.outbox_utf8_bytes, bytes, bytes)
+                resources.getQuantityString(R.plurals.outbox_sms_parts, parts.size, parts.size, sizeLabel)
+            } else if (media.isEmpty()) {
+                val characters = text.codePointCount(0, text.length)
+                resources.getQuantityString(R.plurals.outbox_text_mms, characters, characters)
+            } else {
+                val bytes = media.sumOf { net.kourlas.voipms_sms.media.MmsMedia.localFile(this, it).length() }
+                val sizeLabel = resources.getQuantityString(R.plurals.outbox_attachment_bytes, bytes.toInt(), bytes)
+                resources.getQuantityString(R.plurals.outbox_mms_parts, media.size, media.size, sizeLabel)
+            }
             val detail = buildString {
                 val rate = SendPreflight.estimate(this@ConversationActivity, account.generation, conversationId, mms, parts.size)
                 append(getString(R.string.outbox_preflight, getFormattedPhoneNumber(did), getFormattedPhoneNumber(contact), transport, rate))

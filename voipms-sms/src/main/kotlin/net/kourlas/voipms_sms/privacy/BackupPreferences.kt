@@ -53,10 +53,20 @@ internal class BackupPreferences(val fragment: PreferenceFragmentCompat) {
         }
         val input = field().apply { hint = c.getString(R.string.backup_password) }
         val repeat = field().apply { hint = c.getString(R.string.backup_repeat) }
+        val received = android.widget.Spinner(c).apply {
+            adapter = android.widget.ArrayAdapter.createFromResource(c, R.array.backup_received_options,
+                android.R.layout.simple_spinner_dropdown_item)
+            contentDescription = c.getString(R.string.backup_received_label)
+        }
         val layout = android.widget.LinearLayout(c).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             addView(input)
-            if (writing) addView(repeat)
+            if (writing) {
+                addView(repeat)
+                addView(android.widget.TextView(c).apply { setText(R.string.backup_received_label) })
+                addView(received)
+                addView(android.widget.TextView(c).apply { setText(R.string.backup_received_limit) })
+            }
         }
         val dialog = AlertDialog.Builder(c).setTitle(if (writing) R.string.backup_export else R.string.backup_restore)
             .setView(layout).setPositiveButton(android.R.string.ok, null)
@@ -71,21 +81,28 @@ internal class BackupPreferences(val fragment: PreferenceFragmentCompat) {
                 input.text.clear()
                 repeat.text.clear()
                 dialog.dismiss()
-                process(c.applicationContext, uri, writing, password)
+                val mode = PortableBackup.ReceivedMode.entries[received.selectedItemPosition.coerceAtLeast(0)]
+                process(c.applicationContext, uri, writing, password, mode)
             }
         }
     }
 
-    private fun process(context: Context, uri: Uri, writing: Boolean, password: CharArray) =
+    private fun process(context: Context, uri: Uri, writing: Boolean, password: CharArray, mode: PortableBackup.ReceivedMode) =
         fragment.lifecycleScope.launch {
             val progress = android.widget.ProgressBar(fragment.requireContext())
+            val job = coroutineContext[kotlinx.coroutines.Job]
             val busy = AlertDialog.Builder(fragment.requireContext()).setTitle(R.string.backup_working).setView(progress)
-                .setCancelable(false).show()
+                .setCancelable(false).apply {
+                    if (writing) setNegativeButton(android.R.string.cancel) { _, _ -> job?.cancel() }
+                }.show()
             var preview: PortableBackup.Preview? = null
+            var showSummary = false
             try {
                 val status = if (writing) {
-                    withContext(Dispatchers.IO) { PortableBackup.export(context, uri, password) }
-                    context.getString(R.string.backup_saved)
+                    val report = withContext(Dispatchers.IO) { PortableBackup.export(context, uri, password, mode) }
+                    showSummary = report.unavailable > 0
+                    if (mode == PortableBackup.ReceivedMode.LINKS) context.getString(R.string.backup_saved)
+                    else context.getString(R.string.backup_received_result, report.included, report.unavailable)
                 } else {
                     val parsed = withContext(Dispatchers.IO) { PortableBackup.preview(context, uri, password) }
                     preview = parsed
@@ -95,9 +112,11 @@ internal class BackupPreferences(val fragment: PreferenceFragmentCompat) {
                     val count = withContext(Dispatchers.IO) {
                         Database.getInstance(context).restorePortableThreads(parsed, selected)
                     }
-                    context.getString(R.string.backup_restored, count)
+                    context.resources.getQuantityString(R.plurals.backup_restored, count, count)
                 }
-                Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                if (showSummary && fragment.isAdded) AlertDialog.Builder(fragment.requireContext())
+                    .setTitle(R.string.backup_export).setMessage(status).setPositiveButton(android.R.string.ok, null).show()
+                else Toast.makeText(context, status, Toast.LENGTH_LONG).show()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

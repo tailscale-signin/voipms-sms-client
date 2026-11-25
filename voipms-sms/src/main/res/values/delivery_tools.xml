@@ -17,14 +17,9 @@
     <string name="delivery_open">Open companion</string>
     <string name="delivery_https">Enter the HTTPS address of your companion server.</string>
     <string name="delivery_browser_missing">No browser could open this address.</string>
-    <string name="calls_title">Calls and voicemail</string>
     <string name="calls_missed">Missed call</string>
     <string name="calls_voicemail">Voicemail</string>
     <string name="calls_reply">Text back</string>
-    <string name="calls_listen">Play voicemail</string>
-    <string name="calls_loading">Checking VoIP.ms…</string>
-    <string name="calls_empty">No matching missed calls or voicemail in the past seven days.</string>
-    <string name="calls_error">VoIP.ms could not load these records. Check your connection and account permissions.</string>
     <string name="calls_play">Play voicemail</string>
     <string name="calls_pause">Pause voicemail</string>
     <string name="calls_stop">Stop voicemail</string>

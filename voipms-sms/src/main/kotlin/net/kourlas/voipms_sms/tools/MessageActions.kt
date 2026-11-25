@@ -1,9 +1,10 @@
 package net.kourlas.voipms_sms.tools
 
+import androidx.core.content.edit
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import android.provider.CalendarContract
 import android.widget.EditText
 import android.widget.Toast
@@ -20,7 +21,7 @@ internal object MessageActions {
         val prefs = host.getSharedPreferences("line_templates", Context.MODE_PRIVATE)
         val data = JSONArray(prefs.getString(did, "[]"))
         val values = MutableList(data.length()) { data.getString(it) }
-        fun save() { prefs.edit().putString(did, JSONArray(values).toString()).apply() }
+        fun save() { prefs.edit { putString(did, JSONArray(values).toString()) } }
         fun edit(idx: Int?) {
             val form = DialogForm(host)
             val field = form.text(R.string.tools_template, idx?.let { values[it] }.orEmpty(), true)
@@ -91,7 +92,7 @@ internal object MessageActions {
                     R.string.tools_translate -> translation(host, msg.text)
                     R.string.tools_event -> calendar(host, msg)
                     R.string.tools_remind -> ThreadReminders.choose(host, msg.conversationId)
-                    R.string.tools_track -> if (parcel != null) launch(host, Intent(Intent.ACTION_VIEW, Uri.parse(parcel)))
+                    R.string.tools_track -> if (parcel != null) launch(host, Intent(Intent.ACTION_VIEW, parcel.toUri()))
                 }
             }.show()
     }

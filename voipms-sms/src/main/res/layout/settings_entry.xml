@@ -4,7 +4,7 @@
     android:orientation="horizontal" android:gravity="center_vertical"
     android:minHeight="64dp" android:paddingStart="20dp" android:paddingEnd="20dp"
     android:paddingTop="8dp" android:paddingBottom="8dp"
-    android:background="?attr/selectableItemBackground">
+    android:foreground="?attr/selectableItemBackground">
     <ImageView android:id="@android:id/icon" android:layout_width="40dp" android:layout_height="40dp"
         android:background="@drawable/settings_icon_tile" android:padding="9dp"
         android:importantForAccessibility="no" />

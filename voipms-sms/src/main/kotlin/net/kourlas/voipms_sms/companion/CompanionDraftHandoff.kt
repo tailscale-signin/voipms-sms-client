@@ -7,6 +7,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.edit
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -104,7 +105,7 @@ internal class CompanionDraftHandoff(
                     if (!eligible(account.generation)) return@run
                     withCurrentAccount(activity, host.generation) {
                         if (!host.remember(activity, token)) throw CompanionFailure(503)
-                        DeliveryTrace.store(activity).edit().putString("companion_origin", origin).apply()
+                        DeliveryTrace.store(activity).edit { putString("companion_origin", origin) }
                         val selected = getDids(activity)
                         val known = PrivateThreads.ids(activity, visibleOnly = false).filter {
                             it.did in selected && it.did in granted
@@ -114,7 +115,7 @@ internal class CompanionDraftHandoff(
                                 val key = host.key + ".pending"
                                 val exclusions = prefs.getStringSet(key, emptySet()).orEmpty() +
                                     known.map { "${it.did}|${it.contact}" }
-                                prefs.edit().putStringSet(key, exclusions).commit()
+                                prefs.commitCompanionChanges { putStringSet(key, exclusions) }
                             }
                             if (saved != true) throw CompanionFailure(503)
                         }
@@ -189,7 +190,7 @@ internal class CompanionDraftHandoff(
                     if (!prefs.contains(host.key)) return@filter false
                     val key = host.key + ".pending"
                     val ids = prefs.getStringSet(key, emptySet()).orEmpty() + "${id.did}|${id.contact}"
-                    prefs.edit().putStringSet(key, ids).commit()
+                    prefs.commitCompanionChanges { putStringSet(key, ids) }
                 }
             }.orEmpty()
             for (origin in pending) NativeCompanion.enqueue(context.applicationContext, generation, origin)

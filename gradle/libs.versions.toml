@@ -7,6 +7,7 @@ appcompat = "1.8.0"
 betterLinkMovementMethod = "2.2.0"
 composeUi = "1.13.0"
 coreKtx = "1.19.1"
+exifInterface = "1.4.2"
 firebaseBom = "35.2.0"
 google-services = "4.6.0"
 phoneGeocoder = "3.44"
@@ -31,12 +32,15 @@ swiperefreshlayout = "1.2.0"
 workRuntimeKtx = "2.12.0"
 
 [libraries]
+tesseract4android = { module = "cz.adaptech.tesseract4android:tesseract4android", version = "4.9.0" }
+tink-android = { module = "com.google.crypto.tink:tink-android", version = "1.17.0" }
 mlkit-translate = { module = "com.google.mlkit:translate", version = "17.0.3" }
 google-phone-geocoder = { module = "com.googlecode.libphonenumber:geocoder", version.ref = "phoneGeocoder" }
 androidx-activity = { module = "androidx.activity:activity", version.ref = "activity" }
 androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
 androidx-compose-ui = { module = "androidx.compose.ui:ui", version.ref = "composeUi" }
+androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifInterface" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-viewmodel-ktx = { module = "androidx.lifecycle:lifecycle-viewmodel-ktx", version.ref = "lifecycleViewmodelKtx" }
 androidx-preference-ktx = { module = "androidx.preference:preference-ktx", version.ref = "preferenceKtx" }

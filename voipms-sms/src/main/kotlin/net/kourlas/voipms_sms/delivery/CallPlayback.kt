@@ -26,6 +26,7 @@ import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import java.io.IOException
+import java.lang.ref.WeakReference
 import net.kourlas.voipms_sms.conversation.ConversationActivity
 import net.kourlas.voipms_sms.privacy.PrivateThreads
 import net.kourlas.voipms_sms.sms.ConversationId
@@ -55,7 +56,7 @@ internal class VoicePlaybackModel : ViewModel() {
     private var job: Job? = null
     private var player: MediaPlayer? = null
     private var source: VoicemailDataSource? = null
-    private var owner: FragmentActivity? = null
+    private var owner: WeakReference<FragmentActivity>? = null
     private var activeGeneration = -1L
     private var activeLines = emptySet<String>()
     private var audio: AudioManager? = null
@@ -68,7 +69,7 @@ internal class VoicePlaybackModel : ViewModel() {
         override fun onStop(owner: LifecycleOwner) { stop() }
         override fun onDestroy(owner: LifecycleOwner) {
             owner.lifecycle.removeObserver(this)
-            if (this@VoicePlaybackModel.owner === owner) this@VoicePlaybackModel.owner = null
+            if (this@VoicePlaybackModel.owner?.get() === owner) this@VoicePlaybackModel.owner = null
         }
     }
 
@@ -117,10 +118,10 @@ internal class VoicePlaybackModel : ViewModel() {
     fun play(activity: FragmentActivity, item: CallFeedItem) {
         val account = readAccountCredentials(activity)?.takeIf { it.configured } ?: return
         if (!item.voicemail) return
-        if (owner !== activity) {
+        if (owner?.get() !== activity) {
             stop()
-            owner?.lifecycle?.removeObserver(observer)
-            owner = activity
+            owner?.get()?.lifecycle?.removeObserver(observer)
+            owner = WeakReference(activity)
             activity.lifecycle.addObserver(observer)
         }
         if (state.value == (item.id to PlayState.PAUSED)) {
@@ -138,7 +139,8 @@ internal class VoicePlaybackModel : ViewModel() {
         job = activity.lifecycleScope.launch {
             try {
                 val box = CallHistory.mailboxes(account, getDids(activity, onlyRetrieveMessages = true))[item.mailbox]
-                if (box == null || box.did != item.did) return@launch failure(activity)
+                if (box == null || box.did != item.did ||
+                    (item.did.isEmpty() && item.mailboxLines != box.lines)) return@launch failure(activity)
                 activeLines = box.lines
                 if (!allowed(activity, item)) return@launch stop()
                 val bytes = CallHistory.audio(account, item)

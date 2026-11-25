@@ -1,3 +1,11 @@
+### 0.8.0 (development) ###
+
+* Home shows missed calls and voicemail by receipt time. Listen from Home or the matching conversation with play, pause and stop.
+* Messages and Other use refreshed layouts, buttons and icons. At the top of Messages, a deliberate long pull opens the device-protected private inbox. Repeat to return.
+* Queue offline messages, schedule a send, undo it during the delay, and review an uncertain provider response. Send photos and voice notes in the conversation.
+* Give each number its own profile and templates. Find a specific message, snooze a thread, translate a draft, and search text in an attachment.
+* Inspect delivery for each phone number, choose UnifiedPush, or connect a self-hosted browser inbox. Selected devices can hand off a draft and share a work number with individual permissions.
+
 ### 0.7.2 ###
 
 * Sort conversations into Main and Other, with local junk detection and remembered manual moves.

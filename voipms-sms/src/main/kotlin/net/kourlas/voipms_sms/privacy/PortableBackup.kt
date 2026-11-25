@@ -2,6 +2,10 @@ package net.kourlas.voipms_sms.privacy
 
 import android.content.Context
 import android.net.Uri
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import net.kourlas.voipms_sms.media.MmsMedia
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.database.entities.Sms
 import net.kourlas.voipms_sms.sms.ConversationId
@@ -18,7 +22,9 @@ internal object PortableBackup {
     private val thread = Regex("threads/([0-9]{1,20})_([0-9]{1,20})")
     private val media = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(?:jpg|gif|png|mp3|wav|mid|mp4|3gp)")
     private const val MAX_RECORD = 1024 * 1024
-    data class Preview(val zip: File, val counts: Map<ConversationId, Int>)
+    enum class ReceivedMode { LINKS, CACHED, FETCH }
+    data class ExportResult(val included: Int, val unavailable: Int)
+    data class Preview(val zip: File, val counts: Map<ConversationId, Int>, val received: Map<String, String>)
 
     private fun staging(context: Context) = File(context.cacheDir, "portable-messages-stage").apply {
         check(isDirectory || mkdirs())
@@ -58,19 +64,27 @@ internal object PortableBackup {
         zip.getInputStream(requireNotNull(zip.getEntry("threads/" + id.getId()))).use { yieldAll(records(it, id)) }
     }
 
-    suspend fun export(context: Context, uri: Uri, password: CharArray) {
+    suspend fun export(context: Context, uri: Uri, password: CharArray, mode: ReceivedMode = ReceivedMode.LINKS): ExportResult {
+        val job = currentCoroutineContext()
+        val received = mutableSetOf<String>()
+        var included = 0
+        var unavailable = 0
         val temp = File.createTempFile("portable-", ".zip", staging(context))
         try {
             val files = mutableSetOf<String>()
             ZipOutputStream(temp.outputStream().buffered()).use { zip ->
                 zip.putNextEntry(ZipEntry("version"))
-                zip.write('1'.code)
+                zip.write('2'.code)
                 zip.closeEntry()
                 Database.getInstance(context).readPortableThreads { id, rows ->
                     zip.putNextEntry(ZipEntry("threads/" + id.getId()))
                     val data = DataOutputStream(zip)
                     for (r in rows) {
+                        job.ensureActive()
                         val refs = attachments(r)
+                        if (r.incoming == 1L && mode != ReceivedMode.LINKS) {
+                            refs.filterNot(MmsMedia::isLocal).forEach { received.add(it) }
+                        }
                         refs.filter { it.startsWith("mms-local:") }.forEach { ref ->
                             val name = ref.removePrefix("mms-local:")
                             require(media.matches(name))
@@ -86,7 +100,33 @@ internal object PortableBackup {
                     data.writeInt(0)
                     zip.closeEntry()
                 }
+                // Network reads happen after closing the database snapshot. Preserve the provider URL
+                // on every row, even when the attachment has expired or has an unsupported format.
+                var receivedBytes = 0L
+                val limit = 512L * 1024 * 1024
+                for (ref in received) {
+                    job.ensureActive()
+                    val file = try {
+                        if (receivedBytes >= limit) null else MmsMedia.forBackup(context, ref, mode == ReceivedMode.FETCH)
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: java.io.IOException) { null }
+                    val bytes = try {
+                        if (file == null || file.length() > limit - receivedBytes) null
+                        else file.inputStream().use { input -> with(MmsMedia) { input.readBounded(MAX_RECEIVED_BYTES) } }
+                    } catch (_: java.io.IOException) { null }
+                    if (file == null || bytes == null || MmsMedia.detect(bytes) != file.extension) {
+                        unavailable++
+                        continue
+                    }
+                    job.ensureActive()
+                    zip.putNextEntry(ZipEntry("received/${file.name}"))
+                    zip.write(bytes)
+                    zip.closeEntry()
+                    receivedBytes += bytes.size
+                    included++
+                }
                 for (name in files) {
+                    job.ensureActive()
                     zip.putNextEntry(ZipEntry("media/$name"))
                     File(context.filesDir, "mms_outgoing/$name").inputStream().use { it.copyTo(zip) }
                     zip.closeEntry()
@@ -97,8 +137,9 @@ internal object PortableBackup {
                 require(zip.size() <= 100_000 && zip.entries().asSequence().sumOf { it.size } <= BackupEnvelope.MAX_BYTES)
             }
             requireNotNull(context.contentResolver.openOutputStream(uri, "wt")).use { dest ->
-                temp.inputStream().buffered().use { BackupEnvelope.write(it, dest, password) }
+                temp.inputStream().buffered().use { BackupEnvelope.write(it, dest, password) { job.ensureActive() } }
             }
+            return ExportResult(included, unavailable)
         } finally { temp.delete() }
     }
 
@@ -110,9 +151,15 @@ internal object PortableBackup {
             }
             val counts = linkedMapOf<ConversationId, Int>()
             val referenced = mutableSetOf<String>()
+            val receivedHashes = mutableSetOf<String>()
+            val receivedEntries = mutableMapOf<String, String>()
             ZipFile(temp).use { zip ->
                 val entries = zip.entries().asSequence().toList()
                 require(entries.size in 1..100_000 && entries.map { it.name }.distinct().size == entries.size)
+                val version = requireNotNull(zip.getEntry("version"))
+                require(version.size == 1L)
+                val versionCode = zip.getInputStream(version).use { it.read() }
+                require(versionCode == '1'.code || versionCode == '2'.code)
                 var total = 0L
                 for (e in entries) {
                     require(e.size in 0..BackupEnvelope.MAX_BYTES)
@@ -120,16 +167,25 @@ internal object PortableBackup {
                     require(total <= BackupEnvelope.MAX_BYTES)
                     val match = thread.matchEntire(e.name)
                     when {
-                        e.name == "version" -> require(e.size == 1L && zip.getInputStream(e).use { it.read() } == '1'.code)
+                        e.name == "version" -> Unit
                         match != null -> {
                             val id = ConversationId(match.groupValues[1], match.groupValues[2])
                             var count = 0
                             rows(zip, id).forEach { row ->
                                 count++
+                                if (row.incoming == 1L) attachments(row).mapNotNullTo(receivedHashes, MmsMedia::receivedHash)
                                 attachments(row).filter { it.startsWith("mms-local:") }
                                     .mapTo(referenced) { "media/" + it.removePrefix("mms-local:") }
                             }
                             counts[id] = count
+                        }
+                        versionCode == '2'.code && e.name.startsWith("received/") && MmsMedia.receivedFilename.matches(e.name.removePrefix("received/")) -> {
+                            val name = e.name.removePrefix("received/")
+                            require(e.size in 1..MmsMedia.MAX_RECEIVED_BYTES.toLong())
+                            val bytes = zip.getInputStream(e).use { input -> with(MmsMedia) { input.readBounded(MAX_RECEIVED_BYTES) } }
+                            val crc = java.util.zip.CRC32().apply { update(bytes) }
+                            require(bytes.size.toLong() == e.size && crc.value == e.crc && MmsMedia.detect(bytes) == name.substringAfterLast('.'))
+                            require(receivedEntries.put(name.substringBefore('.'), name) == null)
                         }
                         e.name.startsWith("media/") && media.matches(e.name.removePrefix("media/")) -> {
                             // Validate every byte before offering restore, including unselected threads.
@@ -150,18 +206,18 @@ internal object PortableBackup {
                         else -> error("Unsupported backup entry")
                     }
                 }
-                require(zip.getEntry("version") != null && referenced.all { zip.getEntry(it) != null })
+                require(referenced.all { zip.getEntry(it) != null } && receivedHashes.containsAll(receivedEntries.keys))
             }
-            return Preview(temp, counts)
+            return Preview(temp, counts, receivedEntries)
         } catch (e: Throwable) { temp.delete(); throw e }
     }
 
-    fun installMedia(context: Context, zip: ZipFile, name: String): File? {
-        require(media.matches(name))
-        val dir = File(context.filesDir, "mms_outgoing")
+    fun installMedia(context: Context, zip: ZipFile, name: String, received: Boolean = false): File? {
+        require(if (received) MmsMedia.receivedFilename.matches(name) else media.matches(name))
+        val dir = File(context.filesDir, if (received) "mms_received" else "mms_outgoing")
         require(dir.isDirectory || dir.mkdirs())
         val destination = File(dir, name)
-        val entry = requireNotNull(zip.getEntry("media/$name"))
+        val entry = requireNotNull(zip.getEntry((if (received) "received/" else "media/") + name))
         if (destination.exists()) {
             val hash = java.security.MessageDigest.getInstance("SHA-256")
             fun digest(input: InputStream): ByteArray {

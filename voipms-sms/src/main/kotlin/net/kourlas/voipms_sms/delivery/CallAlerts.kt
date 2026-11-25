@@ -74,8 +74,7 @@ internal object CallAlerts {
             if (event.id.isBlank()) continue
             val receivingLines = when {
                 did.isNotEmpty() -> setOf(did)
-                event.voicemail && event.mailbox.isNotEmpty() -> DeliveryTrace.store(context)
-                    .getStringSet("mailboxLines.${account.generation}.${event.mailbox}", emptySet()).orEmpty()
+                event.voicemail && event.mailbox.isNotEmpty() -> event.mailboxLines
                 else -> emptySet()
             }
             val routable = peer.isNotEmpty() && peer.all { it in '0'..'9' }

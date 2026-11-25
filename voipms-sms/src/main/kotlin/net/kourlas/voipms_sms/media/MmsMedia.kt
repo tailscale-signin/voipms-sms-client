@@ -4,7 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.media.ExifInterface
+import androidx.core.graphics.scale
+import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.util.Base64
 import androidx.core.content.FileProvider
@@ -18,6 +19,10 @@ import java.io.IOException
 import java.io.InputStream
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 internal object MmsMedia {
     const val MAX_FILES = 3
@@ -120,7 +125,7 @@ internal object MmsMedia {
                 check(photo.compress(Bitmap.CompressFormat.JPEG, quality, out))
                 if (out.size() <= MAX_BYTES) return create(context, "jpg", out.toByteArray())
             }
-            photo = Bitmap.createScaledBitmap(photo, (photo.width * 0.75).toInt().coerceAtLeast(1),
+            photo = photo.scale((photo.width * 0.75).toInt().coerceAtLeast(1),
                 (photo.height * 0.75).toInt().coerceAtLeast(1), true)
         }
     }
@@ -135,30 +140,71 @@ internal object MmsMedia {
         }.toMap()
     }
 
-    /** Only fetch when the reader taps an attachment. No account credentials are forwarded. */
-    fun previewFile(context: Context, ref: String): File {
-        if (isLocal(ref)) return localFile(context, ref).also { require(it.isFile) }
-        val url = ref.toHttpUrlOrNull() ?: throw IOException(context.getString(R.string.mms_unavailable))
-        require(url.isHttps && (url.host == "voip.ms" || url.host.endsWith(".voip.ms")) &&
-            url.username.isEmpty() && url.password.isEmpty() && url.port == 443)
-        val hash = MessageDigest.getInstance("SHA-256").digest(ref.toByteArray()).toHexString()
-        val dir = File(context.cacheDir, "mms_preview").apply { mkdirs() }
-        for (ext in types.keys) {
-            val cached = File(dir, "$hash.$ext")
-            if (cached.isFile) return cached
+    const val MAX_RECEIVED_BYTES = 12 * 1024 * 1024
+    val receivedFilename = Regex("[0-9a-f]{64}\\.(?:jpg|gif|png|mp3|wav|mid|mp4|3gp)")
+
+    private fun allowedUrl(ref: String) = ref.toHttpUrlOrNull()?.takeIf {
+        it.isHttps && (it.host == "voip.ms" || it.host.endsWith(".voip.ms")) &&
+            it.username.isEmpty() && it.password.isEmpty() && it.port == 443
+    }
+
+    fun receivedHash(ref: String): String? = allowedUrl(ref)?.let {
+        MessageDigest.getInstance("SHA-256").digest(ref.toByteArray()).toHexString()
+    }
+
+    /** Check explicitly restored copies first, followed by the ordinary, evictable preview cache. */
+    fun knownReceived(context: Context, ref: String): File? {
+        val hash = receivedHash(ref) ?: return null
+        for (dir in listOf(File(context.filesDir, "mms_received"), File(context.cacheDir, "mms_preview"))) {
+            for (ext in types.keys) {
+                val file = File(dir, "$hash.$ext")
+                if (file.isFile && file.length() in 1L..MAX_RECEIVED_BYTES.toLong()) return file
+            }
         }
-        val client = HttpClientManager.getInstance().client.newBuilder().followRedirects(false).build()
-        val data = client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP " + response.code)
-            response.body.byteStream().readBounded(12 * 1024 * 1024)
-        }
+        return null
+    }
+
+    private fun receivedCall(context: Context, ref: String): okhttp3.Call {
+        val url = allowedUrl(ref) ?: throw IOException(context.getString(R.string.mms_unavailable))
+        val client = HttpClientManager.getInstance().client.newBuilder().followRedirects(false)
+            .callTimeout(25, TimeUnit.SECONDS).build()
+        return client.newCall(Request.Builder().url(url).get().build())
+    }
+
+    private fun saveReceivedResponse(context: Context, ref: String, response: okhttp3.Response): File = response.use {
+        if (!it.isSuccessful) throw IOException("HTTP " + it.code)
+        if (it.body.contentLength() > MAX_RECEIVED_BYTES) throw IOException(context.getString(R.string.mms_too_large))
+        val data = it.body.byteStream().readBounded(MAX_RECEIVED_BYTES)
         val ext = detect(data) ?: throw IOException(context.getString(R.string.mms_unsupported))
-        val dest = File(dir, "$hash.$ext")
+        val dir = File(context.cacheDir, "mms_preview").apply { mkdirs() }
+        val dest = File(dir, "${requireNotNull(receivedHash(ref))}.$ext")
         val temp = File.createTempFile("incoming", ".part", dir)
         try {
             temp.writeBytes(data)
             if (!temp.renameTo(dest) && !dest.exists()) throw IOException(context.getString(R.string.mms_unavailable))
         } finally { temp.delete() }
-        return dest
+        dest
+    }
+
+    /** The reader explicitly opened media, or the user opted into downloading media for this backup. */
+    fun previewFile(context: Context, ref: String): File {
+        if (isLocal(ref)) return localFile(context, ref).also { require(it.isFile) }
+        return knownReceived(context, ref) ?: saveReceivedResponse(context, ref, receivedCall(context, ref).execute())
+    }
+
+    suspend fun forBackup(context: Context, ref: String, allowNetwork: Boolean): File? {
+        knownReceived(context, ref)?.let { return it }
+        if (!allowNetwork || allowedUrl(ref) == null) return null
+        return suspendCancellableCoroutine { wait ->
+            val call = receivedCall(context, ref)
+            wait.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: IOException) { wait.resumeWithException(e) }
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    try { wait.resume(saveReceivedResponse(context, ref, response)) }
+                    catch (e: Exception) { wait.resumeWithException(e) }
+                }
+            })
+        }
     }
 }

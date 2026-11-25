@@ -1,5 +1,6 @@
 package net.kourlas.voipms_sms.tools
 
+import androidx.core.content.edit
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -39,7 +40,10 @@ object ThreadReminders {
         return due == NEXT_INBOUND || due > System.currentTimeMillis()
     }
     private fun clear(c: Context, id: ConversationId) {
-        preferences(c).edit().remove(id.getId()).remove("since_${id.getId()}").apply()
+        preferences(c).edit {
+            remove(id.getId())
+            remove("since_${id.getId()}")
+        }
     }
     fun inbound(c: Context, id: ConversationId, timestamp: Long) {
         val p = preferences(c)
@@ -83,16 +87,18 @@ object ThreadReminders {
         }.show()
     }
     private fun set(host: AppCompatActivity, id: ConversationId, due: Long) {
-            val now = System.currentTimeMillis()
-            val work = WorkManager.getInstance(host)
-            if (due == 0L) clear(host, id) else preferences(host).edit()
-                .putLong(id.getId(), due).putLong("since_${id.getId()}", now / 1000).apply()
-            if (due > 0) {
-                val job = OneTimeWorkRequestBuilder<ThreadReminderWorker>()
-                    .setInitialDelay(due - now, TimeUnit.MILLISECONDS)
-                    .setInputData(workDataOf("did" to id.did, "contact" to id.contact, "due" to due)).build()
-                work.enqueueUniqueWork(workName(id), ExistingWorkPolicy.REPLACE, job)
-            } else work.cancelUniqueWork(workName(id))
+        val now = System.currentTimeMillis()
+        val work = WorkManager.getInstance(host)
+        if (due == 0L) clear(host, id) else preferences(host).edit {
+            putLong(id.getId(), due)
+            putLong("since_${id.getId()}", now / 1000)
+        }
+        if (due > 0) {
+            val job = OneTimeWorkRequestBuilder<ThreadReminderWorker>()
+                .setInitialDelay(due - now, TimeUnit.MILLISECONDS)
+                .setInputData(workDataOf("did" to id.did, "contact" to id.contact, "due" to due)).build()
+            work.enqueueUniqueWork(workName(id), ExistingWorkPolicy.REPLACE, job)
+        } else work.cancelUniqueWork(workName(id))
     }
     fun showSnoozed(host: AppCompatActivity) {
         val dids = getDids(host, onlyShowInConversationsView = true)

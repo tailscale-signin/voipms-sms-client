@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <files-path name="outgoing" path="mms_outgoing/" />
+    <files-path name="restored_received" path="mms_received/" />
     <cache-path name="incoming" path="mms_preview/" />
 </paths>

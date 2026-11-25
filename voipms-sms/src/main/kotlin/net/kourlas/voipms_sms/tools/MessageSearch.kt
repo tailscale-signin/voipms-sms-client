@@ -33,11 +33,14 @@ import java.util.Locale
 data class MessageSearchIndex(val body: String, val ocr: String)
 
 object SearchIndex {
+    internal val triggers = listOf(
+        "CREATE TRIGGER IF NOT EXISTS search_added AFTER INSERT ON sms BEGIN INSERT INTO message_search(rowid,body,ocr) VALUES(NEW.DatabaseId,NEW.Text,''); END",
+        "CREATE TRIGGER IF NOT EXISTS search_changed AFTER UPDATE OF Text ON sms BEGIN UPDATE message_search SET body=NEW.Text WHERE rowid=NEW.DatabaseId; END",
+        "CREATE TRIGGER IF NOT EXISTS search_media_changed AFTER UPDATE OF MediaJson, Media1, Media2, Media3 ON sms WHEN NEW.MediaJson != OLD.MediaJson OR NEW.Media1 != OLD.Media1 OR NEW.Media2 != OLD.Media2 OR NEW.Media3 != OLD.Media3 BEGIN UPDATE message_search SET ocr='' WHERE rowid=NEW.DatabaseId; END",
+        "CREATE TRIGGER IF NOT EXISTS search_removed AFTER DELETE ON sms BEGIN DELETE FROM message_search WHERE rowid=OLD.DatabaseId; END",
+    )
     fun install(db: SupportSQLiteDatabase) {
-        db.execSQL("CREATE TRIGGER IF NOT EXISTS search_added AFTER INSERT ON sms BEGIN INSERT INTO message_search(rowid,body,ocr) VALUES(NEW.DatabaseId,NEW.Text,''); END")
-        db.execSQL("CREATE TRIGGER IF NOT EXISTS search_changed AFTER UPDATE OF Text ON sms BEGIN UPDATE message_search SET body=NEW.Text WHERE rowid=NEW.DatabaseId; END")
-        db.execSQL("CREATE TRIGGER IF NOT EXISTS search_media_changed AFTER UPDATE OF MediaJson, Media1, Media2, Media3 ON sms WHEN NEW.MediaJson != OLD.MediaJson OR NEW.Media1 != OLD.Media1 OR NEW.Media2 != OLD.Media2 OR NEW.Media3 != OLD.Media3 BEGIN UPDATE message_search SET ocr='' WHERE rowid=NEW.DatabaseId; END")
-        db.execSQL("CREATE TRIGGER IF NOT EXISTS search_removed AFTER DELETE ON sms BEGIN DELETE FROM message_search WHERE rowid=OLD.DatabaseId; END")
+        triggers.forEach { db.execSQL(it) }
         db.execSQL("INSERT INTO message_search(rowid,body,ocr) SELECT DatabaseId,Text,'' FROM sms WHERE DatabaseId NOT IN (SELECT rowid FROM message_search)")
     }
 }

@@ -11,6 +11,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
+import androidx.core.view.isNotEmpty
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -29,11 +30,14 @@ import net.kourlas.voipms_sms.tools.LineProfiles
 import net.kourlas.voipms_sms.utils.getContactName
 import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
 import java.text.DateFormat
+import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 
 internal class HomeCallFeed(private val activity: FragmentActivity, private val container: FrameLayout) {
     private var job: Job? = null
     private val date = DateFormat.getDateInstance(DateFormat.FULL)
+    private val calendarDay = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { isLenient = false }
     private val time = android.text.format.DateFormat.getTimeFormat(activity)
     private val prefs = DeliveryTrace.store(activity)
     private val empty = TextView(activity).apply { gravity=Gravity.CENTER; setPadding(activity.dp(20),activity.dp(32),activity.dp(20),activity.dp(32)) }
@@ -41,6 +45,10 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
     private val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key?.startsWith("callFeedError.") == true) updateEmpty()
     }
+    private fun dayKey(event: CallFeedItem): String =
+        if (event.dateOnly) event.providerDate
+        else calendarDay.format(Date(event.receivedAt))
+
     private fun updateEmpty() {
         val generation = readAccountCredentials(activity)?.generation
         empty.setText(if (prefs.getBoolean("callFeedError.$generation",false)) R.string.calls_partial else R.string.calls_home_empty)
@@ -70,8 +78,7 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                     val names=mutableMapOf<String,String>()
                     val active = net.kourlas.voipms_sms.preferences.getDids(activity, onlyRetrieveMessages = true)
                     items.filter { item ->
-                        val lines = if (item.did.isNotEmpty()) setOf(item.did) else
-                            prefs.getStringSet("mailboxLines.${account.generation}.${item.mailbox}", emptySet()).orEmpty()
+                        val lines = if (item.did.isNotEmpty()) setOf(item.did) else item.mailboxLines
                         lines.isNotEmpty() && lines.all { line -> line in active && getDidShowInConversationsView(activity,line) &&
                             !PrivateThreads.isPrivate(activity,ConversationId(line,item.peer)) }
                     }.map { item ->
@@ -88,12 +95,12 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                     override fun getItemId(position:Int)=getItem(position).id.hashCode().toLong()
                     override fun getView(position:Int,convertView:View?,parent:ViewGroup):View {
                         val (event,name)=rows[position]
-                        val day=if (event.voicemail && event.providerDate.length == 10) event.providerDate else date.format(Date(event.receivedAt))
+                        val day = dayKey(event)
                         val group=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(activity.dp(18),activity.dp(7),activity.dp(18),activity.dp(7)) }
                         val prior = if (position > 0) getItem(position - 1) else null
-                        val priorDay = prior?.let { if (it.voicemail && it.providerDate.length == 10) it.providerDate else date.format(Date(it.receivedAt)) }
+                        val priorDay = prior?.let(::dayKey)
                         if(day != priorDay) group.addView(TextView(activity).apply {
-                            text=day; textSize=13f; setTypeface(typeface,Typeface.BOLD); setPadding(0,activity.dp(8),0,activity.dp(8))
+                            text = runCatching { calendarDay.parse(day)?.let(date::format) }.getOrNull() ?: day; textSize=13f; setTypeface(typeface,Typeface.BOLD); setPadding(0,activity.dp(8),0,activity.dp(8))
                         })
                         val card=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(activity.dp(12),activity.dp(10),activity.dp(12),0); setBackgroundResource(R.drawable.call_event_surface) }
                         val row=LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL }
@@ -103,7 +110,7 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                         val line=if(event.did.isEmpty()) activity.getString(R.string.calls_shared) else LineProfiles.label(activity,event.did)
                         label.addView(TextView(activity).apply { text=activity.getString(R.string.calls_row_detail,activity.getString(if(event.voicemail) R.string.calls_voicemail else R.string.calls_missed),line);textSize=13f })
                         row.addView(label,LinearLayout.LayoutParams(0,-2,1f))
-                        row.addView(TextView(activity).apply { text=if (event.voicemail && event.providerDate.length == 10) "" else time.format(Date(event.receivedAt)); textSize=13f })
+                        row.addView(TextView(activity).apply { text=if (event.dateOnly) "" else time.format(Date(event.receivedAt)); textSize=13f })
                         card.addView(row); if(event.voicemail) card.addView(CallPlayback.controls(activity,event))
                         if(event.did.isNotEmpty() && event.peer.isNotEmpty()) card.addView(MaterialButton(activity,null,androidx.appcompat.R.attr.borderlessButtonStyle).apply {
                             setText(R.string.calls_reply); gravity=Gravity.CENTER_VERTICAL or Gravity.START; isAllCaps=false
@@ -122,7 +129,7 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
     fun hide() {
         job?.cancel(); job=null
         prefs.unregisterOnSharedPreferenceChangeListener(listener)
-        if (container.childCount > 0) {
+        if (container.isNotEmpty()) {
             ViewModelProvider(activity)[VoicePlaybackModel::class.java].stop()
             container.removeAllViews()
         }

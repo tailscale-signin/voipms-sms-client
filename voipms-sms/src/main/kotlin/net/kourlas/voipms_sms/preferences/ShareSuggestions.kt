@@ -1,5 +1,6 @@
 package net.kourlas.voipms_sms.preferences
 
+import androidx.core.content.edit
 import android.content.Context
 import androidx.preference.PreferenceManager
 import net.kourlas.voipms_sms.sms.ConversationId
@@ -11,8 +12,8 @@ internal object ShareSuggestions {
         !PreferenceManager.getDefaultSharedPreferences(context).getBoolean(key(id), false)
 
     fun setEnabled(context: Context, id: ConversationId, enabled: Boolean) {
-        val edit = PreferenceManager.getDefaultSharedPreferences(context).edit()
-        if (enabled) edit.remove(key(id)) else edit.putBoolean(key(id), true)
-        edit.apply()
+        PreferenceManager.getDefaultSharedPreferences(context).edit {
+            if (enabled) remove(key(id)) else putBoolean(key(id), true)
+        }
     }
 }

@@ -4,6 +4,14 @@
 
 Send and receive SMS from your VoIP.ms numbers, search conversations, and reply from notifications. The default dark theme pairs GPT Mobile Improved’s cyan accents and deep teal surfaces with its Proxima Nova typeface. Light and system themes are available under Appearance.
 
+## Home, Messages and Other
+
+**Home** shows missed calls and voicemail for your selected VoIP.ms numbers, newest first. Each recording has Play, Pause and Stop controls. Choose **Text back** to open the caller’s conversation. A voicemail with an identifiable receiving line also appears alongside texts from that caller. Recordings from a mailbox shared by several selected lines appear on Home.
+
+Call alerts arrive when the app retrieves the provider’s records. Enable notifications for the receiving number and use **Refresh** on Home to check immediately. The first check adds existing history quietly. Call and voicemail retrieval require permission to read call records, line routing and voicemail using your VoIP.ms API account.
+
+**Messages** contains your regular conversations. In a conversation, choose **Make thread private** to protect it with your device screen lock. To open private threads, scroll to the top of Messages, then pull down past the usual refresh distance and unlock. Repeat that gesture or press Back to return. **Other** holds conversations filtered as junk and threads you move there yourself.
+
 ## Receiving messages
 
 | While using the app | When the app is closed |

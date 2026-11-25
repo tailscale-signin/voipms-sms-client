@@ -46,15 +46,18 @@ internal object CallHistory {
             if (response.body.source().request(12L * 1024 * 1024)) throw IOException("Response too large")
             val body = JSONObject(response.body.string())
             val status = body.optString("status")
-            if (status !in setOf("success","no_cdr","no_messages","no_voicemail_messages","no_mailbox","no_dids")) throw IOException(status)
+            if (status !in setOf("success","no_cdr","no_messages","no_voicemail_messages","no_mailbox","no_did","no_dids")) throw IOException(status)
             body
         }
     }
 
     private val eastern = TimeZone.getTimeZone("America/New_York")
 
+    private fun epoch(row: JSONObject): Long? =
+        row.optString("origtime").toLongOrNull()?.takeIf { it in 1L..253402300799L }
+
     internal fun instant(row: JSONObject, zone: TimeZone): Long? {
-        row.optString("origtime").toLongOrNull()?.takeIf { it in 1L..253402300799L }?.let { return it * 1000L }
+        epoch(row)?.let { return it * 1000L }
         val raw = row.optString("date")
         val pattern = if (raw.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) "yyyy-MM-dd" else "yyyy-MM-dd HH:mm:ss"
         val parser = SimpleDateFormat(pattern, Locale.US).apply { timeZone = zone; isLenient = false }
@@ -117,6 +120,10 @@ internal object CallHistory {
 
     suspend fun voicemail(account: AccountCredentials, mailbox: String, did: String, zone: TimeZone): List<CallFeedItem> {
         val rows = request(account,"getVoicemailMessages",mapOf("mailbox" to mailbox)).rows("messages")
+        return voicemailItems(rows, mailbox, did, zone)
+    }
+
+    internal fun voicemailItems(rows: List<JSONObject>, mailbox: String, did: String, zone: TimeZone): List<CallFeedItem> {
         val copies = mutableMapOf<String,Int>()
         return rows.sortedBy { it.optInt("message_num") }.mapNotNull { row ->
             val peer = callerNumber(row.optString("callerid")).orEmpty()
@@ -124,7 +131,8 @@ internal object CallHistory {
             val date = row.optString("date")
             val folder = row.optString("folder").ifBlank { "INBOX" }
             val slot = row.optString("message_num").takeIf { it.toIntOrNull() != null } ?: return@mapNotNull null
-            val key = "vm:$mailbox:$date:$peer:${row.optString("duration")}"
+            val duration = row.optString("duration")
+            val key = epoch(row)?.let { "vme:$mailbox:$it:$peer:$duration" } ?: "vm:$mailbox:$date:$peer:$duration"
             val copy = copies.getOrElse(key) { 0 }
             copies[key] = copy + 1
             CallFeedItem("$key:$copy", did, peer, time, true, mailbox, folder, slot, row.optString("callerid"), date)
@@ -135,10 +143,18 @@ internal object CallHistory {
     internal fun locateSlot(rows: List<JSONObject>, item: CallFeedItem): String? {
         val match = rows.singleOrNull { row ->
             val duration = row.optString("duration")
-            val key = "vm:${item.mailbox}:${item.providerDate}:${item.peer}:$duration:"
-            row.optString("mailbox") == item.mailbox && row.optString("folder") == item.folder &&
-                row.optString("callerid") == item.caller && row.optString("date") == item.providerDate &&
-                item.id.startsWith(key)
+            val exact = item.providerEpoch
+            val observed = epoch(row)
+            val sameRecording = if (exact != null) {
+                observed == exact && item.id.startsWith("vme:${item.mailbox}:$exact:${item.peer}:$duration:")
+            } else {
+                // Legacy caches saved the resolved instant but did not record its source.
+                (observed == null || observed * 1000L == item.receivedAt) &&
+                    row.optString("date") == item.providerDate &&
+                    item.id.startsWith("vm:${item.mailbox}:${item.providerDate}:${item.peer}:$duration:")
+            }
+            sameRecording && row.optString("mailbox") == item.mailbox && row.optString("folder") == item.folder &&
+                row.optString("callerid") == item.caller
         }
         return match?.optString("message_num")?.takeIf { it.toIntOrNull()?.let { slot -> slot >= 0 } == true }
     }

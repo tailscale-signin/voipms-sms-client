@@ -72,6 +72,52 @@ class DatabaseImportTest {
     }
 
     @Test
+    fun receivedImageRestoresOfflineToASyncedThreadAndPrivateImagesStayOut(): Unit = runBlocking {
+        val media = net.kourlas.voipms_sms.media.MmsMedia
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        val remote = "https://sms.voip.ms/mms/public-image.png"
+        val privateRemote = "https://sms.voip.ms/mms/private-image.png"
+        val unavailable = "https://example.invalid/unsupported.png"
+        val privatePeer = ConversationId(conversationId.did, "5145550122")
+        val image = android.util.Base64.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tm1sAAAAASUVORK5CYII=",
+            android.util.Base64.DEFAULT)
+        val directory = File(context.cacheDir, "mms_preview").apply { mkdirs() }
+        fun cached(ref: String) = File(directory, "${media.receivedHash(ref)}.png").apply { writeBytes(image) }
+        val primaryCache = cached(remote)
+        val privateCache = cached(privateRemote)
+        val messages = listOf(
+            IncomingMessage(34, Date(10000), true, conversationId.did, conversationId.contact, null, remote, unavailable, null),
+            IncomingMessage(35, Date(20000), true, privatePeer.did, privatePeer.contact, null, privateRemote, null, null))
+        database.insertMessagesVoipMsApi(messages, false, null, null)
+        val locks = context.getSharedPreferences("private-threads", Context.MODE_PRIVATE)
+        locks.edit().putBoolean(privatePeer.getId(), true).commit()
+        val uri = android.net.Uri.fromFile(File(context.cacheDir, "received-test.vsms"))
+        val pass = "portable test pass".toCharArray()
+        try {
+            val report = archive.export(context, uri, pass, net.kourlas.voipms_sms.privacy.PortableBackup.ReceivedMode.CACHED)
+            assertEquals(1, report.included)
+            assertEquals(1, report.unavailable)
+            val contents = archive.preview(context, uri, pass)
+            try {
+                assertEquals(setOf(conversationId), contents.counts.keys)
+                assertEquals(setOf(media.receivedHash(remote)), contents.received.keys)
+                assertTrue(primaryCache.delete())
+                assertNull(media.knownReceived(context, remote))
+                assertEquals(0, database.restorePortableThreads(contents, setOf(conversationId)))
+                val local = requireNotNull(media.knownReceived(context, remote))
+                assertEquals("mms_received", local.parentFile!!.name)
+                assertTrue(image.contentEquals(media.previewFile(context, remote).readBytes()))
+                assertFalse(database.getConversationMessagesUnsorted(conversationId).single().isDeliveryInProgress)
+                local.delete()
+            } finally { contents.zip.delete() }
+        } finally {
+            locks.edit().remove(privatePeer.getId()).commit()
+            privateCache.delete()
+        }
+    }
+
+    @Test
     fun portableBackupPreviewsAndMergesOnlySelectedHistoryWithoutRequeueing() = runBlocking {
         val peer = ConversationId(conversationId.did, "5145550117")
         val attachmentDir = File(context.filesDir, "mms_outgoing").apply { mkdirs() }
@@ -183,10 +229,9 @@ class DatabaseImportTest {
     }
 
     @Test
-    fun importDatabaseWithOtherSchemaRestoresBackup() = runBlocking {
+    fun importDatabaseWithOtherSchemaKeepsCurrentMessages() = runBlocking {
         insertMessages(3)
-        // This file passes checkImportFile, so the failure occurs when Room
-        // opens it, after the current database was replaced.
+        // A supported version alone does not identify a valid backup.
         val file = File(context.cacheDir, "other.db")
         SQLiteDatabase.openOrCreateDatabase(file, null).use {
             it.execSQL("CREATE TABLE other (id INTEGER PRIMARY KEY)")
@@ -200,9 +245,22 @@ class DatabaseImportTest {
         assertEquals(3, messageCount())
         assertFalse(backupFile().exists())
 
-        // The restored database accepts new messages.
+        // The original database still accepts new messages.
         insertMessages(1)
         assertEquals(4, messageCount())
+    }
+
+    @Test
+    fun importRejectsUnexpectedTriggerIncludingOneUsingAnExpectedName() = runBlocking {
+        insertMessages(2)
+        val exported = exportDatabase()
+        SQLiteDatabase.openDatabase(exported.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            it.execSQL("DROP TRIGGER search_removed")
+            it.execSQL("CREATE TRIGGER search_removed AFTER DELETE ON sms BEGIN SELECT 1; END")
+        }
+        assertThrows(DatabaseImportException::class.java) { runBlocking { importFile(exported) } }
+        assertEquals(2, messageCount())
+        assertFalse(backupFile().exists())
     }
 
     @Test
@@ -282,6 +340,13 @@ class DatabaseImportTest {
         // Reconstruct the version 11 schema from the export before replaying both migrations.
         val legacy = exportDatabase()
         SQLiteDatabase.openDatabase(legacy.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            for (name in listOf("search_added", "search_changed", "search_removed", "search_media_changed")) {
+                it.execSQL("DROP TRIGGER " + name)
+            }
+            it.execSQL("DROP TABLE message_search")
+            it.execSQL("DROP TABLE OutboxPart")
+            it.execSQL("DROP INDEX index_sms_search_date")
+            it.execSQL("ALTER TABLE sms DROP COLUMN MediaJson")
             it.execSQL("DROP INDEX index_sms_inbox")
             it.execSQL("ALTER TABLE archived RENAME TO archived_current")
             it.execSQL("CREATE TABLE archived (DatabaseId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, Did TEXT NOT NULL, Contact TEXT NOT NULL, Archived INTEGER NOT NULL)")
@@ -308,6 +373,9 @@ class DatabaseImportTest {
                 }
             }
         }
+        // A migrated installation can export and re-import the same data a second time.
+        importFile(migrated)
+        assertEquals("previous history", database.getConversationMessagesUnsorted(conversationId).single().text)
     }
 
     @Test

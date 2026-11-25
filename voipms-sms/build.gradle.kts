@@ -162,6 +162,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.preference.ktx)
     implementation(libs.androidx.recyclerview)
@@ -186,7 +187,7 @@ dependencies {
     // fdroid-remove-end
 
     // Other third-party libraries
-    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
+    implementation(libs.tesseract4android)
     implementation(libs.google.phone.geocoder)
     implementation(libs.moshi.adapters)
     implementation(libs.moshi)
@@ -195,7 +196,7 @@ dependencies {
         exclude(group = "com.google.crypto.tink", module = "tink")
     }
     // AndroidX encrypted preferences and Web Push share the Android build of Tink.
-    implementation("com.google.crypto.tink:tink-android:1.17.0")
+    implementation(libs.tink.android)
     implementation(libs.mukeshsolanki.markdownView)
     implementation(libs.xabaras.recyclerViewSwipeDecorator)
     implementation(libs.saket.betterLinkMovementMethod)
@@ -244,6 +245,7 @@ abstract class GenerateNoticeAssets @Inject constructor(
 }
 
 androidComponents.onVariants { variant ->
+    variant.sources.assets?.addStaticSourceDirectory("schemas")
     val notices = tasks.register<GenerateNoticeAssets>(
         "generatePackageLicenses${variant.name.replaceFirstChar { it.uppercaseChar() }}"
     ) {

@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.graphics.withTranslation
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -75,18 +76,17 @@ internal object PhotoEditor {
             paint.color = Color.WHITE
             paint.style = Paint.Style.FILL
             canvas.drawBitmap(image, null, frame, paint)
-            canvas.save()
-            canvas.translate(frame.left, frame.top)
-            canvas.scale(frame.width() / image.width, frame.height() / image.height)
-            paint.color = Color.BLACK
-            regions.forEach { canvas.drawRect(it, paint) }
-            if (!cropping) active?.let { canvas.drawRect(it, paint) }
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 4 * image.width / frame.width()
-            paint.color = Color.WHITE
-            crop?.let { canvas.drawRect(it, paint) }
-            if (cropping) active?.let { canvas.drawRect(it, paint) }
-            canvas.restore()
+            canvas.withTranslation(frame.left, frame.top) {
+                canvas.scale(frame.width() / image.width, frame.height() / image.height)
+                paint.color = Color.BLACK
+                regions.forEach { canvas.drawRect(it, paint) }
+                if (!cropping) active?.let { canvas.drawRect(it, paint) }
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 4 * image.width / frame.width()
+                paint.color = Color.WHITE
+                crop?.let { canvas.drawRect(it, paint) }
+                if (cropping) active?.let { canvas.drawRect(it, paint) }
+            }
         }
         override fun performClick(): Boolean { super.performClick(); return true }
         override fun onTouchEvent(e: MotionEvent): Boolean {

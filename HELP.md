@@ -114,7 +114,7 @@ This option exports the database to a specified file. This allows you to make ba
 
 ### Encrypted portable backup
 
-Choose **Encrypted portable backup** and enter the same passphrase twice. Keep the passphrase to unlock the file on another phone. **Restore portable backup** checks the whole file and shows message counts before you choose which threads to merge. Private threads and unsent jobs stay on this device. Local outgoing attachments travel inside the file, and provider media links keep their original addresses.
+Choose **Encrypted portable backup** and enter the same passphrase twice. Keep the passphrase to unlock the file on another phone. **Restore portable backup** checks the whole file and shows message counts before you choose which threads to merge. Private threads and unsent jobs stay on this device. Local outgoing attachments travel inside the file. For received MMS, keep links only, include downloaded files, or explicitly fetch missing attachments from VoIP.ms. The result reports unavailable files. Restoring a selected conversation makes its included attachments playable offline, even if the conversation has already synced.
 
 ### Clean up database
 

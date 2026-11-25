@@ -209,7 +209,7 @@ class ConversationRecyclerViewAdapter(
         if (row is CallRow && holder is CallHolder) {
             val event = row.event
             holder.name.setText(if (event.voicemail) R.string.thread_voicemail_event else R.string.thread_missed_event)
-            holder.time.text = if (event.voicemail && event.providerDate.length == 10) event.providerDate
+            holder.time.text = if (event.dateOnly) event.providerDate
                 else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(event.receivedAt))
             holder.controls.removeAllViews()
             if (event.voicemail) holder.controls.addView(CallPlayback.controls(activity, event))

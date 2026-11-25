@@ -32,6 +32,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.doOnNextLayout
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -91,10 +92,14 @@ class ConversationsRecyclerViewAdapter<T>(
         refreshJob?.cancel()
         privateView = open
         // No private row can remain visible during the next database read or an item removal animation.
-        recyclerView.itemAnimator?.endAnimations()
+        recyclerView.itemAnimator?.let { animator ->
+            recyclerView.itemAnimator = null
+            recyclerView.doOnNextLayout { recyclerView.itemAnimator = animator }
+        }
         loadedRows = emptyList()
+        val previousCount = itemCount
         _conversationItems.clear()
-        notifyDataSetChanged()
+        if (previousCount > 0) notifyItemRangeRemoved(0, previousCount)
         refresh("")
     }
     private var refreshJob: Job? = null

@@ -66,8 +66,9 @@ class CallFeedWorker(context: Context, params: WorkerParameters) : CoroutineWork
         fetch(source) { CallHistory.missed(account,dids,if(last == 0L) now - 30 * 86_400_000L else minOf(last,now) - 86_400_000L) }
         try {
             for ((box, mapping) in CallHistory.mailboxes(account,dids)) {
-                prefs.edit { putStringSet("mailboxLines.${account.generation}.$box", mapping.lines) }
-                fetch("mailbox-$box") { CallHistory.voicemail(account,box,mapping.did,mapping.zone) }
+                fetch("mailbox-$box") {
+                    CallHistory.voicemail(account,box,mapping.did,mapping.zone).map { it.copy(mailboxLines = mapping.lines) }
+                }
             }
         } catch(e: CancellationException) { throw e }
         catch (_: Exception) { failed = true }
