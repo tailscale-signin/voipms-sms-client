@@ -10,9 +10,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.core.widget.doAfterTextChanged
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -29,6 +26,7 @@ import net.kourlas.voipms_sms.sms.ConversationId
 internal class ThreadRoutes(
     private val activity: ConversationActivity,
     private val thread: ConversationId,
+    private val feed: ResumedChatFeed,
     private val pickFile: () -> Unit,
     private val smsAttachments: () -> Boolean,
     private val render: (ChatRoute, List<ThreadChatEvent>) -> Unit
@@ -44,7 +42,6 @@ internal class ThreadRoutes(
     private val smsEdit = activity.findViewById<EditText>(R.id.message_edit_text)
     private val richEdit = activity.findViewById<EditText>(R.id.rich_edit)
     val editor: EditText get() = if (route == ChatRoute.SMS) smsEdit else richEdit
-    private var watch: Job? = null
     private var typingJob: Job? = null
     private var pendingSend = false
     private var alive = true
@@ -99,7 +96,6 @@ internal class ThreadRoutes(
 
     fun refresh() {
         if (!active()) return
-        watch?.cancel()
         link = ChatLinks.linked(activity, thread)
         nearbyId = NearbyStore.peerId(activity, thread.did, thread.contact)
         val next = when (route) {
@@ -122,45 +118,43 @@ internal class ThreadRoutes(
         val profile = net.kourlas.voipms_sms.privacy.JunkProfiles(activity).line(thread.did)
         render(ChatRoute.MATRIX, emptyList())
         render(ChatRoute.NEARBY, emptyList())
-        watch = activity.lifecycleScope.launch {
-            activity.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                if (room != null) launch {
-                    try {
-                        MatrixChat.observe(activity, room.room, room.peer).collect { snapshot ->
-                            if (!active() || currentLink() != room) return@collect
-                            roomProblem = false
-                            render(ChatRoute.MATRIX, snapshot.events.map { it.toThreadEvent(profile) })
-                            incomingTyping = when (snapshot.typing.size) {
-                                0 -> ""
-                                1 -> activity.getString(R.string.chat_typing, snapshot.typing.first())
-                                else -> activity.getString(R.string.chat_typing_many)
-                            }
-                            refreshButtons()
-                            val latest = snapshot.events.lastOrNull { !it.mine }?.id
-                            if (latest != null && latest != lastRead) {
-                                lastRead = latest
-                                try { MatrixChat.read(activity, room.room, room.peer) }
-                                catch (cancel: CancellationException) { throw cancel }
-                                catch (_: Exception) { lastRead = null }
-                            }
+        feed.observe {
+            if (room != null) launch {
+                try {
+                    MatrixChat.observe(activity, room.room, room.peer).collect { snapshot ->
+                        if (!active() || currentLink() != room) return@collect
+                        roomProblem = false
+                        render(ChatRoute.MATRIX, snapshot.events.map { it.toThreadEvent(profile) })
+                        incomingTyping = when (snapshot.typing.size) {
+                            0 -> ""
+                            1 -> activity.getString(R.string.chat_typing, snapshot.typing.first())
+                            else -> activity.getString(R.string.chat_typing_many)
                         }
-                    } catch (cancel: CancellationException) { throw cancel }
-                    catch (_: Exception) {
-                        if (active() && currentLink() == room) {
-                            roomProblem = true
-                            render(ChatRoute.MATRIX, emptyList())
-                            refreshButtons()
+                        refreshButtons()
+                        val latest = snapshot.events.lastOrNull { !it.mine }?.id
+                        if (latest != null && latest != lastRead) {
+                            lastRead = latest
+                            try { MatrixChat.read(activity, room.room, room.peer) }
+                            catch (cancel: CancellationException) { throw cancel }
+                            catch (_: Exception) { lastRead = null }
                         }
+                    }
+                } catch (cancel: CancellationException) { throw cancel }
+                catch (_: Exception) {
+                    if (active() && currentLink() == room) {
+                        roomProblem = true
+                        render(ChatRoute.MATRIX, emptyList())
+                        refreshButtons()
                     }
                 }
-                if (nearbyId != null) launch {
-                    NearbyStore.observeThread(activity, thread.did, thread.contact).collect { messages ->
-                        if (active()) render(ChatRoute.NEARBY, messages.map {
-                            ThreadChatEvent(it.id, it.timestamp, it.text, !it.incoming, ChatRoute.NEARBY, "",
-                                if (it.incoming) "" else activity.getString(if (it.delivered) R.string.chat_delivered else R.string.chat_pending),
-                                warning = if (it.incoming) net.kourlas.voipms_sms.sms.InboxRules.assess(it.text, profile).description else null)
-                        })
-                    }
+            }
+            if (nearbyId != null) launch {
+                NearbyStore.observeThread(activity, thread.did, thread.contact).collect { messages ->
+                    if (active()) render(ChatRoute.NEARBY, messages.map {
+                        ThreadChatEvent(it.id, it.timestamp, it.text, !it.incoming, ChatRoute.NEARBY, "",
+                            if (it.incoming) "" else activity.getString(if (it.delivered) R.string.chat_delivered else R.string.chat_pending),
+                            warning = if (it.incoming) net.kourlas.voipms_sms.sms.InboxRules.assess(it.text, profile).description else null)
+                    })
                 }
             }
         }
@@ -291,6 +285,7 @@ internal class ThreadRoutes(
     fun close() {
         alive = false
         richEdit.removeTextChangedListener(watcher)
-        watch?.cancel(); typingJob?.cancel()
+        feed.clear()
+        typingJob?.cancel()
     }
 }

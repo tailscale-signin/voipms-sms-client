@@ -29,7 +29,8 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.R
@@ -71,9 +72,8 @@ class NearbyActivity : AppCompatActivity() {
     private lateinit var composer: LinearLayout
     private lateinit var send: MaterialButton
     private lateinit var list: ListView
-    private var history: Job? = null
-    private var activePeer: String? = null
-    private var peerName = ""
+    private val selectedPeer = MutableStateFlow<String?>(null)
+    private val activePeer: String? get() = selectedPeer.value
     private var prompted: String? = null
     private var prompt: AlertDialog? = null
     private var unlocked = false
@@ -213,7 +213,8 @@ class NearbyActivity : AppCompatActivity() {
             false
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                NearbyRadio.state.collect { if (!requireGate() || unlocked) render(it) }
+                launch { NearbyRadio.state.collect { if (!requireGate() || unlocked) render(it) } }
+                selectedPeer.collectLatest { id -> if (id != null) observeHistory(id) }
             }
         }
     }
@@ -354,10 +355,7 @@ class NearbyActivity : AppCompatActivity() {
     }
 
     private fun clearPeer() {
-        history?.cancel()
-        history = null
-        activePeer = null
-        peerName = ""
+        selectedPeer.value = null
         editor.setText("")
         list.adapter = null
         title.text = ""
@@ -373,9 +371,6 @@ class NearbyActivity : AppCompatActivity() {
             return
         }
         if (activePeer == id) return
-        history?.cancel()
-        activePeer = id
-        peerName = label
         val draft = initialDraft
         val target = thread
         if (draft != null && target != null && NearbyStore.peerId(this, target.did, target.contact) == id) {
@@ -386,62 +381,62 @@ class NearbyActivity : AppCompatActivity() {
         }
         title.text = getString(R.string.nearby_device_label, label, id.take(8))
         list.adapter = null
-        history =
-            lifecycleScope.launch {
-                try {
-                    repeatOnLifecycle(Lifecycle.State.STARTED) {
-                        NearbyStore.observePeer(applicationContext, account, id).collect { messages ->
-                            if (activePeer != id || !permitted(id)) {
-                                clearPeer()
-                                return@collect
-                            }
-                            val bottom = list.count == 0 || list.lastVisiblePosition >= list.count - 2
-                            val first = list.firstVisiblePosition
-                            val offset = list.getChildAt(0)?.top ?: 0
-                            list.adapter =
-                                object : ArrayAdapter<NearbyMessage>(this@NearbyActivity, android.R.layout.simple_list_item_2, messages) {
-                                    override fun getView(
-                                        position: Int,
-                                        convertView: View?,
-                                        parent: ViewGroup,
-                                    ): View {
-                                        val item = getItem(position)!!
-                                        val view = convertView ?: layoutInflater.inflate(android.R.layout.simple_list_item_2, parent, false)
-                                        view.findViewById<TextView>(android.R.id.text1).text = item.text
-                                        val type =
-                                            when {
-                                                item.incoming -> R.string.nearby_received
-                                                item.delivered -> R.string.nearby_delivered
-                                                else -> R.string.nearby_queued
-                                            }
-                                        view.findViewById<TextView>(android.R.id.text2).text =
-                                            getString(
-                                                type,
-                                                DateFormat
-                                                    .getDateTimeInstance(
-                                                        DateFormat.SHORT,
-                                                        DateFormat.SHORT,
-                                                    ).format(Date(item.timestamp)),
-                                            )
-                                        return view
-                                    }
+        selectedPeer.value = id
+        updateControls()
+    }
+
+    private suspend fun observeHistory(id: String) {
+        try {
+            NearbyStore.observePeer(applicationContext, account, id).collect { messages ->
+                if (activePeer != id) return@collect
+                if (!permitted(id)) {
+                    clearPeer()
+                    return@collect
+                }
+                val bottom = list.count == 0 || list.lastVisiblePosition >= list.count - 2
+                val first = list.firstVisiblePosition
+                val offset = list.getChildAt(0)?.top ?: 0
+                list.adapter =
+                    object : ArrayAdapter<NearbyMessage>(this@NearbyActivity, android.R.layout.simple_list_item_2, messages) {
+                        override fun getView(
+                            position: Int,
+                            convertView: View?,
+                            parent: ViewGroup,
+                        ): View {
+                            val item = getItem(position)!!
+                            val view = convertView ?: layoutInflater.inflate(android.R.layout.simple_list_item_2, parent, false)
+                            view.findViewById<TextView>(android.R.id.text1).text = item.text
+                            val type =
+                                when {
+                                    item.incoming -> R.string.nearby_received
+                                    item.delivered -> R.string.nearby_delivered
+                                    else -> R.string.nearby_queued
                                 }
-                            if (bottom &&
-                                messages.isNotEmpty()
-                            ) {
-                                list.setSelection(messages.lastIndex)
-                            } else {
-                                list.setSelectionFromTop(first, offset)
-                            }
+                            view.findViewById<TextView>(android.R.id.text2).text =
+                                getString(
+                                    type,
+                                    DateFormat
+                                        .getDateTimeInstance(
+                                            DateFormat.SHORT,
+                                            DateFormat.SHORT,
+                                        ).format(Date(item.timestamp)),
+                                )
+                            return view
                         }
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    toast(R.string.nearby_read_error)
+                if (bottom &&
+                    messages.isNotEmpty()
+                ) {
+                    list.setSelection(messages.lastIndex)
+                } else {
+                    list.setSelectionFromTop(first, offset)
                 }
             }
-        updateControls()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            toast(R.string.nearby_read_error)
+        }
     }
 
     private fun updateControls() {

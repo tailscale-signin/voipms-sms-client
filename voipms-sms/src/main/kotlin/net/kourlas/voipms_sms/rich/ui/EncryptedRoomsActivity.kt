@@ -23,9 +23,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.widget.doAfterTextChanged
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
@@ -46,7 +44,7 @@ class EncryptedRoomsActivity : AppCompatActivity() {
     private var name = ""
     private var owner: String? = null
     private var loading: Job? = null
-    private var watcher: Job? = null
+    private lateinit var feed: ResumedChatFeed
     private var typing: Job? = null
     private var serial = 0
     private var pickerRoom: String? = null
@@ -67,6 +65,7 @@ class EncryptedRoomsActivity : AppCompatActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        feed = ResumedChatFeed(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onBackPressedDispatcher.addCallback(this, backToRooms)
         screen = LinearLayout(this).apply {
@@ -100,7 +99,7 @@ class EncryptedRoomsActivity : AppCompatActivity() {
     private fun canUse(identity: String, target: String) = room == target && owner == identity &&
         MatrixChat.identity(this) == identity && ChatLinks.visibleInHub(this, identity, target)
     private fun clear() {
-        loading?.cancel(); watcher?.cancel(); typing?.cancel()
+        loading?.cancel(); feed.clear(); typing?.cancel()
         serial++
         screen.removeAllViews()
     }
@@ -238,28 +237,26 @@ class EncryptedRoomsActivity : AppCompatActivity() {
         composer.findViewById<View>(R.id.rich_attach).setOnClickListener {
             if (canUse(identity, id)) { pickerRoom = id; pickerOwner = identity; pick.launch(arrayOf("*/*")) }
         }
-        watcher = lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                if (!canUse(identity, id)) return@repeatOnLifecycle
-                var lastRead: String? = null
-                try {
-                    MatrixChat.observe(this@EncryptedRoomsActivity, id).collect { snapshot ->
-                        if (!canUse(identity, id)) { showRooms(); return@collect }
-                        val rows = snapshot.events.map { it.toThreadEvent() }
-                        val atEnd = items.itemCount == 0 || !timeline.canScrollVertically(1)
-                        items.submitList(rows) { if (atEnd && rows.isNotEmpty()) timeline.scrollToPosition(rows.lastIndex) }
-                        info.isVisible = snapshot.typing.isNotEmpty()
-                        info.text = if (snapshot.typing.size == 1) getString(R.string.chat_typing, snapshot.typing.first()) else getString(R.string.chat_typing_many)
-                        val latest = snapshot.events.lastOrNull { !it.mine }?.id
-                        if (latest != null && lastRead != latest) {
-                            try { MatrixChat.read(this@EncryptedRoomsActivity, id); lastRead = latest }
-                            catch (cancel: CancellationException) { throw cancel }
-                            catch (_: Exception) { }
-                        }
+        feed.observe {
+            if (!canUse(identity, id)) return@observe
+            var lastRead: String? = null
+            try {
+                MatrixChat.observe(this@EncryptedRoomsActivity, id).collect { snapshot ->
+                    if (!canUse(identity, id)) { showRooms(); return@collect }
+                    val rows = snapshot.events.map { it.toThreadEvent() }
+                    val atEnd = items.itemCount == 0 || !timeline.canScrollVertically(1)
+                    items.submitList(rows) { if (atEnd && rows.isNotEmpty()) timeline.scrollToPosition(rows.lastIndex) }
+                    info.isVisible = snapshot.typing.isNotEmpty()
+                    info.text = if (snapshot.typing.size == 1) getString(R.string.chat_typing, snapshot.typing.first()) else getString(R.string.chat_typing_many)
+                    val latest = snapshot.events.lastOrNull { !it.mine }?.id
+                    if (latest != null && lastRead != latest) {
+                        try { MatrixChat.read(this@EncryptedRoomsActivity, id); lastRead = latest }
+                        catch (cancel: CancellationException) { throw cancel }
+                        catch (_: Exception) { }
                     }
-                } catch (cancel: CancellationException) { throw cancel }
-                catch (_: Exception) { info.isVisible = true; info.setText(R.string.chat_error) }
-            }
+                }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { info.isVisible = true; info.setText(R.string.chat_error) }
         }
     }
     companion object {

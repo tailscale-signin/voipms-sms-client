@@ -81,6 +81,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.rich.ui.ChatRoute
+import net.kourlas.voipms_sms.rich.ui.ResumedChatFeed
 import net.kourlas.voipms_sms.rich.ui.ThreadRoutes
 import net.kourlas.voipms_sms.rich.ui.RoomLink
 import net.kourlas.voipms_sms.rich.ui.ThreadChatEvent
@@ -218,6 +219,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
     }
 
+    private lateinit var richFeed: ResumedChatFeed
     private var routes: ThreadRoutes? = null
     private var fileRoom: RoomLink? = null
     private var selectedFile: android.net.Uri? = null
@@ -263,6 +265,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
     public override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        richFeed = ResumedChatFeed(this)
         onBackPressedDispatcher.addCallback(this, messageBack)
         setContentView(R.layout.conversation)
         val list = findViewById<View>(R.id.list)
@@ -331,7 +334,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) loadContactPresentation()
         findViewById<View>(R.id.chat_route).visibility = if (BuildConfig.IS_DEMO) View.GONE else View.VISIBLE
         routes?.close()
-        routes = if (BuildConfig.IS_DEMO) null else ThreadRoutes(this, conversationId, ::pickRichFile,
+        routes = if (BuildConfig.IS_DEMO) null else ThreadRoutes(this, conversationId, richFeed, ::pickRichFile,
             { mmsComposer.attachments.isNotEmpty() }, adapter::updateChat)
         setupDemo()
 

@@ -1,6 +1,8 @@
 package net.kourlas.voipms_sms.rich
 
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -67,6 +69,11 @@ internal object MatrixSessions {
         val key: ByteArray get() = Base64.decode(json.getString("key"), Base64.NO_WRAP)
     }
 
+    // The SDK must know if the device/token change reached disk. The KTX edit helper discards commit's result.
+    @SuppressLint("UseKtx")
+    private fun persist(prefs: SharedPreferences, config: JSONObject?): Boolean =
+        prefs.edit().putString(CONFIG, config?.toString()).commit()
+
     private fun read(c: Context): Config? = withSecurePreferences(c) { pref ->
         pref.getString(CONFIG, null)?.let { Config(JSONObject(it)) }
     }
@@ -94,12 +101,12 @@ internal object MatrixSessions {
                 return decode(active.json.getJSONObject("session"))
             }
             override fun saveSessionInKeychain(session: Session) {
-                withSecurePreferences(c) { pref ->
+                check(withSecurePreferences(c) { pref ->
                     val saved = pref.getString(CONFIG, null)?.let(::JSONObject)
                     if (saved?.optString("generation") == cfg.id) {
-                        check(pref.edit().putString(CONFIG, saved.put("session", encode(session)).toString()).commit())
-                    }
-                }
+                        persist(pref, saved.put("session", encode(session)))
+                    } else true
+                } == true)
             }
         }
         return ClientBuilder().configureTrust(URI(cfg.url).host).homeserverUrl(cfg.url).disableWellKnownLookup(true)
@@ -134,7 +141,7 @@ internal object MatrixSessions {
         try {
             client.login(user.trim(), password, "VoIP.ms SMS", null)
             cfg.json.put("session", encode(client.session()))
-            check(withSecurePreferences(c) { it.edit().putString(CONFIG, cfg.json.toString()).commit() } == true)
+            check(withSecurePreferences(c) { persist(it, cfg.json) } == true)
             persisted = true
             current = MatrixSession(client, cfg.id)
         } finally {
@@ -151,7 +158,7 @@ internal object MatrixSessions {
         val client = current?.client ?: build(c, cfg).also { it.restoreSession(decode(cfg.json.getJSONObject("session"))) }
         // If the homeserver is unavailable retain the profile so the device can be revoked on retry.
         try { client.logout() } catch (e: Throwable) { if (current == null) client.close(); throw e }
-        check(withSecurePreferences(c) { it.edit().remove(CONFIG).commit() } == true)
+        check(withSecurePreferences(c) { persist(it, null) } == true)
         current?.stop()
         current?.updates?.value = -1L
         current = null

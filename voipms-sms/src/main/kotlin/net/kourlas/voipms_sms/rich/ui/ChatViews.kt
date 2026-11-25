@@ -10,10 +10,16 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.rich.RichEvent
@@ -26,6 +32,24 @@ internal data class ThreadChatEvent(val key: String, val time: Long, val body: S
 internal fun RichEvent.toThreadEvent(profile: net.kourlas.voipms_sms.sms.InboxRules.Profile = net.kourlas.voipms_sms.sms.InboxRules.Profile()): ThreadChatEvent {
     val warning = if (mine) null else net.kourlas.voipms_sms.sms.InboxRules.assess(body, profile).description
     return ThreadChatEvent(id, timestamp, body, mine, ChatRoute.MATRIX, sender, status, mime != null, warning)
+}
+
+/** One lifecycle collector per screen. A changed recipient cancels both previous transport subscriptions. */
+internal class ResumedChatFeed(activity: AppCompatActivity) {
+    private val subscription = MutableStateFlow<(suspend CoroutineScope.() -> Unit)?>(null)
+
+    init {
+        activity.lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                subscription.collectLatest { block ->
+                    if (block != null) coroutineScope(block)
+                }
+            }
+        }
+    }
+
+    fun observe(block: suspend CoroutineScope.() -> Unit) { subscription.value = block }
+    fun clear() { subscription.value = null }
 }
 
 internal fun AppCompatActivity.chatAction(onError: Int = R.string.chat_error, block: suspend () -> Unit): Job =

@@ -133,7 +133,11 @@ internal object NearbyWire {
         ).take(32).uppercase(java.util.Locale.ROOT).chunked(4).joinToString(" ")
     }
 
-    /** Only a self-signed device identity is accepted; user comparison/pinning authenticates the first pairing. */
+    /**
+     * Offline devices present self-signed certificates and prove possession of the keys during mutual TLS.
+     * NearbyLink exchanges messages only after both people confirm the pairing code derived from these keys.
+     */
+    @android.annotation.SuppressLint("CustomX509TrustManager")
     object DeviceCertificates : X509TrustManager {
         private fun check(chain: Array<out X509Certificate>?) {
             val leaf = chain?.singleOrNull() ?: throw CertificateException("Expected one device certificate")
