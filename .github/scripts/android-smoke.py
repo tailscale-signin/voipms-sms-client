@@ -24,7 +24,7 @@ def screenshot(name):
         subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=image, timeout=60, check=True)
 
 
-def element(attribute, value, *, tap=False, hold=False):
+def element(attribute, value, *, tap=False, hold=False, expected_text=None):
     expected = value if isinstance(value, tuple) else (value,)
     visible = []
     deadline = time.monotonic() + 35
@@ -44,7 +44,7 @@ def element(attribute, value, *, tap=False, hold=False):
         if permission_text:
             raise AssertionError(f"Unexpected permission prompt: {permission_text}")
         for node in nodes:
-            if node.get(attribute) in expected:
+            if node.get(attribute) in expected and (expected_text is None or node.get("text") == expected_text):
                 if tap or hold:
                     left, top, right, bottom = map(int, re.findall(r"\d+", node.attrib["bounds"]))
                     x, y = str((left + right) // 2), str((top + bottom) // 2)
@@ -56,7 +56,7 @@ def element(attribute, value, *, tap=False, hold=False):
                 return
         time.sleep(1)
     screenshot("unexpected-screen")
-    raise AssertionError(f"Missing UI element {attribute}={value}; visible labels: {visible}")
+    raise AssertionError(f"Missing UI element {attribute}={value}, expected text {expected_text!r}; visible labels: {visible}")
 
 
 def main():

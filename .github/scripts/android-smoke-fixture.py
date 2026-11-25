@@ -105,11 +105,19 @@ def run(adb, element, screenshot):
     element("text", LAST_MESSAGE, tap=True)
     element("text", "Yes, ten works for me.")
     element("resource-id", PACKAGE + ":id/copy_sms_code", tap=True)
+    # Android's clipboard confirmation can cover the composer, including the system Share action.
+    # Allow its standard six-second timeout before sending a coordinate tap to the app.
+    time.sleep(7)
+    deadline = time.monotonic() + 12
+    while re.search(r"Clipboard\s*Overlay", adb("shell", "dumpsys", "window", "visible"), re.I):
+        if time.monotonic() >= deadline:
+            raise AssertionError("System clipboard overlay still covers the composer")
+        time.sleep(0.5)
     element("resource-id", PACKAGE + ":id/message_edit_text", tap=True)
     adb("shell", "input", "keycombination", "113", "50")  # Ctrl+V in the foreground composer
-    element("text", CODE)
-    adb("shell", "input", "keycombination", "113", "29")  # Ctrl+A
-    adb("shell", "input", "keyevent", "KEYCODE_DEL")
+    element("resource-id", PACKAGE + ":id/message_edit_text", expected_text=CODE)
+    print("Verification code pasted unchanged into the SMS composer", flush=True)
+    adb("shell", "input", "keyevent", *(["KEYCODE_DEL"] * len(CODE)))
     if "mInputShown=true" in adb("shell", "dumpsys", "input_method"):
         adb("shell", "input", "keyevent", "KEYCODE_BACK")
     screenshot("sample-conversation")
