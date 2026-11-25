@@ -23,6 +23,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
+import androidx.core.content.edit
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
@@ -136,7 +137,7 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                 }
                 if (markedAsSent || markedAsNotSent) {
                     val attempts = applicationContext.getSharedPreferences(ATTEMPTS, Context.MODE_PRIVATE)
-                    attempts.edit().remove(attemptKey(databaseId)).apply()
+                    attempts.edit { remove(attemptKey(databaseId)) }
                 }
             }
         }
@@ -210,7 +211,10 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                 error = applicationContext.getString(R.string.send_message_error_api_request)
                 return
             }
-            if (!attempts.edit().putBoolean(key, true).commit()) {
+            // Start the network request only after the attempt marker is persisted.
+            @SuppressLint("UseKtx")
+            val recorded = attempts.edit().putBoolean(key, true).commit()
+            if (!recorded) {
                 error = applicationContext.getString(R.string.send_message_attempt_unavailable)
                 return
             }

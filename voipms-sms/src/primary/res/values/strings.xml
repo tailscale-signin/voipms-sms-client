@@ -28,5 +28,6 @@
 
     <!-- PushNotificationsRegistrationWorker -->
     <string name="push_notifications_work_id">net.kourlas.voipms_sms.PUSH_NOTIF_WORK_ID</string>
-    <string name="push_notifications_fail_google_play">Register failed: Google Play Services unavailable</string>
+    <string name="push_no_play_services">Google Play services are unavailable. Use the synchronization interval below for background delivery.</string>
+    <string name="push_unconfigured">This build has no push relay configured. Use the synchronization interval below for background delivery.</string>
 </resources>

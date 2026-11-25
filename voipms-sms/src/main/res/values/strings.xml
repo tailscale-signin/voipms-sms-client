@@ -311,7 +311,6 @@
     <string name="sync_force_recent" translatable="false">net.kourlas.voipms_sms.SYNC_FORCE_RECENT</string>
     <string name="sync_error_account">Sync failed: no account configured</string>
     <string name="sync_error_dids">Sync failed: no DIDs configured</string>
-    <string name="sync_error_network">Sync failed: network unavailable</string>
     <string name="sync_error_api_request">Sync failed: VoIP.ms unavailable</string>
     <string name="sync_error_api_parse">Sync failed: corrupt response</string>
     <string name="sync_error_api_error">Sync failed: API error \'%1$s\'</string>
@@ -389,7 +388,6 @@
     <string name="notifications_sync_verify_credentials_message">Verifying credentials with VoIP.ms</string>
     <string name="notifications_sync_retrieve_dids_message">Retrieving DIDs from VoIP.ms</string>
     <string name="notifications_sync_register_push_message">Registering for push notifications with VoIP.ms</string>
-    <string name="notifications_security_error">Failed to launch notification due to lack of external storage permission</string>
 
     <!-- UTILS -->
     <string name="utils_date_just_now">Now</string>

@@ -11,8 +11,5 @@
     <string name="push_provider_rejected">VoIP.ms rejected registration. Check your API access and number settings.</string>
     <string name="push_retrying">Connection failed. Registration will retry.</string>
     <string name="push_failed">Registration failed. Tap to try again.</string>
-    <string name="push_unconfigured">This build has no push relay configured. Use the synchronization interval below for background delivery.</string>
-    <string name="push_no_play_services">Google Play services are unavailable. Use the synchronization interval below for background delivery.</string>
-    <string name="push_fdroid">This build receives messages through synchronization. Set the background interval below.</string>
     <string name="push_did_status">%1$s — %2$s</string>
 </resources>

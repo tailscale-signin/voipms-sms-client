@@ -20,6 +20,7 @@
 
 package net.kourlas.voipms_sms.preferences
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build.VERSION
@@ -686,6 +687,8 @@ private fun migrateLegacySecurePreferences(context: Context, encrypted: SharedPr
 }
 
 /** Keep each source until its replacement is committed and can be read back. */
+// The migration checks the Boolean result of each synchronous disk write.
+@SuppressLint("UseKtx")
 internal fun migrateCredentialKeys(
     keys: List<String>, plain: SharedPreferences, legacy: SharedPreferences,
     destination: SharedPreferences, decrypt: (String) -> String
