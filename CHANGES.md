@@ -1,5 +1,7 @@
 ### 0.8.0 (development) ###
 
+* Check an unknown sender with multiple caller ID sources in one card. See attributed names, conflicting listings, Canadian exchange assignments, carriers and reputation reports. Connect additional lookup accounts for the session.
+
 * Home shows missed calls and voicemail by receipt time. Listen from Home or the matching conversation with play, pause and stop.
 * Messages and Other use refreshed layouts, buttons and icons. At the top of Messages, a deliberate long pull opens the device-protected private inbox. Repeat to return.
 * Queue offline messages, schedule a send, undo it during the delay, and review an uncertain provider response. Send photos and voice notes in the conversation.

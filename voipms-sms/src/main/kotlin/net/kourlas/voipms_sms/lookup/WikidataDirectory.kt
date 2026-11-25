@@ -77,7 +77,7 @@ internal object WikidataDirectory {
     }
 
     suspend fun search(canonical: String): String? {
-        val url = "https://query-next.wikidata.org/sparql".toHttpUrl().newBuilder()
+        val url = "https://query.wikidata.org/sparql".toHttpUrl().newBuilder()
             .addQueryParameter("format", "json")
             .addQueryParameter("timeout", "8s")
             .addQueryParameter("query", query(canonical))
@@ -92,35 +92,34 @@ private val directoryHttpClient = OkHttpClient.Builder()
     .retryOnConnectionFailure(false)
     .build()
 
-/** Dedicated unauthenticated client for public directories. No VoIP.ms credentials or cookies are attached. */
-internal suspend fun lookupResponse(url: okhttp3.HttpUrl, accept: String, telnyxKey: String? = null): String =
-    suspendCancellableCoroutine { continuation ->
-        val request = Request.Builder().url(url).apply {
-            if (telnyxKey != null) {
-                require(url.isHttps && url.host == "api.telnyx.com")
-                header("Authorization", "Bearer $telnyxKey")
-            }
-        }
-            .header("Accept", accept)
-            .header("User-Agent", "VoIPms-SMS/${BuildConfig.VERSION_NAME} (https://github.com/tailscale-signin/voipms-sms-client)")
-            .build()
-        val call = directoryHttpClient.newCall(request)
+/** Dedicated directory client. No shared application cookies, interceptors or VoIP.ms credentials. */
+internal suspend fun lookupResponse(url: okhttp3.HttpUrl, accept: String): String =
+    lookupResponse(Request.Builder().url(url).header("Accept", accept).build())
+
+internal suspend fun lookupResponse(request: Request, maximumBytes: Long = 64 * 1024L): String {
+    require(request.url.isHttps)
+    val identified = request.newBuilder()
+        .header("User-Agent", "VoIPms-SMS/${BuildConfig.VERSION_NAME} (https://github.com/tailscale-signin/voipms-sms-client)")
+        .build()
+    return suspendCancellableCoroutine { continuation ->
+        val call = directoryHttpClient.newCall(identified)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) = continuation.resumeWithException(e)
 
             override fun onResponse(call: Call, response: Response) {
                 try {
-                    val json = response.use {
-                        if (!it.isSuccessful) throw IOException("Directory returned HTTP ${it.code}")
+                    val text = response.use {
+                        if (!it.isSuccessful) throw LookupHttpError(it.code)
                         val source = it.body.source()
-                        if (source.request(64 * 1024L + 1)) throw IOException("Oversize directory response")
-                        source.readUtf8()
+                        if (source.request(maximumBytes + 1)) throw IOException("Oversize directory response")
+                        source.readString(it.body.contentType()?.charset() ?: Charsets.UTF_8)
                     }
-                    continuation.resume(json)
+                    continuation.resume(text)
                 } catch (e: Exception) {
                     continuation.resumeWithException(e)
                 }
             }
         })
     }
+}

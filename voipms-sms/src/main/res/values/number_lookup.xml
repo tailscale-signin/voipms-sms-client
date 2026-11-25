@@ -6,26 +6,14 @@
     <string name="lookup_consent">Search Wikidata’s public listings for %1$s. Only this number is sent. A directory entry can be out of date and does not verify who sent the message.</string>
     <string name="lookup_directory">Search Wikidata</string>
     <string name="lookup_truecaller">Truecaller website</string>
-    <string name="lookup_searching">Searching Wikidata…</string>
-    <string name="lookup_result">Wikidata · %1$s</string>
-    <string name="lookup_no_match">No unique public listing found for this number.</string>
-    <string name="lookup_unavailable">The lookup service is unavailable. Try again later.</string>
     <string name="lookup_no_browser">No browser is available to open the website.</string>
     <string name="lookup_number_title">Online lookup · %1$s</string>
     <string name="lookup_reports">Check US spam reports</string>
     <string name="lookup_reports_consent">Send %1$s to ShadyCall to check public US complaint records and community reports. Coverage outside the US is limited.</string>
-    <string name="lookup_reports_searching">Checking ShadyCall reports…</string>
-    <string name="lookup_reports_title">US spam reports</string>
-    <string name="lookup_reports_none">No complaints or negative community reports were returned.</string>
-    <string name="lookup_report_counts">US complaints: %1$d\nNegative community reports: %2$d</string>
-    <string name="lookup_reports_caution">Reports are unverified. Numbers can be spoofed. An empty result does not establish that a sender is safe.</string>
     <string name="lookup_reports_attribution">Reports from ShadyCall</string>
     <string name="lookup_truecaller_consent">Copy %1$s and open Truecaller’s search page in your browser. Paste the number there to search. Truecaller may require sign-in.</string>
     <string name="lookup_copy_open">Copy and open</string>
     <string name="lookup_origin">Look up prefix origin</string>
     <string name="lookup_origin_consent">Look up the numbering area for %1$s. Only the area code and exchange (the first six national digits) are sent to Local Calling Guide. The result describes the original assignment. A sender can be anywhere.</string>
-    <string name="lookup_origin_result">Local Calling Guide · %1$s</string>
-    <string name="lookup_origin_searching">Checking prefix origin…</string>
-    <string name="lookup_origin_unknown">No unique numbering area was found for this prefix.</string>
     <string name="lookup_offline_region">Number region · %1$s</string>
 </resources>

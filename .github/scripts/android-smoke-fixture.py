@@ -369,6 +369,23 @@ def run(adb, element, screenshot):
     screenshot("sample-conversation")
     element("content-desc", "More options", tap=True)
     element("text", "Look up number online", tap=True)
+    element("text", "Check multiple sources", tap=True)
+    # The fixture is a reserved Canadian number. Keep only the on-device lookup.
+    for source in ("Local Calling Guide · exchange area", "Canadian Numbering Administrator · exchange and range holder",
+                   "Wikidata · public organization"):
+        element("text", source, tap=True)
+    element("resource-id", "android:id/button1", tap=True)
+    element("resource-id", "android:id/message")
+    element("resource-id", "android:id/message", containing_text="On device · number region")
+    screenshot("sample-caller-id-card")
+    element("resource-id", "android:id/button1", tap=True)
+    element("content-desc", "More options", tap=True)
+    element("text", "Look up number online", tap=True)
+    element("text", "View recent caller card", tap=True)
+    element("resource-id", "android:id/message", containing_text="On device · number region")
+    element("resource-id", "android:id/button1", tap=True)
+    element("content-desc", "More options", tap=True)
+    element("text", "Look up number online", tap=True)
     element("text", "Look up prefix origin", tap=True)
     element("resource-id", "android:id/message")
     element("resource-id", "android:id/button2", tap=True)

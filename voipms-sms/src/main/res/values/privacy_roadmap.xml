@@ -27,8 +27,6 @@
     <string name="telnyx_key_notice">Use your own authorized account. The key is used only for this request and is never saved.</string>
     <string name="telnyx_continue">Continue</string>
     <string name="telnyx_submit">Run paid lookup</string>
-    <string name="telnyx_result">Telnyx · %1$s</string>
-    <string name="telnyx_no_match">No authorized matching data was returned for this number.</string>
     <string name="code_mask">Hide verification codes in notifications</string>
     <string name="code_masked">A verification code arrived. Open the conversation to view it.</string>
     <string name="code_retention">Remove local verification messages</string>

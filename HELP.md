@@ -25,14 +25,48 @@ You can hide messages from the conversations view, block the retrieval of messag
 
 ## Unknown numbers
 
-Open a conversation with an unknown sender and choose **Look up number online** from the menu. You can also select a single conversation in the inbox and use its menu. Choose the service for that number:
+Open an unknown sender’s conversation, or select one conversation in Messages, then choose **Look up number online → Check multiple sources**. Pick the sources and confirm the disclosure. The caller card fills in as each source answers. Close it to stop outstanding requests. **View recent caller card** reopens the results without another request.
 
-* **Look up prefix origin** checks the area code and exchange with Local Calling Guide for North American Numbering Plan numbers. It shows the assigned rate centre and region when available. A sender can use that number from anywhere.
-* Wikidata searches for organizations that publicly list the number. During a search and for a directory match, the number appears in blue and the app shows its source. Some organizations and most personal numbers have no listing.
-* The Truecaller option copies the number and opens the official web search so you can paste it. Truecaller may ask you to sign in on its site.
-* ShadyCall checks for US complaint and community reports. Report counts describe what others reported. Anyone can send messages using a spoofed number.
+A saved contact takes priority. The card attributes each listed name, numbering area, carrier, line type and risk signal to its source. Conflicting names stay on the card with a notice in the inbox. Carrier assignments can change when a number is ported. A listed owner or numbering area cannot establish who sent a message or where that person is now. Spam reports do not change your folder selection.
 
-Saved contacts appear by name. For unknown numbers, the app shows the assigned area or mobile numbering country when the bundled offline data identifies one.
+### Included directories
+
+| Source | What the app can look up | What leaves the device |
+| --- | --- | --- |
+| libphonenumber | Assigned area or mobile numbering country | Nothing |
+| [Canadian Numbering Administrator](https://www.cnac.ca/co_codes/co_code_status.htm) | Canadian exchange area and original range holder | Three-digit area code |
+| [Local Calling Guide](https://localcallingguide.com/xmlquery.php) | North American rate centre | Area code and exchange |
+| [Wikidata](https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service) | Organizations with a public listing for the exact number | Number in common formats |
+| [ShadyCall](https://shadycall.com/) | US complaints and community reports | Full US number |
+
+### Connect additional providers
+
+Choose **Manage lookup accounts**, enter your own provider credentials and select **Use for this session**. Connected services appear in the source picker for supported numbers. Select each paid service explicitly. Account access, regional entitlements, coverage and charges depend on the provider. Credentials can be disconnected from the same menu. The single-source Telnyx shortcut also accepts a key for one lookup.
+
+| Provider | Results used by the app | Session credential |
+| --- | --- | --- |
+| [Telnyx](https://telnyx.com/release-notes/number-lookup-caller-identity-enhanced-caller-name) | Carrier or a separate US/Canada identity request with confidence. Canadian identity needs account approval. | API key |
+| [Twilio](https://www.twilio.com/docs/lookup/v2-api/caller-name) | US caller name | API key SID and secret |
+| [Hiya](https://developer.hiya.com/docs/ai-voice-platform/endpoints/v-1-phone-number-profile) | Caller profile name, carrier, connection type and area | Authorized account user ID and access token |
+| [SignalWire](https://signalwire.com/docs/apis/rest/phone-number-lookup/lookup-phone-number) | Caller name and carrier packages | Space name, project ID and Numbers-scoped token |
+| [Trestle](https://docs.trestleiq.com/api-reference/smart-cnam-api) | Smart CNAM listed name | API key |
+| [TrueCNAM](https://www2.truecnam.com/developers_api) | North American caller name | API key and API password |
+| [IPQualityScore](https://www.ipqualityscore.com/documentation/phone-number-validation-api/overview) | Listed name, carrier, area and provider fraud score | API key |
+| [Call Control](https://www.callcontrol.com/swagger/) | Reported call type, name from complaints and provider confidence on a 0–10 scale | Identify API key |
+| [PhoneBlock](https://github.com/haumacher/phoneblock/blob/master/phoneblock/src/main/webapp/api/phoneblock.json) | Community votes for an exact match. The service receives four hash characters. The app checks the returned bucket locally. | Personal API bearer token |
+| [Plivo](https://www.plivo.com/docs/lookup/overview) | Carrier, country and line type | Auth ID and token |
+| [Sinch](https://developers.sinch.com/docs/number-lookup-api-v2/api-reference/number-lookup-v2/numberlookupv2) | Line type and carrier | Project ID and active OAuth access token |
+| [Vonage](https://developer.vonage.com/en/identity-insights/guides/original-carrier) | Original carrier for a fraud-prevention check, using the EU endpoint | Active application JWT for Identity Insights |
+| [Veriphone](https://veriphone.io/docs/v3) | Standard number region, original carrier and line type | API key |
+| [numlookupapi](https://numlookupapi.com/docs/validate/) | Numbering region, original carrier and line type | API key |
+| [Numverify](https://docs.apilayer.com/apilayer/docs/numverify) | Numbering region, original carrier and line type | Numverify access key |
+| [Neutrino API](https://www.neutrinoapi.com/api/phone-validate/) | Country or region, line type and available prefix carrier | User ID and API key |
+| [Abstract API](https://www.abstractapi.com/api/phone-validation-api) | Numbering region, carrier, registered name and risk when the plan supplies them | Phone Intelligence API key |
+| [APIVerve](https://docs.apiverve.com/ref/phonenumbervalidator) | Numbering country, line type and available risk score | API key |
+
+**Truecaller website** copies the selected number and opens the official search form. You decide whether to paste and submit it. Truecaller offers Number Intelligence for businesses and its public mobile SDK verifies the app user’s own number. The website result is viewed in the browser. [Truecaller developer documentation](https://docs.truecaller.com/truecaller-sdk)
+
+Two other services reviewed have access or usage constraints. tellows documents a licensed live-number partner feed. Bandwidth’s number lookup restricts certain carrier data to routing, rating, billing and network maintenance. Neither is queried by the caller card. [tellows partner API](https://www.tellows.tw/openapi/index.html) · [Bandwidth lookup guide](https://dev.bandwidth.com/docs/numbers/guides/lookupNumbers/)
 
 ## Inbox and verification codes
 
