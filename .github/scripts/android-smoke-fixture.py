@@ -438,6 +438,10 @@ def run(adb, element, screenshot):
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     element("text", "Messages", tap=True)
     element("text", LAST_MESSAGE)
+    verify_contacts(adb, element)
+
+
+def verify_contacts(adb, element):
     # A saved app contact must survive a cold start, including while the test phone is offline.
     alias = "Studio Fixture"
     element("resource-id", PACKAGE + ":id/contact", expected_text="(416) 555-0111", tap=True)
