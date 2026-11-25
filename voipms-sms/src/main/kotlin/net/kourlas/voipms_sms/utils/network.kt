@@ -24,8 +24,14 @@ import net.kourlas.voipms_sms.preferences.getConnectTimeout
 import net.kourlas.voipms_sms.preferences.getReadTimeout
 import okhttp3.MultipartBody
 import okhttp3.Request
+import okhttp3.RequestBody
+import okio.BufferedSink
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+
+class HttpStatusException(val statusCode: Int) : IOException("HTTP $statusCode") {
+    val retryable: Boolean get() = statusCode == 408 || statusCode == 429 || statusCode in 500..599
+}
 
 /**
  * Sends a POST request with a multipart/form-data encoded request body to the
@@ -34,14 +40,22 @@ import java.util.concurrent.TimeUnit
 @Suppress("SameParameterValue")
 suspend inline fun <reified T> httpPostWithMultipartFormData(
     context: Context, url: String,
-    formData: Map<String, String> = emptyMap()
+    formData: Map<String, String> = emptyMap(),
+    allowReplay: Boolean = true
 ): T? {
     val requestBodyBuilder = MultipartBody.Builder()
     requestBodyBuilder.setType(MultipartBody.FORM)
     for ((key, value) in formData) {
         requestBodyBuilder.addFormDataPart(key, value)
     }
-    val requestBody = requestBodyBuilder.build()
+    val form = requestBodyBuilder.build()
+    // A sendSMS request can already have reached VoIP.ms when its response is lost.
+    val requestBody = if (allowReplay) form else object : RequestBody() {
+        override fun contentType() = form.contentType()
+        override fun contentLength() = form.contentLength()
+        override fun writeTo(sink: BufferedSink) = form.writeTo(sink)
+        override fun isOneShot() = true
+    }
 
     val request = Request.Builder()
         .url(url)
@@ -49,6 +63,8 @@ suspend inline fun <reified T> httpPostWithMultipartFormData(
         .build()
 
     val requestClient = HttpClientManager.getInstance().client.newBuilder()
+        .retryOnConnectionFailure(allowReplay)
+        .followRedirects(allowReplay)
         .readTimeout(getReadTimeout(context) * 1000L, TimeUnit.MILLISECONDS)
         .connectTimeout(
             getConnectTimeout(context) * 1000L,
@@ -60,7 +76,7 @@ suspend inline fun <reified T> httpPostWithMultipartFormData(
     return withContext(Dispatchers.IO) {
         requestClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("Unexpected code $response")
+                throw HttpStatusException(response.code)
             }
 
             return@use adapter.fromJson(response.body.source())

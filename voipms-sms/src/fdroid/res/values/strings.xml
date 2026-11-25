@@ -23,4 +23,5 @@
 
     <!-- Synchronization -->
     <string name="preferences_sync_info">Since you are using the F-Droid version of the app, it is necessary to set a synchronization interval to retrieve new messages.</string>
+    <string name="push_fdroid">This build receives messages through synchronization. Set the background interval below.</string>
 </resources>

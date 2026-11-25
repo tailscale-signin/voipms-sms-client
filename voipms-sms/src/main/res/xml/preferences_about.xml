@@ -25,7 +25,7 @@
             android:data="@string/github_url" />
     </androidx.preference.Preference>
     <androidx.preference.Preference
-        android:summary="@string/version"
+        android:key="app_version"
         android:title="@string/preferences_about_changelog_title">
         <intent
             android:targetClass="net.kourlas.voipms_sms.preferences.activities.MarkdownPreferencesActivity"

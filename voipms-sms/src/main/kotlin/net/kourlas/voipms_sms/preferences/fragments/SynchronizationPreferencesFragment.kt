@@ -24,9 +24,14 @@ import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import net.kourlas.voipms_sms.R
+import net.kourlas.voipms_sms.notifications.PushRegistration
+import net.kourlas.voipms_sms.preferences.accountConfigured
+import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.getStartDate
 import net.kourlas.voipms_sms.preferences.setStartDate
 import net.kourlas.voipms_sms.sms.workers.SyncWorker
+import net.kourlas.voipms_sms.utils.enablePushNotifications
+import net.kourlas.voipms_sms.utils.pushUnavailableMessage
 import net.kourlas.voipms_sms.utils.preferences
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -49,6 +54,12 @@ class SynchronizationPreferencesFragment : PreferenceFragmentCompat(),
         // Add listeners to preferences
         for (preference in preferenceScreen.preferences) {
             when (preference.key) {
+                PushRegistration.KEY -> preference.setOnPreferenceClickListener {
+                    enablePushNotifications(requireContext(), activity)
+                    true
+                }
+
+
                 getString(R.string.preferences_sync_start_date_key) ->
                     preference.onPreferenceClickListener =
                         Preference.OnPreferenceClickListener {
@@ -82,12 +93,7 @@ class SynchronizationPreferencesFragment : PreferenceFragmentCompat(),
                     preference.onPreferenceChangeListener =
                         Preference.OnPreferenceChangeListener { _, newValue ->
                             activity?.let {
-                                SyncWorker.performFullSynchronization(
-                                    it,
-                                    customPeriod = (newValue as String)
-                                        .toDouble(),
-                                    scheduleOnly = true
-                                )
+                                SyncWorker.scheduleBackgroundSync(it, (newValue as String).toDouble())
                             }
                             true
                         }
@@ -131,7 +137,22 @@ class SynchronizationPreferencesFragment : PreferenceFragmentCompat(),
      */
     private fun updateSummary(preference: Preference?) {
         context?.let {
-            if (preference is ListPreference) {
+            if (preference?.key == PushRegistration.KEY) {
+                val unavailable = pushUnavailableMessage(it)
+                val dids = if (accountConfigured(it)) getDids(it, onlyRetrieveMessages = true) else emptySet()
+                preference.isSelectable = unavailable == null && dids.isNotEmpty()
+                preference.summary = when {
+                    unavailable != null -> getString(unavailable)
+                    dids.isEmpty() -> getString(R.string.push_no_dids)
+                    else -> {
+                        val statuses = PushRegistration.read(it)
+                        dids.sorted().joinToString("\n") { did ->
+                            getString(R.string.push_did_status, did,
+                                getString(statuses[did]?.description ?: R.string.push_pending))
+                        } + "\n" + getString(R.string.push_delivery_retry)
+                    }
+                }
+            } else if (preference is ListPreference) {
                 // Display value of selected element as summary text
                 preference.summary = preference.entry
             } else if (

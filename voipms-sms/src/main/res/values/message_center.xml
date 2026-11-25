@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="message_center_title">VoIP.ms Message Center</string>
+    <string name="message_center_description">Open the VoIP.ms Message Center in your browser for SMS and MMS attachments</string>
+    <string name="message_center_no_browser">Install or enable a browser to open the VoIP.ms Message Center.</string>
+</resources>

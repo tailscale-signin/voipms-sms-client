@@ -326,7 +326,7 @@ class ConversationRecyclerViewAdapter(
                     ForegroundColorSpan(
                         ContextCompat.getColor(
                             activity,
-                            android.R.color.holo_red_dark
+                            R.color.send_error
                         )
                     ),
                     0,

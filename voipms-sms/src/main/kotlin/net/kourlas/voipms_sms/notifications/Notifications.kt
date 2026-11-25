@@ -26,10 +26,9 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.os.Build
+import android.service.notification.StatusBarNotification
 import android.util.Log
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
@@ -46,6 +45,7 @@ import net.kourlas.voipms_sms.conversation.ConversationActivity
 import net.kourlas.voipms_sms.conversation.ConversationBubbleActivity
 import net.kourlas.voipms_sms.conversations.ConversationsActivity
 import net.kourlas.voipms_sms.database.Database
+import net.kourlas.voipms_sms.preferences.accountConfigured
 import net.kourlas.voipms_sms.preferences.getDidShowNotifications
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.getNotificationSound
@@ -61,10 +61,14 @@ import net.kourlas.voipms_sms.utils.getContactName
 import net.kourlas.voipms_sms.utils.getContactPhotoAdaptiveBitmap
 import net.kourlas.voipms_sms.utils.getContactPhotoBitmap
 import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
+import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
 import java.util.Date
 import java.util.UUID
 
 private const val TAG = "Notifications"
+
+// Also used as Intent.data so Android can distinguish pending intents without a hash.
+internal fun ConversationId.notificationTag(): String = "voipms-sms://notifications/conversation/${getId()}"
 
 /**
  * Single-instance class used to send notifications when new SMS messages
@@ -75,13 +79,6 @@ class Notifications private constructor(private val context: Context) {
     private val notificationManager = context.getSystemService(
         Context.NOTIFICATION_SERVICE
     ) as NotificationManager
-
-    // Information associated with active notifications
-    private val notificationIds = mutableMapOf<ConversationId, Int>()
-    private val notificationMessages =
-        mutableMapOf<ConversationId,
-            List<NotificationCompat.MessagingStyle.Message>>()
-    private var notificationIdCount = MESSAGE_START_NOTIFICATION_ID
 
     /**
      * Attempts to create a notification channel for the specified DID.
@@ -155,7 +152,7 @@ class Notifications private constructor(private val context: Context) {
                 NotificationManager.IMPORTANCE_HIGH
             )
             channel.enableLights(true)
-            channel.lightColor = Color.RED
+            channel.lightColor = context.getColor(R.color.notification_accent)
             channel.enableVibration(true)
             channel.vibrationPattern = longArrayOf(0, 250, 250, 250)
             channel.setShowBadge(true)
@@ -621,11 +618,12 @@ class Notifications private constructor(private val context: Context) {
                 .build()
         )
         notification.setCategory(Notification.CATEGORY_MESSAGE)
-        notification.color = 0xFFAA0000.toInt()
+        val notificationAccent = context.getColor(R.color.notification_accent)
+        notification.color = notificationAccent
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             @Suppress("DEPRECATION")
             notification.priority = Notification.PRIORITY_HIGH
-            notification.setLights(0xFFAA0000.toInt(), 1000, 5000)
+            notification.setLights(notificationAccent, 1000, 5000)
             @Suppress("DEPRECATION")
             val notificationSound = getNotificationSound(context)
             if (notificationSound != "") {
@@ -670,28 +668,18 @@ class Notifications private constructor(private val context: Context) {
             context.getString(R.string.notifications_current_user)
         ).build()
         val style = NotificationCompat.MessagingStyle(person)
-        val existingMessages =
-            notificationMessages[conversationId] ?: emptyList()
-        for (existingMessage in existingMessages) {
-            style.addHistoricMessage(existingMessage)
-        }
-
-        val messagesToAdd = mutableListOf<Message>()
-        if (messages.isNotEmpty()) {
-            for (message in messages.reversed()) {
-                if (existingMessages.isNotEmpty()
-                    && existingMessages.last().text == message.summaryDisplayText
-                    && existingMessages.last().person != null
-                    && existingMessages.last().timestamp == message.date.time
-                ) {
-                    break
-                }
-                messagesToAdd.add(message)
-            }
-            messagesToAdd.reverse()
-        }
-
+        val tag = conversationId.notificationTag()
+        val targetUri = tag.toUri()
         if (inlineReplyMessages.isNotEmpty()) {
+            // Restore replies and their context from the posted notification across process death.
+            val posted = notificationManager.activeNotifications.firstOrNull {
+                matchesConversation(it, conversationId)
+            }
+            val previous = posted?.notification?.let {
+                NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it)
+            }
+            previous?.historicMessages?.forEach(style::addHistoricMessage)
+            previous?.messages?.forEach(style::addHistoricMessage)
             for (message in inlineReplyMessages) {
                 style.addMessage(
                     message.summaryDisplayText,
@@ -699,8 +687,8 @@ class Notifications private constructor(private val context: Context) {
                     null as Person?
                 )
             }
-        } else if (messagesToAdd.isNotEmpty()) {
-            val notificationMessages = messagesToAdd.map {
+        } else if (messages.isNotEmpty()) {
+            val notificationMessages = messages.map {
                 NotificationCompat.MessagingStyle.Message(
                     it.summaryDisplayText,
                     it.date.time,
@@ -718,11 +706,8 @@ class Notifications private constructor(private val context: Context) {
                 style.addMessage(message)
             }
             notification.setShowWhen(true)
-            notification.setWhen(messagesToAdd.last().date.time)
+            notification.setWhen(messages.last().date.time)
         }
-        notificationMessages[conversationId] =
-            (style.historicMessages.toMutableList()
-                + style.messages.toMutableList())
         notification.setStyle(style)
 
         // Mark as read button
@@ -730,15 +715,9 @@ class Notifications private constructor(private val context: Context) {
         markReadIntent.component = ComponentName(
             context, MarkReadReceiver::class.java
         )
-        val markReadFlags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_CANCEL_CURRENT
-            }
+        markReadIntent.data = targetUri
         val markReadPendingIntent = PendingIntent.getBroadcast(
-            context, (did + contact + "markRead").hashCode(),
-            markReadIntent, markReadFlags
+            context, 0, markReadIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val markReadAction = NotificationCompat.Action.Builder(
             R.drawable.ic_drafts_toolbar_24dp,
@@ -759,13 +738,14 @@ class Notifications private constructor(private val context: Context) {
         replyIntent.component = ComponentName(
             context, SendMessageReceiver::class.java
         )
+        replyIntent.data = targetUri
         val replyFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         } else {
-            PendingIntent.FLAG_CANCEL_CURRENT
+            PendingIntent.FLAG_UPDATE_CURRENT
         }
         val replyPendingIntent = PendingIntent.getBroadcast(
-            context, (did + contact + "reply").hashCode(),
+            context, 0,
             replyIntent, replyFlags
         )
         val remoteInput = RemoteInput.Builder(
@@ -802,32 +782,12 @@ class Notifications private constructor(private val context: Context) {
         )
 
         val groupIntent = Intent(context, ConversationsActivity::class.java)
+        groupIntent.data = "voipms-sms://notifications/inbox".toUri()
         val groupStackBuilder = TaskStackBuilder.create(context)
         groupStackBuilder.addNextIntentWithParentStack(groupIntent)
-        val groupFlags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_CANCEL_CURRENT
-            }
         groupNotification.setContentIntent(
-            groupStackBuilder.getPendingIntent(
-                "group".hashCode(),
-                groupFlags
-            )
+            groupStackBuilder.getPendingIntent(0, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         )
-
-        try {
-            NotificationManagerCompat.from(context).notify(
-                GROUP_NOTIFICATION_ID, groupNotification.build()
-            )
-        } catch (e: SecurityException) {
-            Toast.makeText(
-                context,
-                context.getString(R.string.notifications_security_error),
-                Toast.LENGTH_LONG
-            ).show()
-        }
 
         // Primary notification action
         val intent = Intent(context, ConversationActivity::class.java)
@@ -841,19 +801,11 @@ class Notifications private constructor(private val context: Context) {
                 R.string.conversation_contact
             ), contact
         )
+        intent.data = targetUri
         val stackBuilder = TaskStackBuilder.create(context)
         stackBuilder.addNextIntentWithParentStack(intent)
-        val primaryFlags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_CANCEL_CURRENT
-            }
         notification.setContentIntent(
-            stackBuilder.getPendingIntent(
-                (did + contact).hashCode(),
-                primaryFlags
-            )
+            stackBuilder.getPendingIntent(0, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         )
 
         // Bubble
@@ -872,14 +824,12 @@ class Notifications private constructor(private val context: Context) {
                     R.string.conversation_contact
                 ), contact
             )
-            val bubbleFlags =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    PendingIntent.FLAG_MUTABLE
-                } else {
-                    0
-                }
+            bubbleIntent.data = targetUri
+            val bubbleFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            } else PendingIntent.FLAG_UPDATE_CURRENT
             val bubblePendingIntent = PendingIntent.getActivity(
-                context, (did + contact + "bubble").hashCode(),
+                context, 0,
                 bubbleIntent, bubbleFlags
             )
             val bubbleMetadata =
@@ -894,41 +844,53 @@ class Notifications private constructor(private val context: Context) {
             notification.bubbleMetadata = bubbleMetadata
         }
 
-        // Notification ID
-        var id = notificationIds[conversationId]
-        if (id == null) {
-            id = notificationIdCount++
-            if (notificationIdCount == Int.MAX_VALUE) {
-                notificationIdCount = MESSAGE_START_NOTIFICATION_ID
+        synchronized(this) {
+            // A sync or inline reply can outlive a sign-out or a change of selected DIDs.
+            if (!BuildConfig.IS_DEMO && (!accountConfigured(context) || !getDidShowNotifications(context, did))) return
+            val manager = NotificationManagerCompat.from(context)
+            try {
+                manager.notify(tag, MESSAGE_NOTIFICATION_ID, notification.build())
+                manager.notify(GROUP_NOTIFICATION_ID, groupNotification.build())
+                notificationManager.activeNotifications.filter {
+                    it.tag == null && matchesConversation(it, conversationId)
+                }.forEach { manager.cancel(it.id) }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Message notifications are unavailable", e)
             }
-            notificationIds[conversationId] = id
-        }
-
-        try {
-            NotificationManagerCompat.from(context).notify(
-                id, notification.build()
-            )
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Failed to show notification", e)
         }
     }
 
-    /**
-     * Cancels the notification associated with the specified conversation ID.
-     */
+    /** Matches legacy untagged children using their stored conversation shortcut, when available. */
+    private fun matchesConversation(posted: StatusBarNotification, conversationId: ConversationId): Boolean {
+        if (posted.tag != null) return posted.id == MESSAGE_NOTIFICATION_ID && posted.tag == conversationId.notificationTag()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !isMessageChild(posted)) return false
+        val shortcut = posted.notification.shortcutId ?: return false
+        return normalizeVoipMsDid(shortcut.substringBefore('_')) == conversationId.did &&
+            shortcut.substringAfter('_', "") == conversationId.contact
+    }
+
+    private fun isMessageChild(posted: StatusBarNotification): Boolean =
+        posted.notification.group == context.getString(R.string.notifications_group_key) &&
+            posted.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0
+
+    @Synchronized
     fun cancelNotification(conversationId: ConversationId) {
-        val id = notificationIds[conversationId] ?: return
-        NotificationManagerCompat.from(context).cancel(id)
-        clearNotificationState(conversationId)
+        val active = notificationManager.activeNotifications
+        val manager = NotificationManagerCompat.from(context)
+        manager.cancel(conversationId.notificationTag(), MESSAGE_NOTIFICATION_ID)
+        for (posted in active) {
+            if (posted.tag == null && matchesConversation(posted, conversationId)) manager.cancel(posted.id)
+        }
+        if (active.none { isMessageChild(it) && !matchesConversation(it, conversationId) }) {
+            manager.cancel(GROUP_NOTIFICATION_ID)
+        }
     }
 
-    /**
-     * Clears our internal state associated with a notification, cancelling
-     * the group notification if required.
-     */
-    fun clearNotificationState(conversationId: ConversationId) {
-        notificationMessages.remove(conversationId)
-        validateGroupNotification()
+    @Synchronized
+    fun cancelMessageNotifications() {
+        val manager = NotificationManagerCompat.from(context)
+        notificationManager.activeNotifications.filter(::isMessageChild).forEach { manager.cancel(it.tag, it.id) }
+        manager.cancel(GROUP_NOTIFICATION_ID)
     }
 
     /**
@@ -973,20 +935,10 @@ class Notifications private constructor(private val context: Context) {
     /**
      * Cancels the group notification if required.
      */
-    private fun validateGroupNotification() {
-        val noOtherNotifications =
-            notificationManager.activeNotifications.none {
-                it.id != SYNC_DATABASE_NOTIFICATION_ID
-                    && it.id != SYNC_SEND_MESSAGE_NOTIFICATION_ID
-                    && it.id != SYNC_VERIFY_CREDENTIALS_NOTIFICATION_ID
-                    && it.id != SYNC_RETRIEVE_DIDS_NOTIFICATION_ID
-                    && it.id != SYNC_REGISTER_PUSH_NOTIFICATION_ID
-                    && it.id != GROUP_NOTIFICATION_ID
-            }
-        if (noOtherNotifications) {
-            NotificationManagerCompat.from(context).cancel(
-                GROUP_NOTIFICATION_ID
-            )
+    @Synchronized
+    fun validateGroupNotification() {
+        if (notificationManager.activeNotifications.none(::isMessageChild)) {
+            NotificationManagerCompat.from(context).cancel(GROUP_NOTIFICATION_ID)
         }
     }
 
@@ -1019,8 +971,8 @@ class Notifications private constructor(private val context: Context) {
         // notifications
         const val GROUP_NOTIFICATION_ID = SYNC_REGISTER_PUSH_NOTIFICATION_ID + 1
 
-        // Starting notification ID for ordinary message notifications
-        const val MESSAGE_START_NOTIFICATION_ID = GROUP_NOTIFICATION_ID + 1
+        // The tag differentiates conversations sharing this child ID.
+        internal const val MESSAGE_NOTIFICATION_ID = GROUP_NOTIFICATION_ID + 1
 
         /**
          * Gets the sole instance of the Notifications class. Initializes the

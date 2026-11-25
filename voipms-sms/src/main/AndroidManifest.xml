@@ -42,6 +42,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Vibration when notification received -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -54,6 +55,8 @@
     <application
         android:name=".CustomApplication"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -224,20 +227,11 @@
         <receiver
             android:name=".sms.receivers.SendMessageReceiver"
             android:exported="false" />
-        <receiver
-            android:name=".sms.receivers.SyncBootReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.ACTION_LOCKED_BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
         <!-- SERVICES -->
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="shortService"
+            android:foregroundServiceType="dataSync|shortService"
             tools:ignore="Instantiatable"
             tools:node="merge" />
     </application>

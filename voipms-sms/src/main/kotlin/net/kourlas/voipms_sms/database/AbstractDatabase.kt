@@ -1,5 +1,7 @@
 package net.kourlas.voipms_sms.database
 
+import net.kourlas.voipms_sms.database.daos.SyncCheckpointDao
+import net.kourlas.voipms_sms.database.entities.SyncCheckpoint
 import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
@@ -18,13 +20,16 @@ import net.kourlas.voipms_sms.database.entities.Sms
         Sms::class,
         Archived::class,
         Draft::class,
-        Deleted::class],
+        Deleted::class,
+        SyncCheckpoint::class],
     autoMigrations = [
-        AutoMigration(from = 10, to = 11)
+        AutoMigration(from = 10, to = 11),
+        AutoMigration(from = 11, to = 12, spec = NormalizeDidMigration::class)
     ],
     version = DATABASE_VERSION
 )
 abstract class AbstractDatabase : RoomDatabase() {
+    abstract fun syncCheckpointDao(): SyncCheckpointDao
     abstract fun smsDao(): SmsDao
     abstract fun deletedDao(): DeletedDao
     abstract fun draftDao(): DraftDao

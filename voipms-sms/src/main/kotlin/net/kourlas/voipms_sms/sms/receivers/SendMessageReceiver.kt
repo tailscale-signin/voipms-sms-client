@@ -26,8 +26,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.kourlas.voipms_sms.CustomApplication
+import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.Database
+import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.workers.SendMessageWorker
 import net.kourlas.voipms_sms.utils.getMessageTexts
@@ -55,7 +57,7 @@ class SendMessageReceiver : BroadcastReceiver() {
                 context.getString(
                     R.string.send_message_receiver_did
                 )
-            ) ?: throw Exception(
+            )?.let(::normalizeVoipMsDid) ?: throw Exception(
                 "No DID provided"
             )
             val contact = intent.getStringExtra(
@@ -65,6 +67,9 @@ class SendMessageReceiver : BroadcastReceiver() {
             ) ?: throw Exception(
                 "No contact provided"
             )
+            val generation = intent.getLongExtra(SendMessageWorker.ACCOUNT_GENERATION, -1)
+            val account = readAccountCredentials(context) ?: return
+            if (!account.configured || generation != account.generation) return
             val remoteInput = RemoteInput.getResultsFromIntent(intent)
             val messageText = remoteInput?.getCharSequence(
                 context.getString(
@@ -88,7 +93,7 @@ class SendMessageReceiver : BroadcastReceiver() {
                         )
                     for (id in databaseIds) {
                         SendMessageWorker.sendMessage(
-                            context, id,
+                            context, id, generation,
                             inlineReplyConversationId = ConversationId(
                                 did, contact
                             )
@@ -126,6 +131,7 @@ class SendMessageReceiver : BroadcastReceiver() {
                     R.string.send_message_receiver_contact
                 ), contact
             )
+            intent.putExtra(SendMessageWorker.ACCOUNT_GENERATION, readAccountCredentials(context)?.generation ?: -1L)
             return intent
         }
     }

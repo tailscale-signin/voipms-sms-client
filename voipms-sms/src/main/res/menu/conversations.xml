@@ -28,6 +28,11 @@
         android:title="@string/conversations_action_archived"
         app:showAsAction="never" />
     <item
+        android:id="@+id/message_center_button"
+        android:title="@string/message_center_title"
+        app:contentDescription="@string/message_center_description"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/preferences_button"
         android:title="@string/conversations_action_settings"
         app:showAsAction="never" />

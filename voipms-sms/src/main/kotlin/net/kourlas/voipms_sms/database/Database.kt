@@ -44,11 +44,12 @@ import net.kourlas.voipms_sms.conversation.ConversationActivity
 import net.kourlas.voipms_sms.database.entities.Archived
 import net.kourlas.voipms_sms.database.entities.Deleted
 import net.kourlas.voipms_sms.database.entities.Draft
+import net.kourlas.voipms_sms.database.entities.SyncCheckpoint
 import net.kourlas.voipms_sms.database.entities.Sms
 import net.kourlas.voipms_sms.demo.getDemoNotification
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.Message
-import net.kourlas.voipms_sms.sms.workers.SyncWorker
+import net.kourlas.voipms_sms.sms.workers.IncomingMessage
 import net.kourlas.voipms_sms.utils.CoroutineReadWriteLock
 import net.kourlas.voipms_sms.utils.getContactName
 import net.kourlas.voipms_sms.utils.getContactPhotoAdaptiveBitmap
@@ -97,6 +98,7 @@ class Database private constructor(private val context: Context) {
 
         importExportLock.read {
             database.withTransaction {
+                database.syncCheckpointDao().deleteWithoutDids(dids)
                 database.smsDao().deleteWithoutDids(dids)
                 database.deletedDao().deleteWithoutDids(dids)
                 database.draftDao().deleteWithoutDids(dids)
@@ -158,6 +160,7 @@ class Database private constructor(private val context: Context) {
     suspend fun deleteTablesContents() = coroutineScope {
         importExportLock.read {
             database.withTransaction {
+                database.syncCheckpointDao().clear()
                 database.smsDao().deleteAll()
                 database.deletedDao().deleteAll()
                 database.draftDao().deleteAll()
@@ -343,16 +346,8 @@ class Database private constructor(private val context: Context) {
             database.smsDao().getById(databaseId)?.toMessage()
         }
 
-    /**
-     * Gets the most recent message in the set of messages associated with the
-     * specified DIDs.
-     *
-     * @return Null if the message does not exist.
-     */
-    suspend fun getMessageMostRecent(dids: Set<String>): Message? =
-        importExportLock.read {
-            database.smsDao().getMostRecent(dids)?.toMessage()
-        }
+    suspend fun checkedThrough(accountKey: String, did: String, startDay: String): String? =
+        importExportLock.read { database.syncCheckpointDao().get(accountKey, did, startDay) }
 
     /**
      * Imports the database from the specified file descriptor. Checks the
@@ -535,8 +530,10 @@ class Database private constructor(private val context: Context) {
      * @return The conversation IDs associated with the newly added messages.
      */
     suspend fun insertMessagesVoipMsApi(
-        incomingMessages: List<SyncWorker.IncomingMessage>,
-        retrieveDeletedMessages: Boolean
+        incomingMessages: List<IncomingMessage>,
+        retrieveDeletedMessages: Boolean,
+        checkpoint: SyncCheckpoint?,
+        previousThrough: String?
     ): Set<ConversationId> =
         coroutineScope {
             val (addedMessages, addedConversationIds) = importExportLock.read {
@@ -602,6 +599,17 @@ class Database private constructor(private val context: Context) {
                         database.archivedDao().deleteConversation(
                             incomingMessage.did, incomingMessage.contact
                         )
+                    }
+
+                    if (checkpoint != null) {
+                        val cursors = database.syncCheckpointDao()
+                        val stored = cursors.get(checkpoint.accountKey, checkpoint.did, checkpoint.startDay)
+                        // An import or another worker may have changed the cursor since
+                        // planning. Only advance from a range we know was covered.
+                        if ((previousThrough == null || (stored != null && stored >= previousThrough)) &&
+                            (stored == null || checkpoint.throughDay > stored)) {
+                            cursors.save(checkpoint)
+                        }
                     }
                 }
 
@@ -726,8 +734,15 @@ class Database private constructor(private val context: Context) {
      */
     suspend fun markMessageSent(databaseId: Long, voipId: Long) =
         importExportLock.read {
-            database.smsDao()
-                .markMessageSent(databaseId, voipId, Date().time / 1000L)
+            database.withTransaction {
+                val dao = database.smsDao()
+                val sent = dao.getById(databaseId) ?: return@withTransaction
+                // A concurrent sync can see the outgoing provider record before
+                // the send response arrives. Keep the row used by the composer.
+                val syncedId = dao.getIdByVoipId(sent.did, voipId)
+                if (syncedId != null && syncedId != databaseId) dao.deleteById(syncedId)
+                dao.markMessageSent(databaseId, voipId, Date().time / 1000L)
+            }
         }
 
     /**
@@ -1091,7 +1106,7 @@ class Database private constructor(private val context: Context) {
     companion object {
         private const val DATABASE_NAME = "sms.db"
         private const val IMPORT_FILE_NAME = "import.db"
-        const val DATABASE_VERSION = 11
+        const val DATABASE_VERSION = 12
 
         // The oldest schema version with a migration path to
         // DATABASE_VERSION.

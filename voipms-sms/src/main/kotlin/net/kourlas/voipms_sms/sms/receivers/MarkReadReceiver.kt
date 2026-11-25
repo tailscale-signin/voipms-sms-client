@@ -25,6 +25,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.kourlas.voipms_sms.CustomApplication
+import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.notifications.Notifications
@@ -51,7 +52,7 @@ class MarkReadReceiver : BroadcastReceiver() {
             }
             val did = intent.getStringExtra(
                 context.getString(R.string.mark_read_receiver_did)
-            )
+            )?.let(::normalizeVoipMsDid)
                 ?: throw Exception("No DID provided")
             val contact = intent.getStringExtra(
                 context.getString(R.string.mark_read_receiver_contact)

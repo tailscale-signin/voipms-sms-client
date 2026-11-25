@@ -18,7 +18,6 @@
 package net.kourlas.voipms_sms
 
 import android.app.Application
-import android.net.ConnectivityManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -28,18 +27,23 @@ import androidx.appcompat.app.AppCompatDelegate
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import net.kourlas.voipms_sms.database.Database
-import net.kourlas.voipms_sms.network.NetworkManager.Companion.getInstance
+import net.kourlas.voipms_sms.preferences.accountConfigured
+import net.kourlas.voipms_sms.preferences.didsConfigured
 import net.kourlas.voipms_sms.preferences.fragments.AppearancePreferencesFragment
 import net.kourlas.voipms_sms.preferences.getAppTheme
 import net.kourlas.voipms_sms.preferences.getSyncInterval
-import net.kourlas.voipms_sms.preferences.migrateLegacySecurePreferences
 import net.kourlas.voipms_sms.preferences.setRawSyncInterval
 import net.kourlas.voipms_sms.sms.ConversationId
+import net.kourlas.voipms_sms.preferences.migrateDidPreferences
 import net.kourlas.voipms_sms.sms.workers.SyncWorker
 import net.kourlas.voipms_sms.utils.subscribeToDidTopics
+import kotlin.math.roundToLong
 
 private const val TAG = "CustomApplication"
 
@@ -105,20 +109,43 @@ class CustomApplication : Application() {
             }
         })
 
+    private var visibleMessagingScreens = 0
+    private var visibleRefresh: Job? = null
+
+    // Activities call these on the main thread. Multiple windows share one poller.
+    fun startVisibleRefresh(immediate: Boolean = true) {
+        visibleMessagingScreens++
+        if (visibleMessagingScreens != 1 || BuildConfig.IS_DEMO) return
+        visibleRefresh = applicationScope.launch(Dispatchers.Default) {
+            if (!immediate) delay(VISIBLE_REFRESH_MS)
+            while (isActive) {
+                if (accountConfigured(applicationContext) && didsConfigured(applicationContext)) {
+                    SyncWorker.performPartialSynchronization(applicationContext)
+                }
+                delay(VISIBLE_REFRESH_MS)
+            }
+        }
+    }
+
+    fun stopVisibleRefresh() {
+        visibleMessagingScreens--
+        if (visibleMessagingScreens == 0) {
+            visibleRefresh?.cancel()
+            visibleRefresh = null
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
 
         // Create static reference to self.
         self = this
-
-        // Migrate legacy secure preferences.
-        migrateLegacySecurePreferences(applicationContext)
+        migrateDidPreferences(applicationContext)
 
         // Limit synchronization interval to 15 minutes. Previous versions
         // supported a shorter interval.
-        if (getSyncInterval(applicationContext) != 0.0
-            && getSyncInterval(applicationContext) < (15.0 / (24 * 60))
-        ) {
+        val syncInterval = getSyncInterval(applicationContext)
+        if (syncInterval > 0.0 && (syncInterval * 24 * 60).roundToLong() < 15) {
             setRawSyncInterval(applicationContext, "0.01041666666")
         }
 
@@ -137,14 +164,6 @@ class CustomApplication : Application() {
             )
         }
 
-        // Register for network callbacks
-        val connectivityManager = getSystemService(
-            CONNECTIVITY_SERVICE
-        ) as ConnectivityManager
-        connectivityManager.registerDefaultNetworkCallback(
-            getInstance()
-        )
-
         // Open the database.
         Database.getInstance(applicationContext)
 
@@ -152,10 +171,7 @@ class CustomApplication : Application() {
         subscribeToDidTopics(applicationContext)
 
         // Schedule a database synchronization, if required.
-        SyncWorker.performFullSynchronization(
-            applicationContext,
-            scheduleOnly = true
-        )
+        SyncWorker.scheduleBackgroundSync(applicationContext)
 
         // If any messages are still marked as "sending" for some reason, mark
         // them as "not sent" -- clearly, they weren't.
@@ -166,6 +182,7 @@ class CustomApplication : Application() {
     }
 
     companion object {
+        private const val VISIBLE_REFRESH_MS = 30_000L
         private lateinit var self: CustomApplication
 
         fun getApplication(): CustomApplication {

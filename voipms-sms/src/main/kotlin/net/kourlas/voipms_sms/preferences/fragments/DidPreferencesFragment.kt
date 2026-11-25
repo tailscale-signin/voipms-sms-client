@@ -21,6 +21,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.widget.CompoundButton
 import androidx.appcompat.widget.SwitchCompat
@@ -41,11 +42,12 @@ import net.kourlas.voipms_sms.preferences.setDids
 import net.kourlas.voipms_sms.preferences.setSetupCompletedForVersion
 import net.kourlas.voipms_sms.utils.abortActivity
 import net.kourlas.voipms_sms.utils.enablePushNotifications
+import net.kourlas.voipms_sms.utils.subscribeToDidTopics
 import net.kourlas.voipms_sms.utils.registerNonExportedReceiver
 import net.kourlas.voipms_sms.utils.safeUnregisterReceiver
 import net.kourlas.voipms_sms.utils.showSnackbar
 
-class DidPreferencesFragment : PreferenceFragmentCompat() {
+class DidPreferencesFragment : PreferenceFragmentCompat(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var did: String
 
     // Broadcast receivers
@@ -150,8 +152,15 @@ class DidPreferencesFragment : PreferenceFragmentCompat() {
         }
     }
 
+    override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
+        if (::did.isInitialized && key == getString(R.string.preferences_did_retrieve_messages_key, did)) {
+            subscribeToDidTopics(requireContext())
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        preferenceScreen.sharedPreferences?.registerOnSharedPreferenceChangeListener(this)
 
         activity?.let {
             // Set DID
@@ -181,6 +190,7 @@ class DidPreferencesFragment : PreferenceFragmentCompat() {
     }
 
     override fun onPause() {
+        preferenceScreen.sharedPreferences?.unregisterOnSharedPreferenceChangeListener(this)
         super.onPause()
 
         activity?.let {

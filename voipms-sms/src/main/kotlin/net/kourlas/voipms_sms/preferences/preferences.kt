@@ -20,6 +20,7 @@
 
 package net.kourlas.voipms_sms.preferences
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build.VERSION
@@ -30,20 +31,52 @@ import androidx.core.content.edit
 import androidx.preference.PreferenceManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import net.kourlas.voipms_sms.notifications.Notifications
+import net.kourlas.voipms_sms.notifications.PushRegistration
 import net.kourlas.voipms_sms.R
+import net.kourlas.voipms_sms.sms.workers.SyncWorker
 import net.kourlas.voipms_sms.utils.subscribeToDidTopics
-import java.io.ByteArrayInputStream
+import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
+import java.io.IOException
 import java.security.KeyStore
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import javax.crypto.Cipher
-import javax.crypto.CipherInputStream
 
 private const val TAG = "Preferences"
 
 private val securePreferencesLock = Any()
+private var encryptedPreferences: SharedPreferences? = null
+private var legacyPreferencesMigrated = false
+
+private const val ACCOUNT_GENERATION = "account_session_generation"
+private val accountChanges = Mutex()
+
+internal class AccountCredentials(val email: String, val password: String, val generation: Long) {
+    val configured get() = email.isNotEmpty() && password.isNotEmpty()
+}
+
+/** Null means secure storage could not be read. Empty fields represent a signed-out account. */
+internal fun readAccountCredentials(context: Context): AccountCredentials? =
+    withSecurePreferences(context) { encrypted ->
+        if (!legacyPreferencesMigrated) {
+            migrateLegacySecurePreferences(context.applicationContext, encrypted)
+            legacyPreferencesMigrated = true
+        }
+        val generation = encrypted.getLong(ACCOUNT_GENERATION, 0)
+        reconcileAccountSelection(context, generation)
+        AccountCredentials(
+            encrypted.getString(context.getString(R.string.preferences_account_email_key), null).orEmpty(),
+            encrypted.getString(context.getString(R.string.preferences_account_password_key), null).orEmpty(),
+            generation
+        )
+    }
 
 fun firstRun(context: Context): Boolean = getBooleanPreference(
     context,
@@ -54,8 +87,41 @@ fun firstRun(context: Context): Boolean = getBooleanPreference(
 )
 
 fun accountConfigured(context: Context): Boolean =
-    getEmail(context) != ""
-        && getPassword(context) != ""
+    readAccountCredentials(context)?.configured == true
+
+/** Coalesce legacy line keys before any worker, FCM registration, or screen reads them. */
+internal fun migrateDidPreferences(context: Context) {
+    val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+    val setKey = context.getString(R.string.preferences_dids_key)
+    val singleKey = context.getString(R.string.preferences_dids_did_key)
+    val activeKey = context.getString(R.string.preferences_dids_active_did_key)
+    val entries = prefs.all
+    prefs.edit {
+        for (key in listOf(singleKey, activeKey)) {
+            val old = entries[key] as? String ?: continue
+            val did = normalizeVoipMsDid(old)
+            if (old != did) putString(key, did)
+        }
+        val oldDids = prefs.getStringSet(setKey, null)
+        if (oldDids != null) {
+            val dids = oldDids.mapTo(mutableSetOf(), ::normalizeVoipMsDid)
+            if (dids != oldDids) putStringSet(setKey, dids)
+        }
+        val flags = Regex("""preferences_did_(\+?[0-9]+)_(show_in_conversations_view|retrieve_messages|show_notifications)""")
+        val migrated = mutableMapOf<String, Boolean>()
+        for ((key, value) in entries) {
+            if (value !is Boolean) continue
+            val match = flags.matchEntire(key) ?: continue
+            val (raw, flag) = match.destructured
+            val canonical = "preferences_did_${normalizeVoipMsDid(raw)}_${flag}"
+            if (canonical == key) continue
+            // If two aliases disagree, preserve the explicit opt-out.
+            migrated[canonical] = value && migrated.getOrDefault(canonical, entries[canonical] != false)
+            remove(key)
+        }
+        for ((key, value) in migrated) putBoolean(key, value)
+    }
+}
 
 fun didsConfigured(context: Context): Boolean = getDids(context).isNotEmpty()
 
@@ -118,11 +184,7 @@ fun getDids(
     return set
 }
 
-fun getEmail(context: Context): String = getSecureStringPreference(
-    context,
-    context.getString(R.string.preferences_account_email_key),
-    ""
-)
+fun getEmail(context: Context): String = readAccountCredentials(context)?.email.orEmpty()
 
 fun getFirstSyncAfterSignIn(context: Context): Boolean =
     getBooleanPreference(
@@ -187,11 +249,7 @@ fun getNotificationSound(context: Context): String =
         )
     )
 
-fun getPassword(context: Context): String = getSecureStringPreference(
-    context,
-    context.getString(R.string.preferences_account_password_key),
-    ""
-)
+fun getPassword(context: Context): String = readAccountCredentials(context)?.password.orEmpty()
 
 fun getReadTimeout(context: Context): Int =
     getStringPreference(
@@ -281,14 +339,11 @@ fun getStartDate(context: Context): Date {
     }
 }
 
-fun getSyncInterval(context: Context): Double =
-    getStringPreference(
-        context,
-        context.getString(
-            R.string.preferences_sync_interval_key
-        ),
-        "0"
-    ).toDouble()
+fun getSyncInterval(context: Context): Double {
+    val default = context.getString(R.string.preferences_sync_interval_default_value)
+    return getStringPreference(context, context.getString(R.string.preferences_sync_interval_key), default)
+        .toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: default.toDouble()
+}
 
 fun setFirstRun(context: Context, firstRun: Boolean) {
     setBooleanPreference(
@@ -306,7 +361,8 @@ fun setActiveDid(context: Context, did: String) {
     )
 }
 
-fun setDids(context: Context, dids: Set<String>) {
+fun setDids(context: Context, selected: Set<String>) {
+    val dids = selected.mapTo(mutableSetOf(), ::normalizeVoipMsDid)
     val currentDids = getDids(context)
     val newDids = dids.filter { it !in currentDids }
 
@@ -322,6 +378,7 @@ fun setDids(context: Context, dids: Set<String>) {
     }
 
     subscribeToDidTopics(context)
+    SyncWorker.scheduleBackgroundSync(context)
 }
 
 fun setDidRetrieveMessages(context: Context, did: String, value: Boolean) {
@@ -400,13 +457,6 @@ fun getDidShowNotifications(context: Context, did: String): Boolean {
     )
 }
 
-fun setEmail(context: Context, email: String) {
-    setSecureStringPreference(
-        context, context.getString(
-            R.string.preferences_account_email_key
-        ), email
-    )
-}
 
 @Deprecated(
     "Remove when Android versions earlier than Oreo are no longer supported."
@@ -446,14 +496,6 @@ fun setSetupCompletedForVersion(context: Context, version: Long) {
     }
 }
 
-fun setPassword(context: Context, password: String) {
-    setSecureStringPreference(
-        context, context.getString(
-            R.string.preferences_account_password_key
-        ), password
-    )
-}
-
 fun setStartDate(context: Context, date: Date) {
     setStringPreference(
         context,
@@ -470,15 +512,67 @@ fun setRawSyncInterval(context: Context, string: String) {
     )
 }
 
-@Suppress("SameParameterValue")
-private fun getSecureStringPreference(
-    context: Context, key: String,
-    default: String
-) = synchronized(securePreferencesLock) {
-    getEncryptedSharedPreferences(context.applicationContext).getString(
-        key,
+/** An interrupted switch is reconciled before any new account work reads its DIDs. */
+internal fun reconcileAccountSelection(context: Context, generation: Long) {
+    val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+    if (prefs.getLong(ACCOUNT_GENERATION, 0L) == generation) return
+    val saved = prefs.edit()
+        .putLong(ACCOUNT_GENERATION, generation)
+        .putStringSet(context.getString(R.string.preferences_dids_key), emptySet())
+        .remove(context.getString(R.string.preferences_dids_did_key))
+        .remove(context.getString(R.string.preferences_dids_active_did_key))
+        .remove(PushRegistration.KEY)
+        .commit()
+    if (!saved) throw IOException("Could not reset the previous account's number selection")
+}
+
+/** Keep credential changes mutually exclusive with applying a completed network response. */
+internal suspend fun <T> withCurrentAccount(context: Context, generation: Long, action: suspend (AccountCredentials) -> T): T? =
+    accountChanges.withLock {
+        val current = readAccountCredentials(context) ?: throw IOException("Account storage unavailable")
+        if (current.generation == generation && current.configured) action(current) else null
+    }
+
+suspend fun saveAccountCredentials(context: Context, email: String, password: String): Boolean =
+    withContext(Dispatchers.IO) {
+        accountChanges.withLock {
+            val previous = readAccountCredentials(context) ?: return@withLock false
+            val changed = !previous.email.equals(email, ignoreCase = true) ||
+                previous.configured != (email.isNotEmpty() && password.isNotEmpty())
+            val generation = if (changed) previous.generation + 1 else previous.generation
+            val saved = withSecurePreferences(context) { encrypted ->
+                val emailKey = context.getString(R.string.preferences_account_email_key)
+                val passwordKey = context.getString(R.string.preferences_account_password_key)
+                val committed = encrypted.edit().putString(emailKey, email).putString(passwordKey, password)
+                    .putLong(ACCOUNT_GENERATION, generation).commit()
+                if (!committed || encrypted.getString(emailKey, null) != email ||
+                    encrypted.getString(passwordKey, null) != password) return@withSecurePreferences false
+                reconcileAccountSelection(context, generation)
+                true
+            } == true
+            if (saved) {
+                if (changed) Notifications.getInstance(context.applicationContext).cancelMessageNotifications()
+                SyncWorker.scheduleBackgroundSync(context)
+                subscribeToDidTopics(context)
+            }
+            saved
+        }
+    }
+
+private inline fun <T> withSecurePreferences(
+    context: Context, block: (SharedPreferences) -> T
+): T? = synchronized(securePreferencesLock) {
+    try {
+        val prefs = encryptedPreferences ?: openEncryptedPreferences(context.applicationContext)
+            .also { encryptedPreferences = it }
+        block(prefs)
+    } catch (e: Exception) {
+        // Retry opening on the next access. Never clear credential or keyset files on failure.
+        encryptedPreferences = null
+        legacyPreferencesMigrated = false
+        Log.w(TAG, "Secure account storage is unavailable (${e.javaClass.simpleName})")
         null
-    ) ?: default
+    }
 }
 
 private fun getBooleanPreference(
@@ -525,15 +619,6 @@ private fun setBooleanPreference(
         .edit { putBoolean(key, value) }
 }
 
-private fun setSecureStringPreference(
-    context: Context, key: String,
-    value: String
-) = synchronized(securePreferencesLock) {
-    getEncryptedSharedPreferences(context.applicationContext).edit {
-        putString(key, value)
-    }
-}
-
 private fun setStringPreference(
     context: Context, key: String,
     value: String
@@ -555,40 +640,13 @@ private fun setStringSetPreference(
         .edit { putStringSet(key, value) }
 }
 
-private fun getEncryptedSharedPreferences(context: Context): SharedPreferences {
-    val masterKey =
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-    try {
-        return EncryptedSharedPreferences.create(
-            context,
-            context.getString(
-                R.string.preferences_encrypted_file_name,
-                context.packageName
-            ),
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    } catch (e: Exception) {
-        context.getSharedPreferences(
-            context.getString(
-                R.string.preferences_encrypted_file_name,
-                context.packageName
-            ),
-            Context.MODE_PRIVATE
-        ).edit { clear() }
-        return EncryptedSharedPreferences.create(
-            context,
-            context.getString(
-                R.string.preferences_encrypted_file_name,
-                context.packageName
-            ),
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    }
+private fun openEncryptedPreferences(context: Context): SharedPreferences {
+    val masterKey = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+    return EncryptedSharedPreferences.create(
+        context, context.getString(R.string.preferences_encrypted_file_name, context.packageName),
+        masterKey, EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
 }
 
 fun removePreference(context: Context, key: String) {
@@ -603,102 +661,46 @@ private const val LEGACY_KEY_CIPHER_MARSHMALLOW_PROVIDER =
 private const val LEGACY_KEY_TRANSFORMATION_ALGORITHM = "RSA/ECB/PKCS1Padding"
 private const val LEGACY_KEY_ALIAS = "adorsysKeyPair"
 
-fun migrateLegacySecurePreferences(context: Context) = synchronized(
-    securePreferencesLock
-) {
-    // These are the preferences to migrate.
-    val preferenceKeys = listOf(
-        context.getString(R.string.preferences_account_email_key),
-        context.getString(R.string.preferences_account_password_key)
-    )
-
-    for (preferenceKey in preferenceKeys) {
-        if (getEncryptedSharedPreferences(context).getString(
-                preferenceKey,
-                null
-            ) != null
-        ) {
-            // Migration is not required.
-            continue
-        }
-
-        // First, check whether the preference is stored in plain-text. If so,
-        // migrate it to EncryptedSharedPreferences. We will remove the old
-        // preference later on.
-        val plainTextPreference =
-            getStringPreference(context, preferenceKey, "")
-        if (plainTextPreference != "") {
-            getEncryptedSharedPreferences(context).edit {
-                putString(preferenceKey, plainTextPreference)
-            }
-            continue
-        }
-
-        // Next, check whether the preference is stored in the
-        // secure-storage-android SharedPreferences. If so, migrate it to
-        // EncryptedSharedPreferences. We will remove the old preference later
-        // on.
+private fun migrateLegacySecurePreferences(context: Context, encrypted: SharedPreferences) {
+    val plain = PreferenceManager.getDefaultSharedPreferences(context)
+    val legacy = context.getSharedPreferences(LEGACY_SECURE_SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE)
+    val keys = listOf(context.getString(R.string.preferences_account_email_key),
+        context.getString(R.string.preferences_account_password_key))
+    val hadLegacyValues = keys.any(legacy::contains)
+    migrateCredentialKeys(keys, plain, legacy, encrypted) { value ->
+        val keyStore = KeyStore.getInstance(LEGACY_KEYSTORE_TYPE).apply { load(null) }
+        val key = keyStore.getKey(LEGACY_KEY_ALIAS, null) ?: throw IOException("Legacy key unavailable")
+        val cipher = Cipher.getInstance(LEGACY_KEY_TRANSFORMATION_ALGORITHM, LEGACY_KEY_CIPHER_MARSHMALLOW_PROVIDER)
+        cipher.init(Cipher.DECRYPT_MODE, key)
+        cipher.doFinal(Base64.decode(value, Base64.DEFAULT)).toString(Charsets.UTF_8)
+    }
+    if (hadLegacyValues && legacy.all.isEmpty()) {
         try {
-            // Load the private key used by secure-storage-android from the
-            // keystore.
-            val keyStore = KeyStore.getInstance(LEGACY_KEYSTORE_TYPE)
-            keyStore.load(null)
-            val privateKey = keyStore.getKey(LEGACY_KEY_ALIAS, null) ?: continue
-
-            // Extract the encrypted value.
-            val encryptedValue = context
-                .getSharedPreferences(
-                    LEGACY_SECURE_SHARED_PREFERENCES_NAME,
-                    Context.MODE_PRIVATE
-                ).getString(preferenceKey, null)
-            if (encryptedValue == null || encryptedValue == "") {
-                continue
+            KeyStore.getInstance(LEGACY_KEYSTORE_TYPE).apply {
+                load(null)
+                deleteEntry(LEGACY_KEY_ALIAS)
             }
-
-            // Decrypt the encrypted value.
-            val cipher =
-                Cipher.getInstance(
-                    LEGACY_KEY_TRANSFORMATION_ALGORITHM,
-                    LEGACY_KEY_CIPHER_MARSHMALLOW_PROVIDER
-                )
-            cipher.init(Cipher.DECRYPT_MODE, privateKey)
-
-            val decryptedValue = CipherInputStream(
-                ByteArrayInputStream(
-                    Base64.decode(
-                        encryptedValue,
-                        Base64.DEFAULT
-                    )
-                ), cipher
-            ).bufferedReader().use { it.readText() }
-            getEncryptedSharedPreferences(context).edit {
-                putString(preferenceKey, decryptedValue)
-            }
-            continue
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to migrate legacy secure preference", e)
+            Log.w(TAG, "Unable to remove the retired credential key")
         }
     }
+}
 
-    // Remove any plain-text preferences. Delete the secure-storage-android
-    // SharedPreferences and the key used to encrypt and decrypt them.
-    try {
-        for (preferenceKey in preferenceKeys) {
-            removePreference(context, preferenceKey)
+/** Keep each source until its replacement is committed and can be read back. */
+// The migration checks the Boolean result of each synchronous disk write.
+@SuppressLint("UseKtx")
+internal fun migrateCredentialKeys(
+    keys: List<String>, plain: SharedPreferences, legacy: SharedPreferences,
+    destination: SharedPreferences, decrypt: (String) -> String
+) {
+    for (key in keys) {
+        if (!plain.contains(key) && !legacy.contains(key)) continue
+        val value = destination.getString(key, null) ?: plain.getString(key, null)?.takeIf { it.isNotEmpty() }
+            ?: legacy.getString(key, null)?.takeIf { it.isNotEmpty() }?.let(decrypt) ?: ""
+        if (!destination.edit().putString(key, value).commit() || destination.getString(key, null) != value) {
+            throw IOException("Credential migration could not be verified")
         }
-
-        context.getSharedPreferences(
-            LEGACY_SECURE_SHARED_PREFERENCES_NAME,
-            Context.MODE_PRIVATE
-        ).edit { clear() }
-        context.deleteSharedPreferences(
-            LEGACY_SECURE_SHARED_PREFERENCES_NAME
-        )
-
-        val keyStore = KeyStore.getInstance(LEGACY_KEYSTORE_TYPE)
-        keyStore.load(null)
-        keyStore.deleteEntry(LEGACY_KEY_ALIAS)
-    } catch (e: Exception) {
-        Log.e(TAG, "Failed to delete legacy secure preferences", e)
+        if (plain.contains(key) && !plain.edit().remove(key).commit()) throw IOException("Legacy cleanup failed")
+        if (legacy.contains(key) && !legacy.edit().remove(key).commit()) throw IOException("Legacy cleanup failed")
     }
 }

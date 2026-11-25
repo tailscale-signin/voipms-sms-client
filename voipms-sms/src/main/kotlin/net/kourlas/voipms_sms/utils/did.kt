@@ -100,3 +100,10 @@ fun normalizeVoipMsPhoneNumber(phoneNumber: String): String {
     }
     return phoneNumber
 }
+
+/** One database/preference key for the service's local and E.164 forms of a DID. */
+fun normalizeVoipMsDid(value: String): String {
+    val digits = value.removePrefix("+")
+    if (digits.isEmpty() || !digits.all { it in '0'..'9' }) return value
+    return if (digits.length == 11 && digits.startsWith('1')) digits.substring(1) else digits
+}

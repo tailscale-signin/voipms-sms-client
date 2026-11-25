@@ -38,12 +38,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.notifications.Notifications
-import net.kourlas.voipms_sms.preferences.getDids
-import net.kourlas.voipms_sms.preferences.getEmail
-import net.kourlas.voipms_sms.preferences.getPassword
+import net.kourlas.voipms_sms.preferences.AccountCredentials
+import net.kourlas.voipms_sms.preferences.readAccountCredentials
+import net.kourlas.voipms_sms.preferences.withCurrentAccount
 import net.kourlas.voipms_sms.preferences.setDids
 import net.kourlas.voipms_sms.utils.enablePushNotifications
 import net.kourlas.voipms_sms.utils.httpPostWithMultipartFormData
+import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
 import java.io.IOException
 
 private const val TAG = "RetrieveDidsWorker"
@@ -56,8 +57,12 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
     private var error: String? = null
 
     override suspend fun doWork(): Result {
-        // Retrieve DIDs.
-        val dids = retrieveDids()
+        val credentials = readAccountCredentials(applicationContext) ?: return Result.retry()
+        val expected = inputData.getLong(ACCOUNT_GENERATION, credentials.generation)
+        if (credentials.generation != expected) return Result.success()
+        val dids = if (credentials.configured) retrieveDids(credentials) else null
+        val current = readAccountCredentials(applicationContext) ?: return Result.retry()
+        if (current.generation != expected) return Result.success()
 
         // Send broadcast with DIDs.
         val retrieveDidsCompleteIntent = Intent(
@@ -65,6 +70,7 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
                 R.string.retrieve_dids_complete_action
             )
         )
+        retrieveDidsCompleteIntent.putExtra(ACCOUNT_GENERATION, expected)
         retrieveDidsCompleteIntent.putExtra(
             applicationContext.getString(
                 R.string.retrieve_dids_complete_error
@@ -110,18 +116,11 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
      *
      * @return Null if an error occurred.
      */
-    private suspend fun retrieveDids(): Set<String>? = coroutineScope {
+    private suspend fun retrieveDids(credentials: AccountCredentials): Set<String>? = coroutineScope {
         // Retrieve DIDs from VoIP.ms API
         var dids: Set<String>? = null
         try {
-            // Terminate quietly if email and password are undefined.
-            if (getEmail(applicationContext) == ""
-                || getPassword(applicationContext) == ""
-            ) {
-                return@coroutineScope null
-            }
-
-            val response = getApiResponse()
+            val response = getApiResponse(credentials)
             if (response != null) {
                 dids = getDidsFromResponse(response)
             }
@@ -130,12 +129,12 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
                 applicationContext.getString(R.string.retrieve_dids_auto_add),
                 false
             )
-            if (autoAdd && dids?.isNotEmpty() == true) {
-                setDids(
-                    applicationContext,
-                    getDids(applicationContext).plus(dids)
-                )
-                enablePushNotifications(applicationContext)
+            val fetched = dids
+            if (autoAdd && fetched != null) {
+                withCurrentAccount(applicationContext, credentials.generation) {
+                    setDids(applicationContext, fetched)
+                    enablePushNotifications(applicationContext)
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -162,7 +161,7 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
      *
      * @return Null if an error occurred.
      */
-    private suspend fun getApiResponse(): DidsResponse? {
+    private suspend fun getApiResponse(credentials: AccountCredentials): DidsResponse? {
         try {
             repeat(3) {
                 try {
@@ -170,8 +169,8 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
                         applicationContext,
                         "https://voip.ms/api/v1/rest.php",
                         mapOf(
-                            "api_username" to getEmail(applicationContext),
-                            "api_password" to getPassword(applicationContext),
+                            "api_username" to credentials.email,
+                            "api_password" to credentials.password,
                             "method" to "getDIDsInfo"
                         )
                     )
@@ -226,11 +225,19 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
 
         return response.dids
             ?.filter { it.smsEnabled == "1" }
-            ?.map { it.did }
+            ?.map { normalizeVoipMsDid(it.did) }
             ?.toSet()
     }
 
     companion object {
+        private const val ACCOUNT_GENERATION = "retrieve_account_generation"
+
+        fun isCurrentResult(context: Context, intent: Intent?): Boolean {
+            val current = readAccountCredentials(context) ?: return false
+            return intent?.getLongExtra(ACCOUNT_GENERATION, -1L) == current.generation
+        }
+
+
         /**
          * Retrieve DIDs for a particular account from VoIP.ms.
          */
@@ -240,7 +247,8 @@ class RetrieveDidsWorker(context: Context, params: WorkerParameters) :
                     workDataOf(
                         context.getString(
                             R.string.retrieve_dids_auto_add
-                        ) to autoAdd
+                        ) to autoAdd,
+                        ACCOUNT_GENERATION to (readAccountCredentials(context)?.generation ?: -1L)
                     )
                 )
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)

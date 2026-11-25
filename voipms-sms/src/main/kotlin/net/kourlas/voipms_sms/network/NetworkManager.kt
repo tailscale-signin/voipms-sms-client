@@ -2,26 +2,13 @@ package net.kourlas.voipms_sms.network
 
 import android.content.Context
 import android.net.ConnectivityManager
-import android.net.Network
-import android.os.Build
+import android.net.NetworkCapabilities
 
-class NetworkManager : ConnectivityManager.NetworkCallback() {
-    private var isNetworkConnected = false
-
-    override fun onLost(network: Network) {
-        super.onLost(network)
-
-        isNetworkConnected = false
-    }
-
-    override fun onAvailable(network: Network) {
-        super.onAvailable(network)
-
-        isNetworkConnected = true
-    }
-
+class NetworkManager {
     fun isNetworkConnectionAvailable(context: Context): Boolean {
-        return isNetworkConnected
+        val manager = context.getSystemService(ConnectivityManager::class.java) ?: return false
+        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork)
+        return capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
     }
 
     companion object {

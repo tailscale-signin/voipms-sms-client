@@ -7,16 +7,10 @@
 * [Network](#network)
 * [Database](#database)
 * [Reporting bugs](#reporting-bugs)
-* [Contacting the developer](#contacting-the-developer)
 
 ## Account
 
-This app requires access to the VoIP.ms API in order to retrieve messages from your VoIP.ms account. Go to the VoIP.ms [API Configuration menu](https://www.voip.ms/m/api.php) and:
-* enable API access for your VoIP.ms account;
-* set an API password (which is **distinct** from your account password); and
-* set the list of approved IP addresses to "0.0.0.0".
-  
-When signing in, you must the email you use to sign into the VoIP.ms portal (**not** your SIP username) and the API password which you set above.
+Open [API Configuration](https://voip.ms/m/api.php) in the VoIP.ms portal. Enable API access, create an API password, and allow the public IP addresses your phone will use to reach VoIP.ms. A fixed VPN exit address can be useful when moving between Wi-Fi and mobile data. Sign into the app with your VoIP.ms account email and the API password.
 
 ## Phone numbers
 
@@ -28,52 +22,25 @@ You can hide messages from the conversations view, block the retrieval of messag
 
 ## Notifications
 
-### Push notifications
+### Live delivery
 
-The Google Play version of the app supports push notifications using Firebase
-Cloud Messaging. Push notifications are automatically configured when selecting
-phone numbers if notifications are enabled.
+In a push-enabled primary build, VoIP.ms calls the operator’s HTTPS relay when a selected number receives a message. The relay sends a wake-up through Firebase. The app then downloads the message directly from VoIP.ms. The callback contains only the destination number.
 
-However, if push notifications don't appear to be working, it's possible that
-the automatic configuration failed. You can configure them manually by:
-* accessing the settings for your phone numbers (DIDs) on the VoIP.ms [Manage DID menu](https://voip.ms/m/managedid.php);
-* enabling the *SMS URL Callback* option; and
-* entering the following URL into the neighbouring
-  field: [https://voipmssms-notify.kourlas.com/?did={TO}](https://voipmssms-notify.kourlas.com/?did={TO})
+Open **Settings → Synchronization → Live delivery** to check each number. Tap the status to retry setup. Enable message retrieval for the number and allow Android notifications if you want alerts. If another service already uses the number’s callback, the app leaves it in place. You can keep that integration and use scheduled synchronization, or change the callback yourself in the [VoIP.ms portal](https://voip.ms/m/managedid.php). Changing it there affects every app using that number.
 
-If push notifications were configured correctly, VoIP.ms will send a callback to
-a Cloudflare Worker maintained by me when your phone number receives a text
-message. The Worker will then forward the callback to your device using
-Firebase Cloud Messaging. When the app receives the callback, it performs a
-synchronization with the VoIP.ms servers and retrieves the text message.
+F-Droid builds, primary builds without a configured relay, and devices without Google Play services use scheduled background recovery. If you force-stop the app in Android settings, reopen it to resume delivery. To view media or compare a message with the provider’s records, open **VoIP.ms Message Center** from the conversation list menu.
 
-To protect your privacy, the callback is configured to **only** include your
-phone number. It does not include the text of individual messages.
+### Check delivery on your phone
 
-### Regular notifications
-
-If push notifications were not configured correctly or if you are using the
-F-Droid version of the app, you will still receive notifications whenever a new
-message is received during synchronization with the VoIP.ms servers if
-notifications are enabled.
-
-This can be a reasonable substitute for push notifications if automatic synchronization is enabled, though obviously this solution consumes more battery life.
+Send an SMS from a different phone to a selected number with the app in the background and the screen locked. Open the alert and check that the conversation contains one copy. For a recovery check, take the phone offline, send another SMS, reconnect, and check that it arrives. The Live delivery status confirms registration. Receiving the test message confirms the entire route.
 
 ## Synchronization
 
-You can initiate a synchronization with the VoIP.ms servers by swiping down on the conversations list. Synchronization uses up a lot of data, so you should minimize how often you do it.
-
-It is not necessary to perform a synchronization simply to retrieve new messages. All new messages are downloaded automatically when the main conversations screen is loaded and when a push notification is received. This limited synchronization only checks for messages dated after the most recent message stored locally, so it uses less data.
-
-In general, it is only necessary to synchronize when you want to download messages from VoIP.ms dated before the most recent message stored locally, such as when you are first setting up the app.
+The inbox and open conversations check for new messages every 30 seconds while visible. A push can start a check sooner. Swipe down on the conversation list to fetch history from your configured start date. Each number uses its own history when checking for new messages.
 
 ### Synchronization interval
 
-You can configure the app to schedule automatic synchronizations. Smaller intervals consume more battery life.
-
-It is not necessary to schedule automatic synchronizations simply to retrieve new messages. All new messages are downloaded automatically when the main conversations screen is loaded and when a push notification is received.
-
-In general, it is only necessary to schedule automatic synchronizations when you cannot use push notifications, such as when you are using the F-Droid version of the app.
+Background recovery defaults to 15 minutes. You can change it or select **Never** in **Settings → Synchronization**. Existing interval selections are respected. WorkManager schedules checks when the phone has a network connection. Doze, battery restrictions, and connectivity can delay them. Push delivery on a configured primary build operates independently of this interval.
 
 ### Synchronization start date
 
@@ -117,9 +84,4 @@ This option deletes the entire database.
 
 ## Reporting bugs
 
-If you believe you've found a bug, feel free to file a report at the project's [GitHub repository](https://github.com/michaelkourlas/voipms-sms-client/issues).
-
-## Contacting the developer
-
-If you have any questions, feel free to contact me
-at [voipmssms@kourlas.com](mailto:voipmssms@kourlas.com).
+Use the [fork’s issue tracker](https://github.com/tailscale-signin/voipms-sms-client/issues). For delivery issues, include the app version, build flavor, Android version, Live delivery status, and whether the missing message appears in the VoIP.ms Message Center. Omit numbers, credentials, and message content.

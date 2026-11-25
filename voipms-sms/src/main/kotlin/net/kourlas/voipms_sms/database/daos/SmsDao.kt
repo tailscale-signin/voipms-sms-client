@@ -140,11 +140,6 @@ interface SmsDao {
     @Query("SELECT DISTINCT ${Sms.COLUMN_DID} FROM ${Sms.TABLE_NAME}")
     suspend fun getDids(): List<String>
 
-    @Query(
-        "SELECT * FROM ${Sms.TABLE_NAME} WHERE ${Sms.COLUMN_DID} IN(:dids) ORDER BY ${Sms.COLUMN_DELIVERY_IN_PROGRESS} DESC, ${Sms.COLUMN_DATE} DESC, ${Sms.COLUMN_VOIP_ID} DESC, ${Sms.COLUMN_DATABASE_ID} DESC LIMIT 1"
-    )
-    suspend fun getMostRecent(dids: Set<String>): Sms?
-
     @Insert
     suspend fun insert(sms: Sms): Long
 
@@ -164,7 +159,7 @@ interface SmsDao {
     suspend fun markMessageDeliveryInProgress(id: Long)
 
     @Query(
-        "UPDATE ${Sms.TABLE_NAME} SET ${Sms.COLUMN_DELIVERED} = 0, ${Sms.COLUMN_DELIVERY_IN_PROGRESS} = 0 WHERE ${Sms.COLUMN_DATABASE_ID} = :id"
+        "UPDATE ${Sms.TABLE_NAME} SET ${Sms.COLUMN_DELIVERED} = 0, ${Sms.COLUMN_DELIVERY_IN_PROGRESS} = 0 WHERE ${Sms.COLUMN_DATABASE_ID} = :id AND ${Sms.COLUMN_DELIVERY_IN_PROGRESS} = 1"
     )
     suspend fun markMessageNotSent(id: Long)
 

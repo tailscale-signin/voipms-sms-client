@@ -40,10 +40,11 @@ import net.kourlas.voipms_sms.preferences.accountConfigured
 import net.kourlas.voipms_sms.preferences.activities.AccountPreferencesActivity
 import net.kourlas.voipms_sms.preferences.didsConfigured
 import net.kourlas.voipms_sms.preferences.firstRun
-import net.kourlas.voipms_sms.preferences.setEmail
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import net.kourlas.voipms_sms.preferences.saveAccountCredentials
 import net.kourlas.voipms_sms.preferences.setFirstRun
 import net.kourlas.voipms_sms.preferences.setFirstSyncAfterSignIn
-import net.kourlas.voipms_sms.preferences.setPassword
 import net.kourlas.voipms_sms.sms.workers.RetrieveDidsWorker
 import net.kourlas.voipms_sms.sms.workers.VerifyCredentialsWorker
 import net.kourlas.voipms_sms.utils.registerNonExportedReceiver
@@ -102,22 +103,20 @@ class SignInActivity : AppCompatActivity() {
                         val password = findViewById<TextInputEditText>(
                             R.id.password
                         )
-                        setEmail(
-                            applicationContext,
-                            username.text?.toString() ?: ""
-                        )
-                        setPassword(
-                            applicationContext,
-                            password.text?.toString() ?: ""
-                        )
-
-                        if (!didsConfigured(applicationContext)) {
-                            setFirstSyncAfterSignIn(this@SignInActivity, true)
+                        val email = username.text?.toString().orEmpty()
+                        val secret = password.text?.toString().orEmpty()
+                        lifecycleScope.launch {
+                            if (!saveAccountCredentials(applicationContext, email, secret)) {
+                                toggleControls(enabled = true)
+                                showSnackbar(this@SignInActivity, R.id.coordinator_layout,
+                                    getString(R.string.credentials_storage_unavailable))
+                                return@launch
+                            }
+                            if (!didsConfigured(applicationContext)) {
+                                setFirstSyncAfterSignIn(this@SignInActivity, true)
+                            }
+                            RetrieveDidsWorker.retrieveDids(this@SignInActivity, autoAdd = true)
                         }
-
-                        RetrieveDidsWorker.retrieveDids(
-                            this@SignInActivity, autoAdd = true
-                        )
                     }
                 }
             }
@@ -125,6 +124,7 @@ class SignInActivity : AppCompatActivity() {
     private val didRetrievalCompleteReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (!RetrieveDidsWorker.isCurrentResult(this@SignInActivity, intent)) return
                 // Regardless of whether this succeeded, we've successfully
                 // signed in, so we exit this activity
                 toggleControls(enabled = true)

@@ -55,6 +55,7 @@ class DidsPreferencesActivity : AppCompatActivity() {
         object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 // Show error if one occurred
+                if (!RetrieveDidsWorker.isCurrentResult(this@DidsPreferencesActivity, intent)) return
                 val retrievedDids = intent?.getStringArrayListExtra(
                     getString(
                         R.string.retrieve_dids_complete_dids

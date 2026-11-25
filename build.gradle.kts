@@ -1,6 +1,11 @@
 buildscript {
     repositories {
-        maven(url = "https://jitpack.io")
+        google()
+        mavenCentral()
+        exclusiveContent {
+            forRepository { maven(url = "https://jitpack.io") }
+            filter { includeModule("com.github.michaelkourlas", "oss-licenses-plugin") }
+        }
     }
     dependencies {
         classpath("com.github.michaelkourlas:oss-licenses-plugin:0.0.5")
