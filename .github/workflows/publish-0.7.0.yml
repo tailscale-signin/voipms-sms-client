@@ -1,0 +1,86 @@
+name: Publish VoIPms SMS 0.7.0
+on:
+  push:
+    branches: [release/publish-0.7.0]
+permissions: {}
+concurrency:
+  group: publish-voipms-sms-0.7.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'tailscale-signin/voipms-sms-client'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: v0.7.0
+      REV: 0fcb1978bee2f17ea352c6778709b26638dd2f1d
+      SHA256: 45378b934dca927588a2b459cbe91fbdf42f099997981fb8af6b26d2c111320b
+      CERT: 023103fb5ca64728235d8786f2404f47050f2fb3fe7e8b1aab50e924d07bf43a
+      APK: VoIPms-SMS-0.7.0-release.apk
+    steps:
+      - name: Verify and publish the signed Android release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          api="repos/$GH_REPO"
+          check_refs() {
+            [[ "$(gh api "$api/git/ref/heads/master" --jq .object.sha)" == "$REV" ]]
+            object=$(gh api "$api/git/matching-refs/tags/$TAG" --jq '.[] | select(.ref == "refs/tags/v0.7.0") | .object')
+            if [[ -n "$object" ]]; then
+              while [[ "$(jq -r .type <<<"$object")" == tag ]]; do
+                object=$(gh api "$api/git/tags/$(jq -r .sha <<<"$object")" --jq .object)
+              done
+              [[ "$(jq -r .type <<<"$object")" == commit && "$(jq -r .sha <<<"$object")" == "$REV" ]]
+            fi
+          }
+          lookup() { gh api --paginate "$api/releases?per_page=100" --jq '.[] | select(.tag_name == "v0.7.0")'; }
+          check_refs
+          gh api "$api/contents/release-staging/apk-blobs.txt?ref=$GITHUB_SHA" --jq .content | base64 --decode > blobs.txt
+          mapfile -t parts < blobs.txt
+          [[ "${#parts[@]}" == 18 ]]
+          : > "$APK"
+          for part in "${parts[@]}"; do
+            [[ "$part" =~ ^[0-9a-f]{40}$ ]]
+            gh api "$api/git/blobs/$part" --jq .content | base64 --decode >> "$APK"
+          done
+          printf '%s  %s\n' "$SHA256" "$APK" | sha256sum --check
+          unzip -p "$APK" META-INF/version-control-info.textproto | grep -Fx "  revision: \"$REV\""
+          tools="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"
+          if [[ -d "$tools" ]]; then
+            signer=$(find "$tools" -name apksigner -type f | sort -V | tail -n1)
+            if [[ -n "$signer" ]]; then
+              "$signer" verify --verbose --print-certs "$APK" > signer.txt
+              grep -Fx "Signer #1 certificate SHA-256 digest: $CERT" signer.txt
+            fi
+          fi
+          release=$(lookup)
+          if [[ -z "$release" ]]; then
+            cat > release-notes.md <<'NOTES'
+          Signed Android APK, version 0.7.0 (build 155), from merged PR #1.
+          The inbox and open conversations check for SMS every 30 seconds. Scheduled background checks default to 15 minutes and Android may delay them. Instant background delivery requires a configured Firebase build and a matching VoIP.ms callback relay.
+          NOTES
+            gh release create "$TAG" --target "$REV" --draft --title 'VoIPms SMS 0.7.0' --notes-file release-notes.md
+            release=$(lookup)
+          fi
+          id=$(jq -er .id <<<"$release")
+          existing_digest() {
+            gh api "$api/releases/$id/assets" --paginate --jq '.[] | select(.name == "VoIPms-SMS-0.7.0-release.apk") | (.digest // "missing")'
+          }
+          digest=$(existing_digest)
+          if [[ "$(jq -r .draft <<<"$release")" == false ]]; then
+            [[ -n "$object" && "$digest" == "sha256:$SHA256" ]]
+          else
+            [[ "$(jq -r .target_commitish <<<"$release")" == "$REV" ]]
+            if [[ -z "$digest" ]]; then gh release upload "$TAG" "$APK"; fi
+            [[ "$(existing_digest)" == "sha256:$SHA256" ]]
+            check_refs
+            gh release edit "$TAG" --draft=false
+            check_refs
+            [[ -n "$object" ]]
+          fi
+          gh release view "$TAG" --json url --jq .url
