@@ -42,6 +42,8 @@ internal enum class LookupAccount(val brand: String, vararg val fields: AccountF
 
 // Only users' own provider credentials. Deliberately no data-class toString or persistence.
 internal class LookupCredentials(private val values: Map<AccountField, String>) {
+    // A result can keep this scope without retaining a one-use API key.
+    val cacheScope = Any()
     operator fun get(field: AccountField): String = values.getValue(field)
 }
 
@@ -117,7 +119,7 @@ internal class CallerIdEngine(
     private val now: () -> Long = System::currentTimeMillis,
     private val query: suspend (CallerSource, String, LookupCredentials?, Locale) -> List<CallerFact> = ::lookupCaller
 ) {
-    private data class Key(val number: String, val source: CallerSource, val locale: Locale)
+    private data class Key(val number: String, val source: CallerSource, val locale: Locale, val credentialScope: Any?)
     private val cache = object : LinkedHashMap<Key, SourceResult>(128, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, SourceResult>) = size > 256
     }
@@ -141,9 +143,9 @@ internal class CallerIdEngine(
         eligible.map { source ->
             async {
                 val result = withContext(Dispatchers.IO) {
-                    val key = Key(number, source, locale)
                     val account = source.account
                     val secret = credentials[account]
+                    val key = Key(number, source, locale, secret?.cacheScope)
                     if (account != null && secret == null) {
                         return@withContext SourceResult(source, emptyList(), LookupStatus.ACCESS, now())
                     }

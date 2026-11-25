@@ -168,6 +168,18 @@ class CallerSourcesTest {
         Unit
     }
 
+    @Test fun replacingAProviderCredentialCannotReuseThePreviousAccountsResult() = runBlocking {
+        val calls = AtomicInteger()
+        val engine = CallerIdEngine { _, _, _, _ ->
+            listOf(CallerFact(FactKind.NAME, "Listing " + calls.incrementAndGet()))
+        }
+        suspend fun lookup(key: LookupCredentials) = engine.search(us, listOf(CallerSource.TRESTLE),
+            mapOf(LookupAccount.TRESTLE to key), Locale.US).single().facts.single().value
+        assertEquals("Listing 1", lookup(credentials))
+        assertEquals("Listing 1", lookup(credentials))
+        assertEquals("Listing 2", lookup(LookupCredentials(mapOf(AccountField.KEY to "replacement"))))
+    }
+
     @Test fun conflictingNamesAreNeverPromotedToTheInboxAndCarriersDoNotVoteOnIdentity() {
         fun row(s: CallerSource, k: FactKind, value: String) =
             SourceResult(s, listOf(CallerFact(k,value)), LookupStatus.FOUND, 1)

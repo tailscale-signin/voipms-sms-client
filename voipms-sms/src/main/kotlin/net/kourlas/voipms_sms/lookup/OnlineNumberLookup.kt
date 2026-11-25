@@ -236,7 +236,8 @@ internal object OnlineNumberLookup {
         lateinit var card: AlertDialog
         val job = activity.lifecycleScope.launch(start = CoroutineStart.LAZY) {
             engine.search(number, sources, credentials, Locale.getDefault(), onResult = result@{ result ->
-                if (state !== active || state.engine !== engine || !eligible(activity, number, state)) {
+                if (state !== active || state.engine !== engine || activity.isDestroyed || activity.isFinishing ||
+                    state.generation != currentDirectoryAccountGeneration(activity)) {
                     card.dismiss()
                     return@result
                 }
