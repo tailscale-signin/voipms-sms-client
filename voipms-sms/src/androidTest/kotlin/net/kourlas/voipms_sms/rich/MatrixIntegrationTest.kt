@@ -4,10 +4,11 @@ import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -74,48 +75,54 @@ class MatrixIntegrationTest {
                     verifyPhoneLink(context, requireNotNull(MatrixChat.identity(context)), room, bobId)
                     requireNotNull(bob.getRoom(room)).use { remote ->
                         remote.timeline().use { timeline ->
-                            val message = "Only the two SDK clients can read this text."
-                            val inbound = async(start = CoroutineStart.UNDISPATCHED) {
-                                roomUpdates(remote, timeline).first { it.events.any { e -> e.body == message } }.events.first { it.body == message }
+                            val snapshots = MutableStateFlow(RichTimeline(emptyList(), emptyList()))
+                            val peerWatch = launch {
+                                roomUpdates(remote, timeline).collect { snapshots.value = it }
                             }
-                            MatrixChat.send(context, room, message, bobId)
-                            val received = inbound.await()
-                            assertEquals(aliceId, received.sender)
-                            Log.i("MatrixCI", "Peer decrypted the first text")
-                            val wire = rawEvent(url, room, received.id, bob.session().accessToken)
-                            assertEquals("m.room.encrypted", wire.getString("type"))
-                            assertFalse(wire.toString().contains(message))
-                            val typing = async(start = CoroutineStart.UNDISPATCHED) {
-                                roomUpdates(remote, timeline).first { aliceId in it.typing }
-                            }
-                            MatrixChat.typing(context, room, true, bobId)
-                            typing.await()
-                            MatrixChat.typing(context, room, false, bobId)
-                            Log.i("MatrixCI", "Peer received typing notice")
-                            remote.markAsRead(ReceiptType.READ)
-                            MatrixChat.observe(context, room, bobId).first { state ->
-                                state.events.any { it.body == message && it.status == "Read" }
-                            }
-                            Log.i("MatrixCI", "Sender saw read receipt")
-                            messageEventContentFromMarkdown("Peer reply").use { timeline.send(it).close() }
-                            MatrixChat.observe(context, room, bobId).first { state ->
-                                state.events.any { !it.mine && it.body == "Peer reply" }
-                            }
-                            Log.i("MatrixCI", "Sender received peer reply")
-                            val bytes = "Private attachment contents".toByteArray()
-                            val file = File(context.cacheDir, "mms_preview/matrix-check.txt")
-                            file.parentFile!!.mkdirs()
-                            file.writeBytes(bytes)
-                            val uri = FileProvider.getUriForFile(context, context.packageName + ".message_media", file)
-                            val attachment = async(start = CoroutineStart.UNDISPATCHED) {
-                                roomUpdates(remote, timeline).first { state -> state.events.any { it.mime != null } }.events.first { it.mime != null }
-                            }
-                            MatrixChat.attach(context, room, uri, bobId)
-                            val event = attachment.await()
-                            assertEquals("m.room.encrypted", rawEvent(url, room, event.id, bob.session().accessToken).getString("type"))
-                            Log.i("MatrixCI", "Peer received encrypted attachment")
-                            val opened = MatrixChat.media(context, room, event.id, bobId)
-                            assertArrayEquals(bytes, context.contentResolver.openInputStream(opened)!!.use { it.readBytes() })
+                            try {
+                                val message = "Only the two SDK clients can read this text."
+                                MatrixChat.send(context, room, message, bobId)
+                                val received = withTimeout(35_000) {
+                                    snapshots.first { state -> state.events.any { it.body == message } }.events.first { it.body == message }
+                                }
+                                assertEquals(aliceId, received.sender)
+                                Log.i("MatrixCI", "Peer decrypted the first text")
+                                val wire = rawEvent(url, room, received.id, bob.session().accessToken)
+                                assertEquals("m.room.encrypted", wire.getString("type"))
+                                assertFalse(wire.toString().contains(message))
+                                Log.i("MatrixCI", "Homeserver stored ciphertext; waiting for typing")
+                                MatrixChat.typing(context, room, true, bobId)
+                                withTimeout(20_000) { snapshots.first { aliceId in it.typing } }
+                                MatrixChat.typing(context, room, false, bobId)
+                                Log.i("MatrixCI", "Peer received typing notice")
+                                remote.markAsRead(ReceiptType.READ)
+                                withTimeout(25_000) {
+                                    MatrixChat.observe(context, room, bobId).first { state ->
+                                        state.events.any { it.body == message && it.status == "Read" }
+                                    }
+                                }
+                                Log.i("MatrixCI", "Sender saw read receipt")
+                                messageEventContentFromMarkdown("Peer reply").use { timeline.send(it).close() }
+                                withTimeout(25_000) {
+                                    MatrixChat.observe(context, room, bobId).first { state ->
+                                        state.events.any { !it.mine && it.body == "Peer reply" }
+                                    }
+                                }
+                                Log.i("MatrixCI", "Sender received peer reply")
+                                val bytes = "Private attachment contents".toByteArray()
+                                val file = File(context.cacheDir, "mms_preview/matrix-check.txt")
+                                file.parentFile!!.mkdirs()
+                                file.writeBytes(bytes)
+                                val uri = FileProvider.getUriForFile(context, context.packageName + ".message_media", file)
+                                MatrixChat.attach(context, room, uri, bobId)
+                                val event = withTimeout(35_000) {
+                                    snapshots.first { state -> state.events.any { it.mime != null } }.events.first { it.mime != null }
+                                }
+                                assertEquals("m.room.encrypted", rawEvent(url, room, event.id, bob.session().accessToken).getString("type"))
+                                Log.i("MatrixCI", "Peer received encrypted attachment")
+                                val opened = MatrixChat.media(context, room, event.id, bobId)
+                                assertArrayEquals(bytes, context.contentResolver.openInputStream(opened)!!.use { it.readBytes() })
+                            } finally { peerWatch.cancelAndJoin() }
                         }
                     }
                     Log.i("MatrixCI", "Downloaded attachment matched its source")

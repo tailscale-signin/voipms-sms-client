@@ -73,8 +73,16 @@ elif [[ "$mode" == test ]]; then
   # SMS smoke intentionally takes the emulator offline. adb reverse only exposes our own local test service.
   # NetworkSecurityConfig in the debug app accepts user CAs exclusively on localhost. Restore
   # the KeyChain directory ownership and SELinux labels before the app starts reading trust.
-  adb root
-  adb wait-for-device
+  # adbd closes its transport while switching UID. Its restart can be reported as a client
+  # error even when it succeeded, so verify the UID on the new connection before proceeding.
+  for attempt in 1 2 3; do
+    timeout 15 adb wait-for-device || continue
+    if [[ "$(adb shell id -u | tr -d '\r')" == 0 ]]; then break; fi
+    adb root || true
+    sleep 2
+  done
+  timeout 20 adb wait-for-device
+  [[ "$(adb shell id -u | tr -d '\r')" == 0 ]] || { echo 'Emulator adbd did not restart as root' >&2; exit 1; }
   user_certs=/data/misc/user/0/cacerts-added
   cert_name=$(openssl x509 -in "$dir/ca.pem" -noout -subject_hash_old).0
   adb shell mkdir -p "$user_certs"
