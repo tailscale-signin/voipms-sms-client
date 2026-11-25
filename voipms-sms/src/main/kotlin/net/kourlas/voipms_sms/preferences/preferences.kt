@@ -530,6 +530,13 @@ internal fun reconcileAccountSelection(context: Context, generation: Long) {
     if (!saved) throw IOException("Could not reset the previous account's number selection")
 }
 
+/** Local history stays usable offline. A delayed write cannot cross an account switch. */
+internal suspend fun withDirectoryAccountGeneration(context: Context, generation: Long, action: suspend () -> Unit) {
+    accountChanges.withLock {
+        if (currentDirectoryAccountGeneration(context) == generation) action()
+    }
+}
+
 /** Keep credential changes mutually exclusive with applying a completed network response. */
 internal suspend fun <T> withCurrentAccount(context: Context, generation: Long, action: suspend (AccountCredentials) -> T): T? =
     accountChanges.withLock {

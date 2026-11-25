@@ -252,5 +252,5 @@ fun getMaterialDesignColour(phoneNumber: String): Int {
         rgb(0x3e, 0x27, 0x23), rgb(0x21, 0x21, 0x21),
         rgb(0x26, 0x32, 0x38)
     )
-    return colours[abs(phoneNumber.hashCode()) % colours.size]
+    return colours[abs(phoneNumber.hashCode() % colours.size)]
 }

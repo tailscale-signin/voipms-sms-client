@@ -31,21 +31,27 @@ import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.text.util.Linkify
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Filter
-import android.widget.Filterable
 import android.widget.QuickContactBadge
 import android.widget.TextView
+import com.google.android.material.snackbar.Snackbar
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import net.kourlas.voipms_sms.delivery.CallFeedItem
 import net.kourlas.voipms_sms.delivery.CallPlayback
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import kotlinx.coroutines.runBlocking
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import me.saket.bettermovementmethod.BetterLinkMovementMethod
 import net.kourlas.voipms_sms.rich.ui.ChatRoute
 import net.kourlas.voipms_sms.rich.ui.ChatHolder
@@ -64,9 +70,6 @@ import net.kourlas.voipms_sms.utils.getConversationViewTopDate
 import net.kourlas.voipms_sms.utils.getScrollBarDate
 import net.kourlas.voipms_sms.utils.showSnackbar
 import java.util.Locale
-import kotlin.math.max
-
-private const val TAG = "ConversationAdapter"
 
 /**
  * Recycler view adapter used by [ConversationActivity].
@@ -84,9 +87,15 @@ class ConversationRecyclerViewAdapter(
     private val conversationId: ConversationId
 ) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>(),
-    Filterable,
     Iterable<ConversationRecyclerViewAdapter.MessageItem>,
     FastScroller.SectionTitleProvider {
+
+    init {
+        // Optional call/chat feeds may arrive before the saved SMS viewport can be restored.
+        stateRestorationPolicy = StateRestorationPolicy.PREVENT
+    }
+
+    private var retrySnackbar: Snackbar? = null
 
     // List of items shown by the adapter; the index of each item
     // corresponds to the location of each item in the adapter.
@@ -134,7 +143,7 @@ class ConversationRecyclerViewAdapter(
 
     private fun renderTimeline(filterChanged: Boolean = false) {
         val previous = timeline
-        val atBottom = previous.isEmpty() || !recyclerView.canScrollVertically(1)
+        val atBottom = previous.isNotEmpty() && !recyclerView.canScrollVertically(1)
         val bounds = messageItems.map { it.message.date.time }
         val oldest = if (showAnchor || currLimit < maxLimit) bounds.minOrNull() ?: Long.MIN_VALUE else Long.MIN_VALUE
         val newest = if (showAnchor) bounds.maxOrNull() ?: Long.MAX_VALUE else Long.MAX_VALUE
@@ -172,7 +181,6 @@ class ConversationRecyclerViewAdapter(
     private var showAnchor = anchorId > 0
     private var positionedAnchor = false
     private var currConstraint: String = ""
-    private var prevConstraint: String = ""
 
     // The total number of items that can be retrieved and which have been
     // retrieved.
@@ -360,10 +368,7 @@ class ConversationRecyclerViewAdapter(
             // Highlight text that matches filter
             messageTextBuilder.append(message.text)
             if (currConstraint != "") {
-                val index =
-                    message.text.lowercase(Locale.getDefault()).indexOf(
-                        currConstraint.lowercase(Locale.getDefault())
-                    )
+                val index = message.text.indexOf(currConstraint, ignoreCase = true)
                 if (index != -1) {
                     messageTextBuilder.setSpan(
                         BackgroundColorSpan(
@@ -536,142 +541,117 @@ class ConversationRecyclerViewAdapter(
     override fun iterator(): Iterator<MessageItem> = messageItems.iterator()
 
     override fun getSectionTitle(position: Int): String =
-        getScrollBarDate(java.util.Date(timeline[position].timestamp))
+        timeline.getOrNull(position)?.let { getScrollBarDate(java.util.Date(it.timestamp)) }.orEmpty()
 
-    override fun getFilter(): Filter = messageFilter
+    private var requestedConstraint = ""
+    private var loadJob: Job? = null
+    private var revision = 0L
 
-    private val messageFilter = object : Filter() {
-        /**
-         * Perform filtering using the specified filter constraint.
-         */
-        fun doFiltering(constraint: CharSequence): ConversationFilter {
-            // Get filtered messages
-            val resultsObject = ConversationFilter()
-            if (!BuildConfig.IS_DEMO) {
-                runBlocking {
-                    val filterString = constraint.toString()
-                        .trim()
-                        .lowercase(Locale.getDefault())
-                    if (showAnchor && filterString.isEmpty()) {
-                        resultsObject.messages.addAll(Database.getInstance(activity).messagesAtAnchor(conversationId, anchorId))
-                        if (resultsObject.messages.isNotEmpty()) return@runBlocking
-                        showAnchor = false
-                    }
-                    maxLimit = Database.getInstance(activity)
-                        .getConversationMessagesFilteredCount(
-                            conversationId, filterString
-                        )
-                    if (currLimit > maxLimit) {
-                        currLimit = max(maxLimit, ADDITIONAL_ITEMS_INCREMENT)
-                    }
-                    resultsObject.messages.addAll(
-                        Database.getInstance(activity)
-                            .getConversationMessagesFiltered(
-                                conversationId,
-                                filterString,
-                                currLimit
-                            ).asReversed()
-                    )
-                }
-            } else {
-                resultsObject.messages.addAll(
-                    getConversationDemoMessages(
-                        activity.bubble
-                    )
-                )
-            }
-            return resultsObject
+    private data class Page(val messages: List<Message>, val total: Long, val anchored: Boolean = false)
+
+    private suspend fun loadPage(query: String, limit: Long, anchor: Boolean): Page {
+        if (BuildConfig.IS_DEMO) {
+            val demo = getConversationDemoMessages(activity.bubble)
+            return Page(demo, demo.size.toLong())
         }
-
-        override fun performFiltering(
-            constraint: CharSequence
-        ): FilterResults = try {
-            val resultsObject = doFiltering(constraint)
-
-            // Return filtered messages
-            val results = FilterResults()
-            results.count = resultsObject.messages.size
-            results.values = resultsObject
-            results
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to filter messages", e)
-            FilterResults()
+        val db = Database.getInstance(activity.applicationContext)
+        if (anchor && query.isEmpty()) {
+            val messages = db.messagesAtAnchor(conversationId, anchorId)
+            if (messages.isNotEmpty()) return Page(messages, messages.size.toLong(), anchored = true)
         }
-
-        override fun publishResults(
-            constraint: CharSequence,
-            results: FilterResults?
-        ) {
-            if (constraint.toString() != requestedConstraint) return
-            if (results?.values == null) {
-                showSnackbar(
-                    activity, R.id.coordinator_layout,
-                    activity.getString(
-                        R.string.new_conversation_error_refresh
-                    )
-                )
-                return
-            }
-
-            // Process new filter string
-            prevConstraint = currConstraint
-            currConstraint = constraint.toString().trim()
-
-            // The Android results interface uses type Any, so we have
-            // no choice but to use an unchecked cast
-            val resultsObject = results.values as ConversationFilter
-            val newMessages = resultsObject.messages
-
-            val checked = messageItems.filter { it.checked }.map { it.message.databaseId }.toSet()
-            _messageItems.clear()
-            newMessages.mapTo(_messageItems) { MessageItem(it, it.databaseId in checked) }
-            renderTimeline(prevConstraint != currConstraint)
-
-            if (showAnchor && !positionedAnchor) {
-                val at = timeline.indexOfFirst { it is TextRow && it.item.message.databaseId == anchorId }
-                if (at >= 0) {
-                    layoutManager.scrollToPositionWithOffset(at, recyclerView.height / 3)
-                    positionedAnchor = true
-                }
-            }
-            loadingMoreItems = false
-        }
+        val total = db.getConversationMessagesFilteredCount(conversationId, query)
+        return Page(db.getConversationMessagesFiltered(conversationId, query, limit).asReversed(), total)
     }
 
-    /**
-     * Refreshes the adapter using the currently defined filter constraint.
-     */
-    private var requestedConstraint = ""
+    fun refresh() = load(paging = false)
 
-    fun refresh() = filter.filter(requestedConstraint)
-
-    /**
-     * Refreshes the adapter using the specified filter constraint.
-     */
     fun refresh(constraint: String) {
+        val changed = requestedConstraint != constraint.trim()
+        requestedConstraint = constraint.trim()
         showAnchor = false
-        requestedConstraint = constraint
+        if (changed) {
+            currLimit = ADDITIONAL_ITEMS_INCREMENT
+            visibleEventLimit = ADDITIONAL_ITEMS_INCREMENT.toInt()
+        }
         refresh()
     }
 
-    /**
-     * Loads additional items from the database.
-     */
+    private fun load(paging: Boolean) {
+        val request = ++revision
+        loadJob?.cancel()
+        retrySnackbar?.dismiss()
+        retrySnackbar = null
+        loadingMoreItems = true
+        val query = requestedConstraint
+        val limit = currLimit
+        val anchor = showAnchor
+        val trace = DebugJournal.begin(activity, DiagnosticAction.THREAD_LOAD)
+        loadJob = activity.lifecycleScope.launch {
+            try {
+                trace.step(if (paging) DiagnosticStep.PAGING else DiagnosticStep.LOADING)
+                val page = withContext(Dispatchers.IO) {
+                    trace.step(DiagnosticStep.QUERYING)
+                    loadPage(query.lowercase(Locale.getDefault()), limit, anchor)
+                }
+                if (request != revision || recyclerView.adapter !== this@ConversationRecyclerViewAdapter || activity.isFinishing) {
+                    trace.step(DiagnosticStep.SUPERSEDED)
+                    return@launch
+                }
+                trace.step(DiagnosticStep.RENDERING, page.messages.size.toLong())
+                val checked = messageItems.filter { it.checked }.map { it.message.databaseId }.toSet()
+                val changed = query != currConstraint
+                currConstraint = query
+                maxLimit = page.total
+                currLimit = limit.coerceAtMost(maxLimit).coerceAtLeast(ADDITIONAL_ITEMS_INCREMENT)
+                showAnchor = page.anchored
+                _messageItems.clear()
+                page.messages.mapTo(_messageItems) { MessageItem(it, it.databaseId in checked) }
+                renderTimeline(changed)
+                stateRestorationPolicy = StateRestorationPolicy.ALLOW
+                if (showAnchor && !positionedAnchor) {
+                    val at = timeline.indexOfFirst { it is TextRow && it.item.message.databaseId == anchorId }
+                    if (at >= 0) {
+                        layoutManager.scrollToPositionWithOffset(at, recyclerView.height / 3)
+                        positionedAnchor = true
+                    }
+                }
+                trace.step(if (timeline.isEmpty()) DiagnosticStep.EMPTY else DiagnosticStep.COMPLETED, timeline.size.toLong())
+            } catch (e: CancellationException) {
+                trace.step(if (request == revision) DiagnosticStep.CANCELLED else DiagnosticStep.SUPERSEDED)
+                throw e
+            } catch (e: Exception) {
+                trace.step(DiagnosticStep.FAILED, error = e)
+                if (request == revision && recyclerView.adapter === this@ConversationRecyclerViewAdapter && !activity.isFinishing) {
+                    if (timeline.isEmpty()) activity.findViewById<TextView>(R.id.empty_text).setText(R.string.thread_loading_failed)
+                    retrySnackbar = showSnackbar(activity, R.id.coordinator_layout, activity.getString(R.string.thread_loading_failed),
+                        activity.getString(R.string.inbox_load_retry), View.OnClickListener {
+                            if (recyclerView.adapter === this@ConversationRecyclerViewAdapter) {
+                                trace.step(DiagnosticStep.RETRY)
+                                refresh()
+                            }
+                        }, if (timeline.isEmpty()) Snackbar.LENGTH_INDEFINITE else Snackbar.LENGTH_LONG)
+                }
+            } finally {
+                if (request == revision) loadingMoreItems = false
+            }
+        }
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        loadJob?.cancel()
+        retrySnackbar?.dismiss()
+        retrySnackbar = null
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
     fun loadMoreItems() {
         val remainingEvents = visibleEventLimit < calls.size || visibleEventLimit < chat.values.sumOf { it.size }
         if (!loadingMoreItems && (currLimit < maxLimit || remainingEvents)) {
             visibleEventLimit += ADDITIONAL_ITEMS_INCREMENT.toInt()
-            loadingMoreItems = true
-            currLimit = minOf(maxLimit, currLimit + ADDITIONAL_ITEMS_INCREMENT)
-            refresh()
+            // A call-only thread may acquire its first SMS while paging.
+            currLimit = minOf(maxLimit, currLimit + ADDITIONAL_ITEMS_INCREMENT).coerceAtLeast(ADDITIONAL_ITEMS_INCREMENT)
+            load(paging = true)
         }
-    }
-
-    /**
-     * Helper class used to store messages.
-     */
-    class ConversationFilter {
-        internal val messages = mutableListOf<Message>()
     }
 
     /**

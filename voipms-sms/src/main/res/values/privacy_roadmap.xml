@@ -41,6 +41,9 @@
     <string name="backup_mismatch">Use a matching passphrase with at least 10 characters.</string>
     <string name="backup_saved">Encrypted backup saved.</string>
     <string name="backup_working">Processing backup…</string>
+    <string name="backup_readback_unavailable">The storage provider accepted the file but could not reopen it for verification.</string>
+    <string name="backup_provider_incomplete">The saved backup differs from the data written. Export again to another location.</string>
+    <string name="backup_provider_unavailable">The storage provider could not open the backup with the requested access. Choose another location.</string>
     <string name="backup_error">Could not process the backup. Check the passphrase, file and available storage.</string>
     <plurals name="backup_restored">
         <item quantity="one">Restored %1$d new message.</item>

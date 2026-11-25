@@ -1,0 +1,5 @@
+<resources>
+    <string name="inbox_load_loading">Loading conversations…</string>
+    <string name="inbox_load_error">Couldn’t load your conversations.</string>
+    <string name="inbox_load_retry">Retry</string>
+</resources>

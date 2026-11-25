@@ -79,7 +79,7 @@ class SyncWorker(context: Context, params: WorkerParameters) :
             }
         )
         net.kourlas.voipms_sms.delivery.CallFeedSync.refresh(applicationContext)
-        sync.run()
+        sync.run(retryOnTransient = runAttemptCount < MAX_RETRIES)
         return when {
             sync.transientFailure && runAttemptCount < MAX_RETRIES -> Result.retry()
             sync.error == null -> Result.success()

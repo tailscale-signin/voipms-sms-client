@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="debug_diagnostics">Diagnostics</string>
+    <string name="debug_mode">Debug mode</string>
+    <string name="debug_mode_summary">Record recent activity on this device to diagnose message loading and file transfers. Turning this off clears the log.</string>
+    <string name="debug_export">Export debug log</string>
+    <string name="debug_export_summary">Save a timestamped JSON Lines file with operation timings and error locations.</string>
+    <string name="debug_clear">Clear debug log</string>
+    <string name="debug_clear_confirm">Erase the recorded activity on this device and start a fresh log?</string>
+    <string name="debug_export_success">Debug log saved and verified.</string>
+    <string name="debug_export_unverified">Debug log written. This destination does not permit verification.</string>
+    <string name="debug_export_failed">Could not save the debug log. Try another destination.</string>
+    <string name="debug_update_failed">Could not update the local debug log.</string>
+    <string name="debug_recording_ended">The recording changed while the file picker was open. Start a new export.</string>
+</resources>

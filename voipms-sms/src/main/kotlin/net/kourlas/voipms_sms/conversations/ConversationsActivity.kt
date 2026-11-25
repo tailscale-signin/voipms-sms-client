@@ -63,7 +63,12 @@ import it.xabaras.android.recyclerview.swipedecorator.RecyclerViewSwipeDecorator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
+import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.CustomApplication
 import net.kourlas.voipms_sms.R
@@ -120,6 +125,12 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private val remindersListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key != null && !key.startsWith("since_") && ::adapter.isInitialized) adapter.refresh()
     }
+    private val privacyListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        if (::adapter.isInitialized) {
+            actionMode?.finish()
+            adapter.invalidatePrivacy()
+        }
+    }
     private val messageBack = MessageBackCallback()
     private var actionMode: ActionMode?
         get() = messageBack.selection
@@ -134,6 +145,9 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private val homeFeed by lazy {
         net.kourlas.voipms_sms.delivery.HomeCallFeed(this, findViewById(R.id.call_home_container))
     }
+    private var visibleRefreshRegistered = false
+    private var screenResumed = false
+    private var accountCheck: Job? = null
     private var homeFeedVisible = false
     private var inboxSearchItem: MenuItem? = null
     private var countedVisibleList = false
@@ -146,13 +160,22 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private val vaultBack = object : androidx.activity.OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = closePrivateInbox()
     }
+    private data class UnlockScope(val account: Long, val activeLine: String, val visibleLines: Set<String>)
+    private var unlockScope: UnlockScope? = null
+    private fun currentUnlockScope() = readAccountCredentials(this)?.generation?.let {
+        UnlockScope(it, getActiveDid(this), getDids(this, onlyShowInConversationsView = true).toSet())
+    }
     private val unlockInbox = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == RESULT_OK && !isFinishing && !archived && isMessagesTab()) {
+        val requested = unlockScope
+        unlockScope = null
+        if (requested != null && requested == currentUnlockScope() && it.resultCode == RESULT_OK && !isFinishing && isMessagesTab()) {
+            DebugJournal.record(this, DiagnosticAction.NAVIGATION, DiagnosticStep.PRIVATE)
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
             privateInbox = true
             vaultBack.isEnabled = true
             supportActionBar?.subtitle = getString(R.string.private_threads)
             adapter.switchPrivateView(true)
+            clearInboxSearch()
             invalidateOptionsMenu()
         }
     }
@@ -164,7 +187,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
         val proof = getSystemService(android.app.KeyguardManager::class.java).createConfirmDeviceCredentialIntent(
             getString(R.string.private_threads), getString(R.string.private_pull_hint))
         if (proof == null) android.widget.Toast.makeText(this, R.string.private_no_credential, android.widget.Toast.LENGTH_LONG).show()
-        else unlockInbox.launch(proof)
+        else {
+            unlockScope = currentUnlockScope() ?: return
+            unlockInbox.launch(proof)
+        }
     }
 
     private fun closePrivateInbox() {
@@ -174,8 +200,15 @@ open class ConversationsActivity(val archived: Boolean = false) :
         actionMode?.finish()
         supportActionBar?.subtitle = null
         adapter.switchPrivateView(false)
+        clearInboxSearch()
         invalidateOptionsMenu()
         // Keep this Activity's recents snapshot protected until the Activity is recreated.
+    }
+
+    private fun clearInboxSearch() {
+        val item = inboxSearchItem ?: return
+        (item.actionView as? SearchView)?.setQuery("", false)
+        if (item.isActionViewExpanded) item.collapseActionView()
     }
 
     override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
@@ -242,6 +275,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
                         R.id.swipe_refresh_layout
                     )
                     swipeRefreshLayout.isRefreshing = false
+                    adapter.initialSync(false)
                 }
 
                 // Refresh adapter to show new messages
@@ -313,6 +347,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        if (privateInbox) clearInboxSearch()
         outState.putString("inbox_tab", selectedTab.name)
         super.onSaveInstanceState(outState)
     }
@@ -327,7 +362,9 @@ open class ConversationsActivity(val archived: Boolean = false) :
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        unlockScope = null
         if (!archived) tabForIntent(intent)?.let { tab ->
+            closePrivateInbox()
             findViewById<TabLayout>(R.id.inbox_tabs).getTabAt(tab.ordinal)?.select()
         }
     }
@@ -366,7 +403,13 @@ open class ConversationsActivity(val archived: Boolean = false) :
             override fun onTabSelected(tab: TabLayout.Tab) {
                 actionMode?.finish()
                 if (isMessagesTab()) closePrivateInbox()
-                selectedTab = InboxTab.entries[tab.position]
+                unlockScope = null
+                selectedTab = InboxTab.entries.getOrNull(tab.position) ?: return
+                DebugJournal.record(this@ConversationsActivity, DiagnosticAction.NAVIGATION, when (selectedTab) {
+                    InboxTab.HOME -> DiagnosticStep.HOME
+                    InboxTab.MESSAGES -> DiagnosticStep.MESSAGES
+                    InboxTab.OTHER -> DiagnosticStep.OTHER
+                })
                 if (selectedTab == InboxTab.HOME) inboxSearchItem?.takeIf { it.isActionViewExpanded }?.collapseActionView()
                 updateTabContent()
             }
@@ -377,16 +420,13 @@ open class ConversationsActivity(val archived: Boolean = false) :
     }
 
     private fun updateTabContent() {
-        if (archived) return
-        val home = selectedTab == InboxTab.HOME
+        val home = !archived && selectedTab == InboxTab.HOME
         findViewById<View>(R.id.call_home_container).visibility = if (home) View.VISIBLE else View.GONE
-        findViewById<View>(R.id.swipe_refresh_layout).visibility = if (home) View.GONE else View.VISIBLE
-        findViewById<View>(R.id.empty_text).visibility = if (home) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.inbox_content).visibility = if (home) View.GONE else View.VISIBLE
         updateComposeVisibility()
-        if (!home) adapter.showFolder(showOther)
-        val resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-        setHomeFeedVisible(home && resumed)
-        markMessageListVisible(!home && resumed)
+        if (!home && screenResumed) adapter.showFolder(showOther) else adapter.hide()
+        setHomeFeedVisible(home && screenResumed)
+        markMessageListVisible(!home && screenResumed)
     }
 
     private fun markMessageListVisible(visible: Boolean) {
@@ -495,29 +535,11 @@ open class ConversationsActivity(val archived: Boolean = false) :
                 viewHolder: RecyclerView.ViewHolder,
                 direction: Int
             ) {
-                if (viewHolder.bindingAdapterPosition == RecyclerView.NO_POSITION) {
-                    return
-                }
+                val message = adapter.displayedItem(viewHolder.itemView)?.message ?: return
                 when (direction) {
                     ItemTouchHelper.LEFT ->
-                        if (archived)
-                            unarchiveConversations(
-                                listOf(
-                                    adapter[viewHolder.bindingAdapterPosition].message
-                                )
-                            )
-                        else
-                            archiveConversations(
-                                listOf(
-                                    adapter[viewHolder.bindingAdapterPosition].message
-                                )
-                            )
-
-                    ItemTouchHelper.RIGHT -> deleteConversations(
-                        listOf(
-                            adapter[viewHolder.bindingAdapterPosition].message
-                        )
-                    )
+                        if (archived) unarchiveConversations(listOf(message)) else archiveConversations(listOf(message))
+                    ItemTouchHelper.RIGHT -> deleteConversations(listOf(message))
                 }
             }
         }
@@ -622,6 +644,11 @@ open class ConversationsActivity(val archived: Boolean = false) :
             drawerLayout.closeDrawer(GravityCompat.START)
             navViewMenuItemDidMap[menuItem]?.let {
                 val lineChanged = getActiveDid(applicationContext) != it
+                if (lineChanged) {
+                    actionMode?.finish()
+                    closePrivateInbox()
+                    unlockScope = null
+                }
                 setActiveDid(applicationContext, it)
                 if (lineChanged && homeFeedVisible) {
                     setHomeFeedVisible(false)
@@ -648,10 +675,8 @@ open class ConversationsActivity(val archived: Boolean = false) :
     override fun onResume() {
         super.onResume()
         net.kourlas.voipms_sms.tools.ThreadReminders.observe(this, remindersListener, true)
-        setHomeFeedVisible(!archived && selectedTab == InboxTab.HOME)
-
-        // An incoming SMS still needs a notification when only the call timeline is visible.
-        markMessageListVisible(archived || selectedTab != InboxTab.HOME)
+        net.kourlas.voipms_sms.privacy.PrivateThreads.observe(this, privacyListener, true)
+        screenResumed = true
 
         // Register dynamic receivers for this activity
         registerNonExportedReceiver(
@@ -673,11 +698,13 @@ open class ConversationsActivity(val archived: Boolean = false) :
         performAccountDidCheck()
         val firstSyncRequired = performInitialSetup()
 
-        // Refresh and perform limited synchronization
-        if (!firstSyncRequired) {
-            adapter.refresh()
+        // Validate the selected line before starting the local load. Full network sync can run independently.
+        updateNavigationView()
+        updateTabContent()
+        if (!visibleRefreshRegistered) {
+            (application as CustomApplication).startVisibleRefresh(immediate = !firstSyncRequired)
+            visibleRefreshRegistered = true
         }
-        (application as CustomApplication).startVisibleRefresh(immediate = !firstSyncRequired)
 
         // Refresh on resume just in case the contacts permission was newly
         // granted and we need to add the contact names and photos
@@ -690,23 +717,30 @@ open class ConversationsActivity(val archived: Boolean = false) :
             CustomApplication.getApplication().applicationScope.launch(
                 Dispatchers.Default
             ) {
-                Database.getInstance(applicationContext).updateShortcuts()
+                try {
+                    Database.getInstance(applicationContext).updateShortcuts()
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (error: Exception) {
+                    DebugJournal.record(applicationContext, DiagnosticAction.INBOX_SCREEN, DiagnosticStep.FAILED, error = error)
+                }
             }
         }
 
         // Delete any notification channels and groups that are no longer
         // needed and rename existing channels if necessary
         CustomApplication.getApplication().applicationScope.launch(Dispatchers.Default) {
-            Notifications.getInstance(applicationContext)
-                .createDefaultNotificationChannel()
-            Notifications.getInstance(applicationContext)
-                .deleteNotificationChannelsAndGroups()
-            Notifications.getInstance(applicationContext)
-                .renameNotificationChannels()
+            try {
+                val notifications = Notifications.getInstance(applicationContext)
+                notifications.createDefaultNotificationChannel()
+                notifications.deleteNotificationChannelsAndGroups()
+                notifications.renameNotificationChannels()
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                DebugJournal.record(applicationContext, DiagnosticAction.INBOX_SCREEN, DiagnosticStep.FAILED, error = error)
+            }
         }
-
-        // Update navigation view
-        updateNavigationView()
 
         // Turn off the refreshing indicator in the SwipeRefreshLayout in
         // case we missed a "sync complete" notification
@@ -715,6 +749,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
                 R.id.swipe_refresh_layout
             )
             swipeRefreshLayout.isRefreshing = false
+            adapter.initialSync(false)
         }
     }
 
@@ -725,21 +760,25 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private fun performAccountDidCheck() {
         // If there are no DIDs available and the user has not configured an
         // account, then force the user to configure an account
-        runBlocking {
-            if (!didsConfigured(applicationContext)
-                && Database.getInstance(applicationContext).getDids().isEmpty()
-                && !accountConfigured(applicationContext)
-                && firstRun(applicationContext)
-            ) {
-                startActivity(
-                    Intent(this@ConversationsActivity, SignInActivity::class.java)
+        accountCheck?.cancel()
+        fun needsSetup() = firstRun(this) && !didsConfigured(this) && !accountConfigured(this)
+        if (!needsSetup()) return
+        accountCheck = lifecycleScope.launch {
+            try {
+                val noStoredLines = withContext(Dispatchers.IO) { Database.getInstance(applicationContext).getDids().isEmpty() }
+                if (noStoredLines && screenResumed && !isFinishing && needsSetup()) {
+                    startActivity(Intent(this@ConversationsActivity, SignInActivity::class.java)
                         .putExtra(SignInActivity.EXTRA_FIRST_RUN, true)
-                        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                )
+                        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                DebugJournal.record(this@ConversationsActivity, DiagnosticAction.NAVIGATION, DiagnosticStep.FAILED, error = error)
+                showSnackbar(this@ConversationsActivity, R.id.coordinator_layout, getString(R.string.inbox_load_error),
+                    getString(R.string.inbox_load_retry), { performAccountDidCheck() })
             }
         }
-
-        updateComposeVisibility()
     }
 
     /**
@@ -756,10 +795,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
             swipeRefreshLayout.isRefreshing = true
             SyncWorker.performFullSynchronization(applicationContext)
 
-            val emptyTextView = findViewById<TextView>(
-                R.id.empty_text
-            )
-            emptyTextView.text = getString(R.string.conversations_first_sync)
+            adapter.initialSync(true)
 
             val format = SimpleDateFormat(
                 "MMM d, yyyy",
@@ -851,6 +887,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
 
     override fun onPause() {
         net.kourlas.voipms_sms.tools.ThreadReminders.observe(this, remindersListener, false)
+        net.kourlas.voipms_sms.privacy.PrivateThreads.observe(this, privacyListener, false)
+        screenResumed = false
+        accountCheck?.cancel()
+        adapter.hide()
         closePrivateInbox()
         super.onPause()
 
@@ -862,7 +902,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
         )
 
         // Track number of activities
-        (application as CustomApplication).stopVisibleRefresh()
+        if (visibleRefreshRegistered) {
+            visibleRefreshRegistered = false
+            (application as CustomApplication).stopVisibleRefresh()
+        }
         markMessageListVisible(false)
     }
 
@@ -1218,12 +1261,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
             toggleItem(view)
         } else {
             // Open the conversation activity for the selected conversation
-            val position = recyclerView.getChildAdapterPosition(view)
-            if (position == RecyclerView.NO_POSITION) {
-                return
-            }
-
-            val conversationItem = adapter[position]
+            val conversationItem = adapter.displayedItem(view) ?: return
             if (privateInbox) net.kourlas.voipms_sms.privacy.PrivateThreads.grant(conversationItem.message.conversationId)
             val intent = Intent(this, ConversationActivity::class.java)
             intent.putExtra(
@@ -1578,9 +1616,8 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private fun toggleItem(view: View) {
         // Inform the adapter that the item should be checked
         val index = recyclerView.getChildAdapterPosition(view)
-        if (index != RecyclerView.NO_POSITION) {
-            adapter[index].toggle(index)
-        }
+        val item = adapter.displayedItem(view) ?: return
+        item.toggle(index)
 
         // Turn on or off the action mode depending on how many items are
         // checked
