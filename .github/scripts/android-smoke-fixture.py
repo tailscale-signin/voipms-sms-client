@@ -420,6 +420,7 @@ def run(adb, element, screenshot):
         raise AssertionError("Stopping live listening left the service active")
 
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    element("text", "Appearance")
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     element("text", "Messages", tap=True)
     element("text", LAST_MESSAGE)
