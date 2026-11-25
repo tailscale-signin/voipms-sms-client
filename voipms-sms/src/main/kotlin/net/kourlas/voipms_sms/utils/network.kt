@@ -18,13 +18,15 @@
 package net.kourlas.voipms_sms.utils
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
 import net.kourlas.voipms_sms.preferences.getConnectTimeout
 import net.kourlas.voipms_sms.preferences.getReadTimeout
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.Response
 import okio.BufferedSink
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -73,13 +75,30 @@ suspend inline fun <reified T> httpPostWithMultipartFormData(
         .build()
 
     val adapter = JsonParserManager.getInstance().parser.adapter(T::class.java)
-    return withContext(Dispatchers.IO) {
-        requestClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw HttpStatusException(response.code)
-            }
-
-            return@use adapter.fromJson(response.body.source())
-        }
+    return requestClient.newCall(request).awaitDecoded { response ->
+        if (!response.isSuccessful) throw HttpStatusException(response.code)
+        adapter.fromJson(response.body.source())
     }
 }
+
+/** Cancelling a sync or listening session also interrupts a pending socket read. */
+@PublishedApi
+internal suspend fun <T> Call.awaitDecoded(decode: (Response) -> T): T =
+    suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                continuation.resumeWith(Result.failure(e))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val value = try {
+                    response.use(decode)
+                } catch (e: Exception) {
+                    continuation.resumeWith(Result.failure(e))
+                    return
+                }
+                continuation.resumeWith(Result.success(value))
+            }
+        })
+    }

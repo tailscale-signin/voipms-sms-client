@@ -217,6 +217,7 @@ internal class MessageSynchronization(
                 null
             }
 
+            ensureActive()
             val rows = when (response?.status) {
                 "success" -> response.sms?.rows
                 "no_sms", "no_mms" -> emptyList()

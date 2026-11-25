@@ -24,6 +24,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.UnderlineSpan
 import android.text.style.StyleSpan
 import android.util.Log
 import android.view.LayoutInflater
@@ -152,10 +153,11 @@ class ConversationsRecyclerViewAdapter<T>(
 
         // Highlight text that matches filter
         if (currConstraint != "") {
-            val index = contactTextBuilder.toString()
-                .lowercase(Locale.getDefault())
-                .indexOf(currConstraint.lowercase(Locale.getDefault()))
-            if (index != -1) {
+            val index = contactTextBuilder.indexOf(currConstraint, ignoreCase = true)
+            if (index >= 0 && label != null) {
+                // Keep the blue lookup number readable when a search matches its digits.
+                contactTextBuilder.setSpan(UnderlineSpan(), index, index + currConstraint.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            } else if (index >= 0) {
                 contactTextBuilder.setSpan(
                     BackgroundColorSpan(
                         ContextCompat.getColor(activity, R.color.highlight)

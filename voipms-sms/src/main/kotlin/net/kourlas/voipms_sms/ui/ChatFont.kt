@@ -13,6 +13,11 @@ import android.view.ViewTreeObserver
 import android.widget.TextView
 import androidx.core.content.res.ResourcesCompat
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.R
 import java.io.File
 import java.io.IOException
@@ -22,6 +27,7 @@ import java.util.WeakHashMap
 /** A font selected in Appearance stays on this device, outside Android backup. */
 object ChatFont : Application.ActivityLifecycleCallbacks {
     private const val MAX_BYTES = 8 * 1024 * 1024
+    private val changes = Mutex()
     private var selected: Typeface? = null
     private var generation = 0
     private val created = WeakHashMap<Activity, Int>()
@@ -33,7 +39,7 @@ object ChatFont : Application.ActivityLifecycleCallbacks {
 
     fun start(app: Application) {
         val file = fontFile(app)
-        if (file.isFile) selected = runCatching { load(file) }.getOrNull()
+        selected = if (file.isFile) runCatching { load(file) }.getOrNull() else null
         app.registerActivityLifecycleCallbacks(this)
     }
 
@@ -63,7 +69,7 @@ object ChatFont : Application.ActivityLifecycleCallbacks {
     }
 
     /** Runs on the I/O dispatcher. A failed import preserves the previous font. */
-    fun import(context: Context, uri: Uri): Typeface {
+    internal fun importFile(context: Context, uri: Uri): Typeface {
         val destination = fontFile(context)
         val temporary = File.createTempFile("font-import-", ".tmp", destination.parentFile)
         try {
@@ -81,23 +87,26 @@ object ChatFont : Application.ActivityLifecycleCallbacks {
                 }
             } ?: throw IOException("Unreadable font")
             val font = load(temporary)
-            android.system.Os.rename(temporary.absolutePath, destination.absolutePath)
+            if (!temporary.renameTo(destination)) throw IOException("Unable to save font")
             return font
         } finally {
             temporary.delete()
         }
     }
 
-    fun reset(context: Context) {
-        val file = fontFile(context)
-        if (file.exists() && !file.delete()) throw IOException("Unable to restore bundled font")
-        change(null)
-    }
-
-    fun change(typeface: Typeface?) {
-        selected = typeface
-        generation++
-        resumed.keys.toList().forEach { if (!it.isFinishing) it.recreate() }
+    // Complete an accepted selection through rotation. Serialize changes from two visible windows.
+    suspend fun select(context: Context, uri: Uri?) = withContext(NonCancellable + Dispatchers.Main.immediate) {
+        changes.withLock {
+            selected = withContext(Dispatchers.IO) {
+                if (uri != null) importFile(context, uri) else {
+                    val file = fontFile(context)
+                    if (file.exists() && !file.delete()) throw IOException("Unable to restore bundled font")
+                    null
+                }
+            }
+            generation++
+            resumed.keys.toList().forEach { if (!it.isFinishing) it.recreate() }
+        }
     }
 
     fun setInboxWeight(view: TextView, bold: Boolean) {

@@ -144,7 +144,8 @@ internal object OnlineNumberLookup {
             .setPositiveButton(android.R.string.ok, null)
             .setNeutralButton(R.string.lookup_reports_attribution) { _, _ ->
                 try {
-                    activity.startActivity(Intent(Intent.ACTION_VIEW, ShadyCallReputation.sourceUrl(number).toUri()))
+                    val page = report?.sourceUrl ?: ShadyCallReputation.sourceUrl(number)
+                    activity.startActivity(Intent(Intent.ACTION_VIEW, page.toUri()))
                 } catch (_: ActivityNotFoundException) {
                     Toast.makeText(activity, R.string.lookup_no_browser, Toast.LENGTH_LONG).show()
                 }

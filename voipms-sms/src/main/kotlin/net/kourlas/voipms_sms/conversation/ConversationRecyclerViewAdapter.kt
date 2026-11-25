@@ -362,8 +362,7 @@ class ConversationRecyclerViewAdapter(
     }
 
     /**
-     * Sets the colours of text in the view holder, depending on the message
-     * type.
+     * Selects the checked or normal fill on the incoming or outgoing bubble.
      *
      * @param holder The message view holder to use.
      * @param position The position of the view in the adapter.

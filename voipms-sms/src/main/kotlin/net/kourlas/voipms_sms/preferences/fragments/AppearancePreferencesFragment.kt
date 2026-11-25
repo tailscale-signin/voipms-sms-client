@@ -25,9 +25,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.ui.ChatFont
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.EditTextPreference
@@ -40,16 +38,19 @@ import net.kourlas.voipms_sms.utils.preferences
 class AppearancePreferencesFragment : PreferenceFragmentCompat(),
     SharedPreferences.OnSharedPreferenceChangeListener {
     private val chooseFont = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri == null) return@registerForActivityResult
+        if (uri != null) setFont(uri)
+    }
+
+    private fun setFont(uri: Uri?) {
         val app = requireContext().applicationContext
         lifecycleScope.launch {
             try {
-                val face = withContext(Dispatchers.IO) { ChatFont.import(app, uri) }
-                ChatFont.change(face)
+                ChatFont.select(app, uri)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                Toast.makeText(app, R.string.chat_font_import_failed, Toast.LENGTH_LONG).show()
+                val error = if (uri == null) R.string.chat_font_reset_failed else R.string.chat_font_import_failed
+                Toast.makeText(app, error, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -76,11 +77,7 @@ class AppearancePreferencesFragment : PreferenceFragmentCompat(),
                 AlertDialog.Builder(requireContext()).setTitle(R.string.chat_font_title)
                     .setItems(arrayOf(getString(R.string.chat_font_choose), getString(R.string.chat_font_restore))) { _, index ->
                         if (index == 0) chooseFont.launch(arrayOf("*/*"))
-                        else try {
-                            ChatFont.reset(requireContext())
-                        } catch (_: java.io.IOException) {
-                            Toast.makeText(requireContext(), R.string.chat_font_reset_failed, Toast.LENGTH_LONG).show()
-                        }
+                        else setFont(null)
                     }.show()
             }
             true
