@@ -14,7 +14,7 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           name: voipms-sms-fdroid-debug
-          run-id: 45700130252
+          run-id: 45703151978
           github-token: ${{ github.token }}
           path: smoke-apk
       - name: Enable emulator acceleration
