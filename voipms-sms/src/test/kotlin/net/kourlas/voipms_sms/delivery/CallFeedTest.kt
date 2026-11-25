@@ -1,8 +1,11 @@
 package net.kourlas.voipms_sms.delivery
 
 import android.content.Context
+import android.database.sqlite.SQLiteOpenHelper
 import androidx.test.core.app.ApplicationProvider
+import org.junit.After
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -11,6 +14,16 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class CallFeedTest {
+    @Before
+    @After
+    fun closeSandboxDatabase() {
+        // Robolectric creates a new app data directory between methods in the same JVM.
+        val storage = CallFeedStore::class.java.getDeclaredField("storage")
+        storage.isAccessible = true
+        (storage.get(null) as? SQLiteOpenHelper)?.close()
+        storage.set(null, null)
+    }
+
     @Test fun initialHistoryIsQuietAndRepeatingAProviderEventNeverAlertsTwice() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val did = "4165550100"

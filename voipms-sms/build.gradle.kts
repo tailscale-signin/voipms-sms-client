@@ -1,4 +1,6 @@
 import com.android.build.api.dsl.ApplicationExtension
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
 import java.net.URI
 import javax.inject.Inject
 
@@ -223,6 +225,10 @@ abstract class GenerateNoticeAssets @Inject constructor(
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val licenseMetadata: RegularFileProperty
 
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val supplementalNoticeArchives: ConfigurableFileCollection
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -240,6 +246,7 @@ abstract class GenerateNoticeAssets @Inject constructor(
                 licenseMetadata.get().asFile,
                 destination.resolve("PACKAGE_LICENSES.md")
             )
+            args(supplementalNoticeArchives.files.sortedBy { it.name }.map { it.absolutePath })
         }
     }
 }
@@ -251,6 +258,16 @@ androidComponents.onVariants { variant ->
     ) {
         documents.from(rootProject.files("PRIVACY.md", "CHANGES.md", "NOTICE", "LICENSE.md", "HELP.md"))
         licenseTemplates.set(rootProject.layout.projectDirectory.dir("licenses"))
+        supplementalNoticeArchives.from(configurations.named("${variant.name}RuntimeClasspath").map { runtime ->
+            runtime.incoming.artifactView {
+                attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar")
+                componentFilter { id ->
+                    id is ModuleComponentIdentifier &&
+                        ((id.group == "com.google.mlkit" && id.module in setOf("common", "translate")) ||
+                            (id.group == "cz.adaptech.tesseract4android" && id.module == "tesseract4android"))
+                }
+            }.files
+        })
         licenseMetadata.set(layout.buildDirectory.file(
             "generated/oss_licenses/${variant.name}/dependencies_with_licenses.json"
         ))
