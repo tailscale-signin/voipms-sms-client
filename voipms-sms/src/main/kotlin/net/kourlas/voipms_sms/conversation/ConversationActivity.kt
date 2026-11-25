@@ -490,6 +490,11 @@ open class ConversationActivity(val bubble: Boolean = false) :
         return true
     }
 
+    private fun updateLookupMenu(menu: Menu) {
+        // Rebuilding the whole toolbar here would close any active conversation search.
+        menu.findItem(R.id.lookup_number)?.isVisible = !BuildConfig.IS_DEMO && OnlineNumberLookup.available(contact, contactName)
+    }
+
     /** Resolve Contacts and decode the avatar off the notification launch path. */
     private fun loadContactPresentation() {
         val target = conversationId
@@ -497,18 +502,25 @@ open class ConversationActivity(val bubble: Boolean = false) :
         val locale = resources.configuration.locales[0]
         contactJob?.cancel()
         contactJob = lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                val name = if (BuildConfig.IS_DEMO) net.kourlas.voipms_sms.demo.getContactName(target.contact)
-                           else LocalContacts.find(applicationContext, target.contact) ?: getContactName(applicationContext, target.contact)
-                val region = if (name == null) NumberOrigin.offline(target.contact, locale) else null
-                ContactPresentation(name, getContactPhotoBitmap(applicationContext, name, target.contact, size), region)
+            val result = try {
+                withContext(Dispatchers.IO) {
+                    val name = if (BuildConfig.IS_DEMO) net.kourlas.voipms_sms.demo.getContactName(target.contact)
+                        else LocalContacts.find(applicationContext, target.contact) ?: getContactName(applicationContext, target.contact)
+                    val region = if (name == null) NumberOrigin.offline(target.contact, locale) else null
+                    ContactPresentation(name, getContactPhotoBitmap(applicationContext, name, target.contact, size), region)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                threadReadFailure(DiagnosticAction.THREAD_CONTACT, e)
+                return@launch
             }
             if (target != conversationId) return@launch
             contactName = result.name
             offlineRegion = result.region
             adapter.updateContactPhoto(result.photo)
             updateContactHeading()
-            invalidateOptionsMenu()
+            updateLookupMenu(findViewById<Toolbar>(R.id.toolbar).menu)
         }
     }
 
@@ -1117,7 +1129,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
             }
         }
         menu.findItem(R.id.search_button).setOnActionExpandListener(messageBack)
-        menu.findItem(R.id.lookup_number).isVisible = !BuildConfig.IS_DEMO && OnlineNumberLookup.available(contact, contactName)
+        updateLookupMenu(menu)
 
         menu.findItem(R.id.suggest_in_share).apply {
             isVisible = !PrivateThreads.isPrivate(this@ConversationActivity, conversationId)
