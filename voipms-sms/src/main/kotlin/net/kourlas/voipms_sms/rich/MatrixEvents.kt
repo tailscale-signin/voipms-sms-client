@@ -93,6 +93,9 @@ internal fun roomUpdates(room: Room, timeline: Timeline): Flow<RichTimeline> = c
                 publish()
             }
         })
-        try { awaitClose() } finally { users.cancel(); users.close() }
+        try {
+            synchronized(lock) { publish() }
+            awaitClose()
+        } finally { users.cancel(); users.close() }
     } finally { messages.cancel(); messages.close() }
 }.conflate()
