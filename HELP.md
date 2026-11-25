@@ -25,7 +25,7 @@ You can hide messages from the conversations view, block the retrieval of messag
 
 ## Save a name for a number
 
-Tap the number in Messages, at the top of a conversation, or in Home’s call history. Enter a name and tap **OK**. To rename it, tap the saved name in the same place. The contact is available in the app’s new-message picker even when Android Contacts permission is off. The encrypted portable backup includes saved app contacts by default.
+Tap the number in Messages, at the top of a conversation, or in Home’s call history. Enter a name and tap **OK**. To rename it, tap the saved name in the same place. In the new-message picker, tap a number to name it or tap the rest of its row to write a message. Saved app contacts appear there even when Android Contacts permission is off. The encrypted portable backup includes saved app contacts by default.
 
 ## Encrypted chat and Nearby
 

@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.R
+import net.kourlas.voipms_sms.contacts.LocalContacts
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.database.entities.Sms
 import net.kourlas.voipms_sms.preferences.getDids
@@ -120,15 +121,18 @@ internal object MessageSearch {
         host.lifecycleScope.launch {
             val db = Database.getInstance(host)
             val names = mutableMapOf<String, String>()
-            val contactMatches = mutableMapOf<String, Boolean>()
+            val displayNames = mutableMapOf<String, String?>()
+            fun name(number: String): String? {
+                if (number !in displayNames) displayNames[number] = LocalContacts.find(host, number) ?: getContactName(host, number, names)
+                return displayNames[number]
+            }
             val profiles = net.kourlas.voipms_sms.privacy.JunkProfiles(host)
             val (rows, next) = try { withContext(Dispatchers.IO) {
                 val matched = mutableListOf<Sms>()
                 var offset = initialOffset
                 val folders = if (filters.folder > 0) db.inboxPreviews(filters.dids.toSet(), "", filters.folder == 3, names).associate {
                     val msg = it.message
-                    val other = it.otherFolder ?: InboxRules.assess(it.latestIncoming, profiles.line(msg.did)).shouldQuarantine(it.hasReply, getContactName(host, msg.contact, names) != null ||
-                        net.kourlas.voipms_sms.contacts.LocalContacts.find(host, msg.contact) != null)
+                    val other = it.otherFolder ?: InboxRules.assess(it.latestIncoming, profiles.line(msg.did)).shouldQuarantine(it.hasReply, name(msg.contact) != null)
                     msg.conversationId to other
                 } else emptyMap()
                 var more = true
@@ -139,10 +143,11 @@ internal object MessageSearch {
                         offset++
                         val key = ConversationId(msg.did, msg.contact)
                         val folderMatch = filters.folder == 0 || (key in folders && (filters.folder == 3 || folders[key] == (filters.folder == 2)))
-                        if (!net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(host, key) && folderMatch &&
-                            (filters.contact.isBlank() || filters.digits != null || contactMatches.getOrPut(msg.contact) {
-                                getContactName(host, msg.contact, names)?.contains(filters.contact, true) == true
-                            })) matched.add(msg)
+                        if (folderMatch && !net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(host, key)) {
+                            val displayName = name(msg.contact)
+                            if (filters.contact.isBlank() || filters.digits != null ||
+                                displayName?.contains(filters.contact, ignoreCase = true) == true) matched.add(msg)
+                        }
                         if (matched.size == 40) { more = more || idx < page.lastIndex; break }
                     }
                 }
@@ -151,7 +156,7 @@ internal object MessageSearch {
             catch (_: Exception) { android.widget.Toast.makeText(host, R.string.tools_search_failed, android.widget.Toast.LENGTH_LONG).show(); return@launch }
             val format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
             val labels = rows.map { m ->
-                "${names[m.contact] ?: m.contact} · ${LineProfiles.label(host, m.did)}\n${format.format(Date(m.date * 1000))}  ${m.text.take(140)}"
+                "${displayNames[m.contact] ?: m.contact} · ${LineProfiles.label(host, m.did)}\n${format.format(Date(m.date * 1000))}  ${m.text.take(140)}"
             }
             val dialog = AlertDialog.Builder(host).setTitle(R.string.tools_search_results).setNegativeButton(android.R.string.cancel, null)
             if (rows.isEmpty()) dialog.setMessage(R.string.tools_none) else dialog.setItems(labels.toTypedArray()) { _, i ->
