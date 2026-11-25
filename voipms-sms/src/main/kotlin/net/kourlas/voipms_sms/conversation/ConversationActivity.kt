@@ -234,7 +234,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         clearRichFile()
         if (privateSession && !valid) { finish(); return }
         findViewById<View>(android.R.id.content).visibility = View.VISIBLE
-        if (valid && uri != null && target != null) routes?.attach(uri, target)
+        if (valid && uri != null) routes?.attach(uri, target)
     }
     private val richFileGate = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
         if (::did.isInitialized && ::contact.isInitialized && it.resultCode == RESULT_OK && fileRoom != null) finishRichFile()

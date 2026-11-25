@@ -86,6 +86,7 @@ internal class ThreadRoutes(
         routeButton.contentDescription = activity.getString(R.string.chat_meta, activity.getString(R.string.chat_routes), label)
         smsComposer.isVisible = route == ChatRoute.SMS
         richComposer.isVisible = route != ChatRoute.SMS
+        richEdit.isEnabled = draftKey != null
         attachButton.isVisible = route == ChatRoute.MATRIX
         sendButton.isEnabled = !pendingSend && when (route) {
             ChatRoute.MATRIX -> currentLink() != null && !roomProblem

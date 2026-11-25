@@ -37,6 +37,14 @@ Google processes the topic subscription and associates it with a Firebase instal
 
 When you start a listening session, the app repeatedly contacts VoIP.ms using your configured account. Android displays the session as a foreground service. You can stop it from the notification or Synchronization settings.
 
+## App contacts, encrypted chat and nearby devices
+
+A name saved by tapping a number stays in the app’s encrypted address book. An Android Keystore key protects the file. Saving a name does not create an Android Contacts entry or send the name to a directory service. The encrypted portable backup uses its own passphrase so you can restore app contacts on another device.
+
+If you sign in to a Matrix homeserver, it handles your account, room membership, encrypted events and connection metadata. Your linked room is a choice you make on this device. Choosing to open a decrypted attachment in an external viewer gives that app access to the selected file.
+
+Nearby discovers devices through Android Wi-Fi Direct and exchanges messages with the peer you confirm. Paired devices use mutual TLS. Queued message bodies and history are encrypted in the app’s private storage. Opening an external carrier draft gives the chosen messaging app the destination and draft text after confirmation.
+
 ## Optional number lookup
 
 Opening the inbox or receiving a message does not send numbers to any lookup provider. Each online lookup explains what it sends before connecting. The service can receive network information such as your IP address. SMS content, your address book, and VoIP.ms credentials are excluded from these requests.

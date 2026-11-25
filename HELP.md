@@ -23,6 +23,16 @@ This app can send and receive messages from multiple phone numbers in your accou
 
 You can hide messages from the conversations view, block the retrieval of messages, and block notifications on a per-phone number basis.
 
+## Save a name for a number
+
+Tap the number in Messages, at the top of a conversation, or in Home’s call history. Enter a name and tap **OK**. To rename it, tap the saved name in the same place. The contact is available in the app’s new-message picker even when Android Contacts permission is off. The encrypted portable backup includes saved app contacts by default.
+
+## Encrypted chat and Nearby
+
+For internet chat, open **Encrypted rooms** and sign in to your Matrix homeserver. Invite a Matrix contact or create a room for a group. To see a direct room alongside a phone conversation, open **Send using** and link the room after checking the Matrix identity with your contact. Each route keeps its own draft. If you switch to SMS, review the sending line before sending.
+
+For a conversation without internet, choose **Nearby** on both phones. Tap **Host** on one and **Find devices** on the other. Select the host and compare the entire pairing code on both screens before tapping **Codes match**. Keep Nearby active while exchanging messages. Messages queued for a paired device can be delivered when the devices reconnect.
+
 ## Wi-Fi and carrier RCS
 
 Enable SMS/MMS and API access for your VoIP.ms number to send and receive ordinary texts using an internet-connected Wi-Fi network. The handset can use this route without cellular service. During an internet outage, your SMS outbox keeps unsent messages until connectivity returns. VoIP.ms documents SMS and MMS for its messaging API. [VoIP.ms API overview](https://wiki.voip.ms/article/API_Overview)

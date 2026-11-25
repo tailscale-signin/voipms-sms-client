@@ -206,13 +206,13 @@ class DatabaseImportTest {
             contacts.save(context, conflict, "Backup name")
             contacts.save(context, ignored, "Unselected person")
             insertMessages(1)
-            assertNull(archive.export(context, uri, password).contacts)
+            assertNull(archive.export(context, uri, password, includeContacts = false).contacts)
             val messagesOnly = archive.preview(context, uri, password)
             try {
                 assertTrue(messagesOnly.contacts.isEmpty())
                 java.util.zip.ZipFile(messagesOnly.zip).use { assertNull(it.getEntry(net.kourlas.voipms_sms.privacy.BackupContacts.ENTRY)) }
             } finally { messagesOnly.zip.delete() }
-            assertEquals(3, archive.export(context, uri, password, includeContacts = true).contacts)
+            assertEquals(3, archive.export(context, uri, password).contacts)
             val preview = archive.preview(context, uri, password)
             try {
                 assertEquals(3, preview.contacts.size)

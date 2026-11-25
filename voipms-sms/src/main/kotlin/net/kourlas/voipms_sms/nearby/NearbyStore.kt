@@ -111,6 +111,9 @@ internal object NearbyStore {
             if (it.moveToFirst()) ConversationId(it.getString(0), it.getString(1)) else null
         }
 
+    internal fun enabledPeer(c: Context, account: String, peer: String): Boolean =
+        linkedThread(c, account, peer)?.let { selectedLine(c, it.did) } ?: true
+
     internal fun privatePeer(
         c: Context,
         account: String,
@@ -252,7 +255,7 @@ internal object NearbyStore {
         text: String,
     ) {
         require(NearbyWire.validText(text))
-        check(scope(c) == account && known(c, account, peer))
+        check(scope(c) == account && known(c, account, peer) && enabledPeer(c, account, peer))
         put(db(c), account, peer, UUID.randomUUID().toString(), text, false)
     }
 
@@ -284,9 +287,9 @@ internal object NearbyStore {
         peer: String,
         msg: NearbyWire.Frame.Text,
     ) {
-        check(scope(c) == account && known(c, account, peer))
         val id = msg.id.toString()
         db(c).transaction {
+            check(scope(c) == account && known(c, account, peer) && enabledPeer(c, account, peer))
             val existing =
                 rawQuery("SELECT body FROM messages WHERE scope=? AND peer=? AND incoming=1 AND id=?", arrayOf(account, peer, id))
                     .use { if (it.moveToFirst()) it.getBlob(0) else null }
@@ -322,7 +325,7 @@ internal object NearbyStore {
         peer: String,
     ) = revision
         .map {
-            check(scope(c) == account && known(c, account, peer))
+            check(scope(c) == account && known(c, account, peer) && enabledPeer(c, account, peer))
             db(c)
                 .rawQuery(
                     "SELECT id,incoming,stamp,body,delivered FROM messages WHERE scope=? AND peer=? AND incoming=0 AND delivered=0 " +

@@ -35,7 +35,7 @@ class CarrierMessagesTest {
 
     @Test fun preservesExplicitInternationalNumbersAndShortCodes() {
         for ((input, target) in listOf("+351 912 345 678" to "+351912345678",
-                "14165550100" to "+14165550100", "43210" to "43210")) {
+                "351912345678" to "+351912345678", "14165550100" to "+14165550100", "43210" to "43210")) {
             val intent = requireNotNull(CarrierMessages.draftIntent(input, ""))
             assertEquals(target, intent.data?.schemeSpecificPart)
             assertFalse(intent.hasExtra("sms_body"))

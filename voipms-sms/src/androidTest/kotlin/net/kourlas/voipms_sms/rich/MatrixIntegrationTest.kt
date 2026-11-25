@@ -61,6 +61,7 @@ class MatrixIntegrationTest {
                     val aliceId = requireNotNull(MatrixChat.account(context))
                     val listed = MatrixChat.rooms(context).first { it.id == room }
                     assertEquals(bobId, listed.directPeer)
+                    verifyPhoneLink(context, requireNotNull(MatrixChat.identity(context)), room, bobId)
                     requireNotNull(bob.getRoom(room)).use { remote ->
                         remote.timeline().use { timeline ->
                             val message = "Only the two SDK clients can read this text."

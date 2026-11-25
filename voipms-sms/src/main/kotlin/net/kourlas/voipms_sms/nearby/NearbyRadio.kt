@@ -123,7 +123,7 @@ internal object NearbyRadio {
             stop(R.string.nearby_permission_denied)
             return
         }
-        val m = activity.getSystemService(WifiP2pManager::class.java)
+        val m = activity.application.getSystemService(WifiP2pManager::class.java)
         if (m == null || !activity.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)) {
             stop(R.string.nearby_no_hardware)
             return

@@ -2,6 +2,13 @@ package net.kourlas.voipms_sms.rich
 
 import android.content.Context
 import android.util.Base64
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -14,25 +21,38 @@ import org.matrix.rustcomponents.sdk.Session
 import org.matrix.rustcomponents.sdk.SlidingSyncVersion
 import org.matrix.rustcomponents.sdk.SlidingSyncVersionBuilder
 import org.matrix.rustcomponents.sdk.SqliteStoreBuilder
-import org.matrix.rustcomponents.sdk.SyncListenerV2
-import org.matrix.rustcomponents.sdk.SyncResponseV2
 import org.matrix.rustcomponents.sdk.SyncSettingsV2
-import org.matrix.rustcomponents.sdk.TaskHandle
 import java.io.File
 import java.net.URI
 import java.security.SecureRandom
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicLong
 
 /** A separate Matrix device for each login. The SDK owns the encrypted crypto/state/event stores. */
 internal class MatrixSession(val client: Client, val generation: String) {
-    private val responses = AtomicLong()
     val updates = MutableStateFlow(0L)
-    val sync: TaskHandle = client.syncV2(SyncSettingsV2(timeoutMs = 30_000uL), object : SyncListenerV2 {
-        override fun onUpdate(response: SyncResponseV2) { updates.value = responses.incrementAndGet() }
-    })
+    private val poll = CoroutineScope(Dispatchers.IO).launch {
+        var retryMs = 1000L
+        var reconnecting = true
+        while (isActive) {
+            try {
+                // The SDK persists and reuses its /sync token, processes to-device keys and advances it atomically.
+                client.syncOnceV2(SyncSettingsV2(timeoutMs = if (reconnecting) 0uL else 30_000uL))
+                if (reconnecting) client.enableAllSendQueues(true)
+                updates.value += 1
+                reconnecting = false
+                retryMs = 1000L
+                delay(150)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                reconnecting = true
+                delay(retryMs)
+                retryMs = (retryMs * 2).coerceAtMost(60_000L)
+            }
+        }
+    }
 
-    fun stop() { sync.cancel(); sync.close() }
+    suspend fun stop() { poll.cancelAndJoin() }
 }
 
 internal object MatrixSessions {

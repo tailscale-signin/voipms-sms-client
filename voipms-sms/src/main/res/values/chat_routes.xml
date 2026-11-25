@@ -17,7 +17,7 @@
     <string name="chat_preview_error">The attachment could not be opened.</string>
     <string name="chat_trust">Link to this phone conversation?</string>
     <string name="chat_trust_explanation">Show messages from %1$s in the conversation with %2$s on line %3$s. Confirm this Matrix identity with your contact before linking.</string>
-    <string name="chat_unlink_confirm">Remove the room from this conversation? Its history stays in your Matrix account.</string>
+    <string name="chat_unlink_confirm">Remove the room from this conversation? Its history stays in your Matrix account and becomes available in Encrypted rooms.</string>
     <string name="chat_fallback">Switch to SMS?</string>
     <string name="chat_fallback_body">Future SMS messages use your VoIP.ms line %1$s and regular SMS charges may apply. Previously queued messages keep their original route.</string>
     <string name="chat_move_draft">Move unsent text to SMS</string>

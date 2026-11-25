@@ -86,7 +86,10 @@ internal object MatrixChat {
         require(invites.isNotEmpty()); invites.forEach(::validateUser)
         s.client.createRoom(CreateRoomParameters(name = title.trim().takeIf { it.isNotEmpty() }, isEncrypted = true,
             isDirect = invites.size == 1, visibility = RoomVisibility.Private, preset = RoomPreset.PRIVATE_CHAT,
-            invite = invites)).also { s.client.awaitRoomRemoteEcho(it).close() }
+            invite = invites)).also { roomId ->
+            // Room creation already succeeded. A lost connection must not turn this into an invitation to create it twice.
+            withTimeoutOrNull(12_000) { s.client.awaitRoomRemoteEcho(roomId).close() }
+        }
     }
 
     suspend fun join(c: Context, roomId: String) = withContext(Dispatchers.IO) {

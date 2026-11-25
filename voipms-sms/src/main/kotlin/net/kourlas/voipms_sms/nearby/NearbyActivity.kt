@@ -82,8 +82,8 @@ class NearbyActivity : AppCompatActivity() {
     private var submitted = false
     private var initialDraft: String? = null
     private val permission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) NearbyRadio.start(this, requestingHost) else toast(R.string.nearby_permission_denied)
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (grants[NearbyRadio.permission()] == true) NearbyRadio.start(this, requestingHost) else toast(R.string.nearby_permission_denied)
         }
     private val unlock =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -276,11 +276,15 @@ class NearbyActivity : AppCompatActivity() {
         if (ContextCompat.checkSelfPermission(this, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
             NearbyRadio.start(this, asHost)
         } else {
-            permission.launch(perm)
+            // Android 12 requires fine and coarse location in the same permission request.
+            val permissions = if (android.os.Build.VERSION.SDK_INT <= 32)
+                arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION, perm) else arrayOf(perm)
+            permission.launch(permissions)
         }
     }
 
     private fun permitted(peer: String): Boolean {
+        if (!NearbyStore.enabledPeer(this, account, peer)) return false
         if (!NearbyStore.privatePeer(this, account, peer)) return true
         return unlocked && thread != null && NearbyStore.linkedThread(this, account, peer) == thread
     }

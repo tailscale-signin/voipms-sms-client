@@ -100,9 +100,15 @@ class NewConversationRecyclerViewAdapter(
         )
 
     override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
+        val item = contactItems[position]
+        val canName = !BuildConfig.IS_DEMO && LocalContacts.number(item.primaryPhoneNumber) != null &&
+            (item !is ContactItem || item.phoneNumbersAndTypes.size == 1)
+        val editName = if (canName) View.OnClickListener {
+            ContactNameDialog.show(activity, item.primaryPhoneNumber) { reload() }
+        } else null
         updateViewHolderIndex(holder, position)
-        updateViewHolderContactBadge(holder, position)
-        updateViewHolderContact(holder, position)
+        updateViewHolderContactBadge(holder, item, editName)
+        updateViewHolderContact(holder, item, editName)
     }
 
     /**
@@ -148,17 +154,23 @@ class NewConversationRecyclerViewAdapter(
      * letter.
      *
      * @param holder The message view holder to use.
-     * @param position The position of the view in the adapter.
+     * @param contactItem The recipient shown in this row.
+     * @param editName Action for editing a single phone number in the app.
      */
     private fun updateViewHolderContactBadge(
         holder: ContactViewHolder,
-        position: Int
+        contactItem: BaseContactItem,
+        editName: View.OnClickListener?
     ) {
-        val contactItem = contactItems[position]
-
-        // Set contact photo
-        holder.contactBadge.setOnClickListener(holder.contactBadge)
-        holder.contactBadge.assignContactFromPhone(contactItem.primaryPhoneNumber, true)
+        if (contactItem is ContactItem && contactItem.id >= 0) {
+            holder.contactBadge.assignContactFromPhone(contactItem.primaryPhoneNumber, true)
+            holder.contactBadge.setOnClickListener(holder.contactBadge)
+        } else {
+            // Detach any system contact left on a recycled badge before exposing a local-only action.
+            holder.contactBadge.assignContactUri(null)
+            holder.contactBadge.setOnClickListener(editName)
+            holder.contactBadge.isEnabled = editName != null
+        }
         if (contactItem is TypedInContactItem) {
             // Show dialpad for typed in phone number
             holder.contactBadge.scaleType = ImageView.ScaleType.CENTER
@@ -171,11 +183,6 @@ class NewConversationRecyclerViewAdapter(
             holder.contactBadge.setBackgroundResource(0)
             holder.contactBadge.setImageBitmap(contactItem.bitmap ?: getGenericContactPhotoBitmap(
                 activity, contactItem.name, contactItem.primaryPhoneNumber, activity.resources.getDimensionPixelSize(R.dimen.contact_badge)))
-            if (contactItem.id < 0) {
-                holder.contactBadge.setOnClickListener {
-                    ContactNameDialog.show(activity, contactItem.primaryPhoneNumber) { reload() }
-                }
-            }
         }
     }
 
@@ -184,14 +191,14 @@ class NewConversationRecyclerViewAdapter(
      * on the view holder.
      *
      * @param holder The message view holder to use.
-     * @param position The position of the view in the adapter.
+     * @param contactItem The recipient shown in this row.
+     * @param editName Action for editing a single phone number in the app.
      */
     private fun updateViewHolderContact(
         holder: ContactViewHolder,
-        position: Int
+        contactItem: BaseContactItem,
+        editName: View.OnClickListener?
     ) {
-        val contactItem = contactItems[position]
-
         // Set contact name
         if (contactItem is TypedInContactItem) {
             holder.contactText.text = activity.getString(
@@ -201,10 +208,12 @@ class NewConversationRecyclerViewAdapter(
             holder.contactText.text = contactItem.name
         }
 
-        // Set phone number text
-        if (contactItem is ContactItem
-            && !contactItem.showSeparateNameAndPhoneNumber()
-        ) {
+        val numberIsTitle = contactItem is ContactItem && !contactItem.showSeparateNameAndPhoneNumber()
+        holder.contactText.setOnClickListener(if (numberIsTitle) editName else null)
+        holder.contactText.isClickable = numberIsTitle && editName != null
+        holder.phoneNumberText.setOnClickListener(editName)
+        holder.phoneNumberText.isClickable = editName != null
+        if (numberIsTitle) {
             holder.phoneNumberText.visibility = View.GONE
         } else {
             var text = contactItem.primaryPhoneNumber
@@ -217,13 +226,6 @@ class NewConversationRecyclerViewAdapter(
             }
             holder.phoneNumberText.text = text
             holder.phoneNumberText.visibility = View.VISIBLE
-            val editable = !BuildConfig.IS_DEMO && contactItem is ContactItem && contactItem.phoneNumbersAndTypes.size == 1
-            if (editable) holder.phoneNumberText.setOnClickListener {
-                ContactNameDialog.show(activity, contactItem.primaryPhoneNumber) { reload() }
-            } else {
-                holder.phoneNumberText.setOnClickListener(null)
-                holder.phoneNumberText.isClickable = false
-            }
         }
 
 

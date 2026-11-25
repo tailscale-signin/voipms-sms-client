@@ -69,7 +69,7 @@ internal object PortableBackup {
     }
 
     suspend fun export(context: Context, uri: Uri, password: CharArray, mode: ReceivedMode = ReceivedMode.LINKS,
-                       includeContacts: Boolean = false): ExportResult {
+                       includeContacts: Boolean = true): ExportResult {
         val job = currentCoroutineContext()
         val received = mutableSetOf<String>()
         var included = 0
@@ -80,9 +80,9 @@ internal object PortableBackup {
             val contacts = if (includeContacts) LocalContacts.snapshot(context) else null
             ZipOutputStream(temp.outputStream().buffered()).use { zip ->
                 zip.putNextEntry(ZipEntry("version"))
-                zip.write(if (contacts == null) '2'.code else '3'.code)
+                zip.write(if (contacts.isNullOrEmpty()) '2'.code else '3'.code)
                 zip.closeEntry()
-                if (contacts != null) {
+                if (!contacts.isNullOrEmpty()) {
                     zip.putNextEntry(ZipEntry(BackupContacts.ENTRY))
                     BackupContacts.write(zip, contacts, password) { job.ensureActive() }
                     zip.closeEntry()

@@ -20,7 +20,7 @@ internal object CarrierMessages {
         // The VoIP.ms conversation store represents NANP numbers as ten digits.
         val number = when {
             digits.length == 10 && !digits.startsWith('+') -> "+1$digits"
-            digits.length == 11 && digits.startsWith('1') -> "+$digits"
+            digits.length in 11..15 && digits.first() in '1'..'9' -> "+$digits"
             else -> digits
         }
         return Intent(Intent.ACTION_SENDTO, "smsto:$number".toUri()).apply {

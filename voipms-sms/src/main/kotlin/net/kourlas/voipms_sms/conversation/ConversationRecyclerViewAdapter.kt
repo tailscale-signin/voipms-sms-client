@@ -123,7 +123,7 @@ class ConversationRecyclerViewAdapter(
     }
     private var timeline: List<Row> = emptyList()
     private var calls = emptyList<CallFeedItem>()
-    private var visibleCallLimit = ADDITIONAL_ITEMS_INCREMENT.toInt()
+    private var visibleEventLimit = ADDITIONAL_ITEMS_INCREMENT.toInt()
 
     internal fun updateCalls(events: List<CallFeedItem>) {
         val updated = matchingCalls(events, conversationId)
@@ -140,10 +140,10 @@ class ConversationRecyclerViewAdapter(
         val newest = if (showAnchor) bounds.maxOrNull() ?: Long.MAX_VALUE else Long.MAX_VALUE
         val visibleCalls = if (currConstraint.isEmpty()) calls.asSequence()
             .filter { it.receivedAt in oldest..newest }
-            .take(visibleCallLimit).map { CallRow(it) }.toList() else emptyList()
+            .take(visibleEventLimit).map { CallRow(it) }.toList() else emptyList()
         val visibleChat = chat.values.asSequence().flatten()
             .filter { it.time in oldest..newest && it.body.contains(currConstraint, ignoreCase = true) }
-            .sortedByDescending { it.time }.take(visibleCallLimit).map(::ChatRow).toList()
+            .sortedByDescending { it.time }.take(visibleEventLimit).map(::ChatRow).toList()
         val current = (messageItems.map { TextRow(it) } + visibleCalls + visibleChat)
             .sortedWith(compareBy<Row> { it.timestamp }.thenBy { if (it is TextRow) 0 else 1 }
                 .thenBy { (it as? TextRow)?.item?.message?.databaseId ?: 0L }.thenBy { it.key })
@@ -658,8 +658,9 @@ class ConversationRecyclerViewAdapter(
      * Loads additional items from the database.
      */
     fun loadMoreItems() {
-        if (!loadingMoreItems && (currLimit < maxLimit || visibleCallLimit < calls.size)) {
-            visibleCallLimit += ADDITIONAL_ITEMS_INCREMENT.toInt()
+        val remainingEvents = visibleEventLimit < calls.size || visibleEventLimit < chat.values.sumOf { it.size }
+        if (!loadingMoreItems && (currLimit < maxLimit || remainingEvents)) {
+            visibleEventLimit += ADDITIONAL_ITEMS_INCREMENT.toInt()
             loadingMoreItems = true
             currLimit = minOf(maxLimit, currLimit + ADDITIONAL_ITEMS_INCREMENT)
             refresh()
