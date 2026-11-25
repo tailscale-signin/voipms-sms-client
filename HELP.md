@@ -34,7 +34,7 @@ Saved contact names take priority. Opening the inbox does not perform a lookup.
 
 ## Appearance
 
-Choose **Settings → Appearance** to select a theme or import a font from your phone. The default uses deep teal surfaces, cyan accents and DM Sans. GPT Mobile Improved uses Proxima Nova. Under **Chat font**, select a licensed regular Proxima Nova TTF or OTF file up to 8 MB. Android derives the other weights. You can restore DM Sans from the same menu.
+The app includes Proxima Nova from GPT Mobile Improved and uses it by default. Open **Settings → Appearance** to change the theme. To use your own font, open **Chat font → Choose font file** and select a regular TTF or OTF file up to 8 MB. Android derives the other weights for custom fonts. To switch back to the bundled font, choose **Restore Proxima Nova**.
 
 ## Notifications
 

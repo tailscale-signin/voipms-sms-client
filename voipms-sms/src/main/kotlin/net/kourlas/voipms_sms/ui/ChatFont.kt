@@ -112,7 +112,7 @@ object ChatFont : Application.ActivityLifecycleCallbacks {
     fun setInboxWeight(view: TextView, bold: Boolean) {
         val face = selected
         view.typeface = if (face == null) {
-            ResourcesCompat.getFont(view.context, if (bold) R.font.dm_sans_bold else R.font.dm_sans_regular)
+            ResourcesCompat.getFont(view.context, if (bold) R.font.proxima_nova_bold else R.font.proxima_nova_regular)
         } else {
             Typeface.create(face, if (bold) Typeface.BOLD else Typeface.NORMAL)
         }

@@ -1,1 +1,1 @@
-Start live listening directly from Synchronization settings. Look up an unknown number on demand, see online directory matches in blue, or open Truecaller’s website. Refreshed inbox and conversation styling, with custom fonts in Appearance.
+Start live listening directly from Synchronization settings. Look up an unknown number on demand, see online directory matches in blue, or open Truecaller’s website. The inbox and conversations now use GPT Mobile Improved’s Proxima Nova by default. Choose a custom font in Appearance.

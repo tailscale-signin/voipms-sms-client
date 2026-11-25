@@ -21,7 +21,7 @@ class ChatFontImportTest {
         val app = ApplicationProvider.getApplicationContext<Application>()
         val installed = File(app.noBackupFilesDir, "chat-font")
         val source = File(app.cacheDir, "picked-font.ttf")
-        val valid = app.resources.openRawResource(R.font.dm_sans_regular).use { it.readBytes() }
+        val valid = app.resources.openRawResource(R.font.proxima_nova_regular).use { it.readBytes() }
         source.writeBytes(valid)
         ChatFont.importFile(app, Uri.fromFile(source))
         assertArrayEquals(valid, installed.readBytes())

@@ -2,7 +2,7 @@
 
 [![Android CI (primary)](https://github.com/tailscale-signin/voipms-sms-client/actions/workflows/android-primary.yml/badge.svg)](https://github.com/tailscale-signin/voipms-sms-client/actions/workflows/android-primary.yml) [![Android CI (F-Droid)](https://github.com/tailscale-signin/voipms-sms-client/actions/workflows/android-fdroid.yml/badge.svg)](https://github.com/tailscale-signin/voipms-sms-client/actions/workflows/android-fdroid.yml)
 
-Send and receive SMS from your VoIP.ms numbers, search conversations, and reply from notifications. The default dark theme uses the cyan accents and deep teal surfaces from GPT Mobile. Light and system themes are available under Appearance.
+Send and receive SMS from your VoIP.ms numbers, search conversations, and reply from notifications. The default dark theme pairs GPT Mobile Improved’s cyan accents and deep teal surfaces with its Proxima Nova typeface. Light and system themes are available under Appearance.
 
 ## Receiving messages
 
@@ -20,7 +20,7 @@ Both full builds support direct listening with your VoIP.ms account. Android may
 
 Open an unknown sender’s conversation and choose **Look up number online**. Wikidata searches public organization listings. ShadyCall provides US complaint and community reports. Truecaller opens an optional browser search. You choose which service receives the number. A blue number and a source label distinguish online information from a saved contact.
 
-**Settings → Appearance → Chat font** lets you select a local TTF or OTF, including a licensed copy of GPT Mobile Improved’s Proxima Nova. The bundled family is DM Sans.
+Proxima Nova is bundled and active on first launch. To use a different font, open **Settings → Appearance → Chat font** and choose a local TTF or OTF file. You can restore Proxima Nova from the same menu.
 
 ## Build and install
 
