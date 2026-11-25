@@ -25,7 +25,8 @@ internal object ContactNameDialog {
             id = R.id.local_contact_name_input
             setSingleLine()
             hint = activity.getString(R.string.local_contact_title)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PERSON_NAME or
+                InputType.TYPE_TEXT_FLAG_CAP_WORDS or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             filters = arrayOf(InputFilter.LengthFilter(LocalContacts.MAX_NAME))
             imeOptions = EditorInfo.IME_ACTION_DONE
             if (Build.VERSION.SDK_INT >= 26) {
@@ -40,7 +41,10 @@ internal object ContactNameDialog {
             .setMessage(getFormattedPhoneNumber(number)).setView(panel)
             .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null).create()
         dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        // Keep the floating dialog’s actions above the IME on every supported Android version.
+        @Suppress("DEPRECATION")
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         dialog.show()
         field.requestFocus()
         val ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
