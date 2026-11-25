@@ -1,0 +1,46 @@
+name: Publish VoIPms SMS 0.8.0
+on:
+  push:
+    branches: [release/publish-0.8.0]
+
+permissions: {}
+concurrency:
+  group: publish-voipms-sms-0.8.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'tailscale-signin/voipms-sms-client'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      REV: 'e2474813d04cf3242817ff0924a7f2368bf9e460'
+      PRIMARY_RUN: '45708391204'
+      FDROID_RUN: '45708391277'
+      ARTIFACT_ID: '15067166676'
+      ARTIFACT_SHA256: 'dc12137772ec66138e3efe04cd092786367815a5725bd909428afa782d1640ad'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify the green master release artifact
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/publish-0.8.0.sh prepare
+      - name: Sign the verified release APK
+        if: steps.prepare.outputs.has_signed_asset != 'true'
+        env:
+          SIGNING_STORE: ${{ secrets.VOIPMS_SMS_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+          SIGNING_PASSWORD: ${{ secrets.VOIPMS_SMS_KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SIGNING_ALIAS: ${{ secrets.VOIPMS_SMS_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.VOIPMS_SMS_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
+        run: bash .github/scripts/publish-0.8.0.sh sign
+      - name: Verify, publish and download the signed APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/publish-0.8.0.sh publish
