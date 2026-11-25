@@ -118,8 +118,7 @@ def check_history(contents, fixture):
 
 
 def export_filtered_thread(adb, element, fixture):
-    if "mInputShown=true" in adb("shell", "dumpsys", "input_method"):
-        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    # Back can close the search itself. The toolbar overflow is reachable above the keyboard.
     element("resource-id", fixture["PACKAGE"] + ":id/search_src_text", expected_text="z")
     element("text", "İz")
     if any(n.get("text") == fixture["LAST_MESSAGE"] for n in fixture["read_tree"](adb).iter("node")):
