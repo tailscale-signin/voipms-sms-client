@@ -8,9 +8,11 @@ import android.database.sqlite.SQLiteOpenHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import net.kourlas.voipms_sms.preferences.readAccountCredentials
+import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.workers.accountKey
 
 internal data class CallFeedItem(val id: String, val did: String, val peer: String, val receivedAt: Long,
@@ -25,28 +27,34 @@ internal data class CallFeedItem(val id: String, val did: String, val peer: Stri
 }
 
 internal object CallFeedStore {
-    private class Storage(context: Context) : SQLiteOpenHelper(context, "call_trail.db",null,2) {
+    private const val INDEX_THREAD = "CREATE INDEX events_thread ON events(account,did,peer,receivedAt DESC,id)"
+    private class Storage(context: Context) : SQLiteOpenHelper(context, "call_trail.db",null,3) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE events(account TEXT,id TEXT,did TEXT,peer TEXT,receivedAt INTEGER,voicemail INTEGER,mailbox TEXT,folder TEXT,slot TEXT,caller TEXT,providerDate TEXT,mailboxLines TEXT NOT NULL DEFAULT '',PRIMARY KEY(account,id))")
             db.execSQL("CREATE INDEX events_date ON events(account,receivedAt DESC)")
+            db.execSQL(INDEX_THREAD)
             db.execSQL("CREATE TABLE checkpoints(account TEXT,source TEXT,time INTEGER,PRIMARY KEY(account,source))")
         }
         override fun onUpgrade(db: SQLiteDatabase,oldVersion: Int,newVersion: Int) {
             if (oldVersion < 2) db.execSQL("ALTER TABLE events ADD COLUMN mailboxLines TEXT NOT NULL DEFAULT ''")
+            if (oldVersion < 3) db.execSQL(INDEX_THREAD)
         }
     }
     private var storage: Storage? = null
     private val revision = MutableStateFlow(0L)
     @Synchronized private fun db(context: Context) = (storage ?: Storage(context.applicationContext).also { storage=it }).writableDatabase
-    fun observe(context: Context): Flow<List<CallFeedItem>> = revision.map {
+    fun observe(context: Context, thread: ConversationId? = null): Flow<List<CallFeedItem>> = revision.map {
         val account = readAccountCredentials(context)?.takeIf { it.configured } ?: return@map emptyList()
-        db(context).rawQuery("SELECT id,did,peer,receivedAt,voicemail,mailbox,folder,slot,caller,providerDate,mailboxLines FROM events WHERE account=? ORDER BY receivedAt DESC,id",
-            arrayOf(accountKey(account.email))).use { c -> buildList {
+        val accountId = accountKey(account.email)
+        val where = if (thread == null) "account=?" else "account=? AND did=? AND peer=?"
+        val args = if (thread == null) arrayOf(accountId) else arrayOf(accountId, thread.did, thread.contact)
+        db(context).rawQuery("SELECT id,did,peer,receivedAt,voicemail,mailbox,folder,slot,caller,providerDate,mailboxLines " +
+            "FROM events WHERE $where ORDER BY receivedAt DESC,id", args).use { c -> buildList {
                 while (c.moveToNext()) add(CallFeedItem(c.getString(0),c.getString(1),c.getString(2),c.getLong(3),c.getInt(4)!=0,
                     c.getString(5),c.getString(6),c.getString(7),c.getString(8),c.getString(9),
                     c.getString(10).split(',').filter(String::isNotEmpty).toSet()))
             } }
-    }.flowOn(Dispatchers.IO)
+    }.distinctUntilChanged().flowOn(Dispatchers.IO)
 
     fun last(context: Context, account: String, source: String) = db(context).rawQuery(
         "SELECT time FROM checkpoints WHERE account=? AND source=?",arrayOf(account,source)).use { if(it.moveToFirst()) it.getLong(0) else 0L }

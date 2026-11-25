@@ -251,6 +251,20 @@ class DatabaseImportTest {
     }
 
     @Test
+    fun wrongRoomIdentityRestoresOriginalDatabase() = runBlocking {
+        insertMessages(1)
+        val exported = exportDatabase()
+        SQLiteDatabase.openDatabase(exported.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            it.execSQL("UPDATE room_master_table SET identity_hash = 'unknown' WHERE id = 42")
+        }
+        insertMessages(2)
+        assertThrows(IllegalStateException::class.java) { runBlocking { importFile(exported) } }
+        assertEquals(3, messageCount())
+        insertMessages(1)
+        assertEquals(4, messageCount())
+    }
+
+    @Test
     fun importRejectsUnexpectedTriggerIncludingOneUsingAnExpectedName() = runBlocking {
         insertMessages(2)
         val exported = exportDatabase()

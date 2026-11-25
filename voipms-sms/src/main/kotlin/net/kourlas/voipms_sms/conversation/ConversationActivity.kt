@@ -468,7 +468,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         if (!BuildConfig.IS_DEMO) callFeedObservation = lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 net.kourlas.voipms_sms.delivery.CallFeedSync.refresh(applicationContext)
-                net.kourlas.voipms_sms.delivery.CallFeedStore.observe(applicationContext).collect { adapter.updateCalls(it) }
+                net.kourlas.voipms_sms.delivery.CallFeedStore.observe(applicationContext, conversationId).collect { adapter.updateCalls(it) }
             }
         }
         recyclerView.addOnScrollListener(object :
