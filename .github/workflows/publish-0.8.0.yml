@@ -1,0 +1,24 @@
+name: Check SMS 0.8.0 signing setup
+on:
+  push:
+    branches: [release/publish-0.8.0]
+
+permissions: {}
+jobs:
+  configured:
+    if: github.repository == 'tailscale-signin/voipms-sms-client'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check availability of the repository's Android signing inputs
+        env:
+          HAS_STORE: ${{ secrets.VOIPMS_SMS_KEYSTORE_BASE64 != '' || secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+          HAS_PASSWORD: ${{ secrets.VOIPMS_SMS_KEYSTORE_PASSWORD != '' || secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
+        run: |
+          if [[ "$HAS_STORE" == true && "$HAS_PASSWORD" == true ]]; then
+            echo 'The Android release keystore and password are configured for repository signing.'
+          else
+            echo "Release-keystore secret configured: $HAS_STORE"
+            echo "Keystore-password secret configured: $HAS_PASSWORD"
+            echo 'A maintainer-signed APK can also be published after verifying its certificate and master build.'
+          fi
