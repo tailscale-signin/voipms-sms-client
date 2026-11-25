@@ -69,6 +69,7 @@ internal class MessageSynchronization(
 
     // One synchronization instance represents one provider pass, including any number of retrieval windows.
     private var appliedMessages: Long? = null
+    private var superseded = false
     private var failureCause: Exception? = null
 
     suspend fun run(retryOnTransient: Boolean = false) {
@@ -83,6 +84,7 @@ internal class MessageSynchronization(
                 handleSync(trace)
             }
             val outcome = when {
+                superseded -> DiagnosticStep.SUPERSEDED
                 transientFailure && retryOnTransient -> DiagnosticStep.RETRY
                 error != null -> DiagnosticStep.FAILED
                 appliedMessages == null -> DiagnosticStep.SKIPPED
@@ -136,7 +138,10 @@ internal class MessageSynchronization(
                 error = applicationContext.getString(R.string.credentials_storage_unavailable)
                 return
             }
-            if (expectedAccountGeneration != null && credentials.generation != expectedAccountGeneration) return
+            if (expectedAccountGeneration != null && credentials.generation != expectedAccountGeneration) {
+                superseded = true
+                return
+            }
             if (!credentials.configured) {
                 if (!forceRecent) {
                     error = applicationContext.getString(
@@ -220,7 +225,10 @@ internal class MessageSynchronization(
             ensureActive()
             if (request.did in rejectedDids) continue
             val current = readAccountCredentials(applicationContext) ?: throw IOException("Account storage unavailable")
-            if (current.generation != credentials.generation) return@coroutineScope
+            if (current.generation != credentials.generation) {
+                superseded = true
+                return@coroutineScope
+            }
             if (request.did !in getDids(applicationContext, onlyRetrieveMessages = true)) continue
             val response = try {
                 httpPostWithMultipartFormData<MessagesResponse>(
@@ -299,7 +307,10 @@ internal class MessageSynchronization(
                         }
                         true
                     }
-                    if (applied != true) return@coroutineScope
+                    if (applied != true) {
+                        superseded = true
+                        return@coroutineScope
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: IOException) {

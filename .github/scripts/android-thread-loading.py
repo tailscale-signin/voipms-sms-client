@@ -1,7 +1,7 @@
 """Check recipient changes and search spans in a real Android conversation."""
 
 
-def run(adb, element, fixture):
+def run(adb, element, fixture, export_filtered_thread):
     package = fixture["PACKAGE"]
     did = fixture["DID"]
     editor = f"{package}:id/message_edit_text"
@@ -34,6 +34,7 @@ def run(adb, element, fixture):
     adb("shell", "input", "text", "z")
     # U+0130 lowercases to two code units in English. The span for z must still fit the source.
     element("text", "İz")
+    export_filtered_thread(adb, element, fixture)
     fixture["launch_home"](adb)
     element("text", "Call activity")
     element("text", "Messages", tap=True)

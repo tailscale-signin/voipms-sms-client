@@ -39,6 +39,7 @@ import com.google.android.material.snackbar.Snackbar
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DiffUtil
 import kotlinx.coroutines.CancellationException
@@ -91,10 +92,15 @@ class ConversationsRecyclerViewAdapter<T>(
 
     private var currConstraint = ""
     private var requestedConstraint = ""
+
+    init {
+        // A generic layout-manager position has no account, folder or privacy scope.
+        stateRestorationPolicy = StateRestorationPolicy.PREVENT
+    }
     private var privateView = false
     private var showOther = false
 
-    private data class Selection(val account: Long, val dids: Set<String>, val query: String, val private: Boolean, val other: Boolean)
+    private val scroll = ViewModelProvider(activity)[InboxScrollPosition::class.java]
     private val state = InboxLoadState()
     private var visible = false
     private var firstSync = false
@@ -103,7 +109,7 @@ class ConversationsRecyclerViewAdapter<T>(
         firstSync = active
         renderStatus()
     }
-    private var published: Selection? = null
+    private var published: InboxSelection? = null
     private var errorBar: Snackbar? = null
     private var refreshJob: Job? = null
     private val loader = Dispatchers.IO.limitedParallelism(1)
@@ -111,12 +117,23 @@ class ConversationsRecyclerViewAdapter<T>(
     fun switchPrivateView(open: Boolean) {
         if (open == privateView) return
         privateView = open
+        scroll.clear()
         requestedConstraint = ""
         clearRows()
         refresh()
     }
 
     fun hide() {
+        if (visible && !privateView) {
+            val scope = published
+            val index = layoutManager.findFirstVisibleItemPosition()
+            val row = conversationItems.getOrNull(index)
+            val view = if (row != null) layoutManager.findViewByPosition(index) else null
+            if (scope != null && row != null && view != null) {
+                scroll.remember(scope, InboxScrollPosition.Anchor(row.message.conversationId, index,
+                    layoutManager.getDecoratedTop(view) - recyclerView.paddingTop))
+            }
+        }
         visible = false
         state.hide()
         refreshJob?.cancel()
@@ -552,12 +569,12 @@ class ConversationsRecyclerViewAdapter<T>(
     override fun iterator(): Iterator<ConversationItem> =
         conversationItems.iterator()
 
-    private fun selection(): Selection {
+    private fun selection(): InboxSelection {
         val account = requireNotNull(readAccountCredentials(activity)).generation
         val configured = getDids(activity, onlyShowInConversationsView = true)
         val activeDid = getActiveDid(activity)
         val dids = if (activeDid.isEmpty()) configured.toSet() else configured.intersect(setOf(activeDid))
-        return Selection(account, dids, requestedConstraint, privateView, showOther)
+        return InboxSelection(account, dids, requestedConstraint, privateView, showOther)
     }
 
     fun refresh(constraint: String = requestedConstraint, retry: Boolean = false) {
@@ -570,10 +587,13 @@ class ConversationsRecyclerViewAdapter<T>(
         errorBar?.dismiss()
         errorBar = null
         refreshJob = activity.lifecycleScope.launch {
-            var target: Selection? = null
+            var target: InboxSelection? = null
             try {
                 target = selection()
-                if (target != published) clearRows()
+                if (target != published) {
+                    clearRows()
+                    layoutManager.scrollToPositionWithOffset(0, 0)
+                }
                 trace.step(DiagnosticStep.LOADING)
                 renderStatus()
                 trace.step(DiagnosticStep.QUERYING)
@@ -602,6 +622,13 @@ class ConversationsRecyclerViewAdapter<T>(
                 published = target
                 trace.step(DiagnosticStep.RENDERING)
                 publishRows(rows, diff)
+                scroll.take(target)?.let { anchor ->
+                    if (rows.isNotEmpty()) {
+                        val at = rows.indexOfFirst { it.message.conversationId == anchor.id }
+                        layoutManager.scrollToPositionWithOffset(
+                            if (at >= 0) at else anchor.index.coerceIn(rows.indices), anchor.offset)
+                    }
+                }
                 state.finish(request, true)
                 renderStatus()
                 trace.step(if (itemCount == 0) DiagnosticStep.EMPTY else DiagnosticStep.COMPLETED, count = itemCount.toLong())
@@ -669,10 +696,7 @@ class ConversationsRecyclerViewAdapter<T>(
         val switched = !visible || showOther != other
         visible = true
         showOther = other
-        if (switched) {
-            refresh()
-            layoutManager.scrollToPositionWithOffset(0, 0)
-        }
+        if (switched) refresh()
     }
 
     private fun diffRows(old: List<InboxRow>, rows: List<InboxRow>, searchChanged: Boolean) =

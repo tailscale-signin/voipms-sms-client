@@ -56,6 +56,9 @@ jobs:
       - name: Lint with Gradle
         id: lint
         run: ./gradlew lintPrimaryFullRelease
+      - name: Record the unsigned master APK digest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: sha256sum voipms-sms/build/outputs/apk/primaryFull/release/*-unsigned.apk
       - name: Preserve the verified master release APK for signing
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/upload-artifact@v7

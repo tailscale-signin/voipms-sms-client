@@ -1,11 +1,8 @@
-### Unreleased ###
+### 0.8.0 ###
 
 * Messages and individual conversations show loading progress and offer a retry after a read failure. Rapid tab changes and incoming thread intents cancel obsolete loads.
 * Diagnose loading, sync and file transfers with an optional local debug log. Export a timestamped report from Database settings.
 * Export a complete SMS thread to a chosen file. Portable backup exports read message history in pages.
-
-### 0.8.0 ###
-
 * Tap a phone number to save a name in the encrypted app address book. Reuse that name in conversations, call history and the new-message picker. Encrypted portable backups can restore individual contacts.
 * Send VoIP.ms SMS over Wi-Fi and queue messages through a loss of connectivity. Link a Matrix account for encrypted direct or group chat, attachments, typing indicators and receipts. Use Nearby to exchange messages over Wi-Fi Direct after confirming both devices.
 * Open a draft in the phone’s carrier messaging app when you want to use your mobile line. That app handles RCS availability.

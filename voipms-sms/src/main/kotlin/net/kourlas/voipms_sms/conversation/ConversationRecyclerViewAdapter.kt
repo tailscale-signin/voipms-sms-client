@@ -36,6 +36,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.QuickContactBadge
 import android.widget.TextView
+import com.google.android.material.snackbar.Snackbar
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import net.kourlas.voipms_sms.delivery.CallFeedItem
@@ -89,6 +90,13 @@ class ConversationRecyclerViewAdapter(
     Iterable<ConversationRecyclerViewAdapter.MessageItem>,
     FastScroller.SectionTitleProvider {
 
+    init {
+        // Optional call/chat feeds may arrive before the saved SMS viewport can be restored.
+        stateRestorationPolicy = StateRestorationPolicy.PREVENT
+    }
+
+    private var retrySnackbar: Snackbar? = null
+
     // List of items shown by the adapter; the index of each item
     // corresponds to the location of each item in the adapter.
     private val _messageItems = mutableListOf<MessageItem>()
@@ -135,7 +143,7 @@ class ConversationRecyclerViewAdapter(
 
     private fun renderTimeline(filterChanged: Boolean = false) {
         val previous = timeline
-        val atBottom = previous.isEmpty() || !recyclerView.canScrollVertically(1)
+        val atBottom = previous.isNotEmpty() && !recyclerView.canScrollVertically(1)
         val bounds = messageItems.map { it.message.date.time }
         val oldest = if (showAnchor || currLimit < maxLimit) bounds.minOrNull() ?: Long.MIN_VALUE else Long.MIN_VALUE
         val newest = if (showAnchor) bounds.maxOrNull() ?: Long.MAX_VALUE else Long.MAX_VALUE
@@ -571,6 +579,8 @@ class ConversationRecyclerViewAdapter(
     private fun load(paging: Boolean) {
         val request = ++revision
         loadJob?.cancel()
+        retrySnackbar?.dismiss()
+        retrySnackbar = null
         loadingMoreItems = true
         val query = requestedConstraint
         val limit = currLimit
@@ -597,6 +607,7 @@ class ConversationRecyclerViewAdapter(
                 _messageItems.clear()
                 page.messages.mapTo(_messageItems) { MessageItem(it, it.databaseId in checked) }
                 renderTimeline(changed)
+                stateRestorationPolicy = StateRestorationPolicy.ALLOW
                 if (showAnchor && !positionedAnchor) {
                     val at = timeline.indexOfFirst { it is TextRow && it.item.message.databaseId == anchorId }
                     if (at >= 0) {
@@ -612,13 +623,13 @@ class ConversationRecyclerViewAdapter(
                 trace.step(DiagnosticStep.FAILED, error = e)
                 if (request == revision && recyclerView.adapter === this@ConversationRecyclerViewAdapter && !activity.isFinishing) {
                     if (timeline.isEmpty()) activity.findViewById<TextView>(R.id.empty_text).setText(R.string.thread_loading_failed)
-                    showSnackbar(activity, R.id.coordinator_layout, activity.getString(R.string.thread_loading_failed),
+                    retrySnackbar = showSnackbar(activity, R.id.coordinator_layout, activity.getString(R.string.thread_loading_failed),
                         activity.getString(R.string.inbox_load_retry), View.OnClickListener {
                             if (recyclerView.adapter === this@ConversationRecyclerViewAdapter) {
                                 trace.step(DiagnosticStep.RETRY)
                                 refresh()
                             }
-                        })
+                        }, if (timeline.isEmpty()) Snackbar.LENGTH_INDEFINITE else Snackbar.LENGTH_LONG)
                 }
             } finally {
                 if (request == revision) loadingMoreItems = false
@@ -628,6 +639,8 @@ class ConversationRecyclerViewAdapter(
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         loadJob?.cancel()
+        retrySnackbar?.dismiss()
+        retrySnackbar = null
         super.onDetachedFromRecyclerView(recyclerView)
     }
 

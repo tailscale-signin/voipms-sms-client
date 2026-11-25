@@ -126,7 +126,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
         if (key != null && !key.startsWith("since_") && ::adapter.isInitialized) adapter.refresh()
     }
     private val privacyListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        if (::adapter.isInitialized) adapter.invalidatePrivacy()
+        if (::adapter.isInitialized) {
+            actionMode?.finish()
+            adapter.invalidatePrivacy()
+        }
     }
     private val messageBack = MessageBackCallback()
     private var actionMode: ActionMode?
@@ -157,8 +160,11 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private val vaultBack = object : androidx.activity.OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = closePrivateInbox()
     }
-    private var unlockScope: Pair<Long, String>? = null
-    private fun currentUnlockScope() = readAccountCredentials(this)?.generation?.let { it to getActiveDid(this) }
+    private data class UnlockScope(val account: Long, val activeLine: String, val visibleLines: Set<String>)
+    private var unlockScope: UnlockScope? = null
+    private fun currentUnlockScope() = readAccountCredentials(this)?.generation?.let {
+        UnlockScope(it, getActiveDid(this), getDids(this, onlyShowInConversationsView = true).toSet())
+    }
     private val unlockInbox = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
         val requested = unlockScope
         unlockScope = null
@@ -169,6 +175,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
             vaultBack.isEnabled = true
             supportActionBar?.subtitle = getString(R.string.private_threads)
             adapter.switchPrivateView(true)
+            clearInboxSearch()
             invalidateOptionsMenu()
         }
     }
@@ -193,8 +200,15 @@ open class ConversationsActivity(val archived: Boolean = false) :
         actionMode?.finish()
         supportActionBar?.subtitle = null
         adapter.switchPrivateView(false)
+        clearInboxSearch()
         invalidateOptionsMenu()
         // Keep this Activity's recents snapshot protected until the Activity is recreated.
+    }
+
+    private fun clearInboxSearch() {
+        val item = inboxSearchItem ?: return
+        (item.actionView as? SearchView)?.setQuery("", false)
+        if (item.isActionViewExpanded) item.collapseActionView()
     }
 
     override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
@@ -333,6 +347,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        if (privateInbox) clearInboxSearch()
         outState.putString("inbox_tab", selectedTab.name)
         super.onSaveInstanceState(outState)
     }
@@ -349,6 +364,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
         setIntent(intent)
         unlockScope = null
         if (!archived) tabForIntent(intent)?.let { tab ->
+            closePrivateInbox()
             findViewById<TabLayout>(R.id.inbox_tabs).getTabAt(tab.ordinal)?.select()
         }
     }

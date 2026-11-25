@@ -77,10 +77,59 @@ def assert_messages_settled(adb, fixture):
     raise AssertionError("Messages did not settle with the expected conversation and folder contents")
 
 
-def exported_files(adb):
-    # Files created in the emulator's local DocumentsUI roots are under shared storage.
-    listing = adb("shell", "find /storage/emulated/0 -maxdepth 5 -type f -name 'voipms-sms-debug-*' 2>/dev/null; true")
-    return set(listing.splitlines())
+def exported_files(adb, pattern):
+    # Both test destinations are local DocumentsUI roots under the emulator's shared storage.
+    command = "find /storage/emulated/0 -maxdepth 5 -type f -name " + shlex.quote(pattern)
+    return set(adb("shell", command + " 2>/dev/null; true").splitlines())
+
+
+def save_system_document(adb, element, pattern):
+    element("package", ("com.android.documentsui", "com.google.android.documentsui"))
+    before = exported_files(adb, pattern)
+    element("text", ("Save", "SAVE"), tap=True)
+    deadline = time.monotonic() + 15
+    previous = None
+    while time.monotonic() < deadline:
+        created = exported_files(adb, pattern) - before
+        if len(created) == 1:
+            contents = adb("exec-out", "cat", shlex.quote(next(iter(created))))
+            if contents and contents == previous:
+                return contents
+            previous = contents
+        time.sleep(.3)
+    raise AssertionError("The system document picker did not save " + pattern)
+
+
+def expected_history(fixture):
+    return [(107, "İz"), (101, "Are we still meeting at ten tomorrow?"),
+            (104, f"Your verification code is {fixture['CODE']}."),
+            (102, "Yes, ten works for me."), (103, fixture["LAST_MESSAGE"])]
+
+
+def check_history(contents, fixture):
+    rows = json.loads(contents)["messages"]
+    if [(r["voipId"], r["text"]) for r in rows] != expected_history(fixture):
+        raise AssertionError("The JSON export does not match the complete seeded history")
+    if not all(r["did"] == fixture["DID"] and r["contact"] == fixture["CONTACT"] for r in rows):
+        raise AssertionError("The JSON export includes another recipient or receiving line")
+    order = [(datetime.fromisoformat(r["date"].replace("Z", "+00:00")), r["databaseId"]) for r in rows]
+    if order != sorted(order) or len(set(order)) != len(rows) or order[0][0] != order[1][0]:
+        raise AssertionError("Messages with equal timestamps must retain their database order")
+
+
+def export_filtered_thread(adb, element, fixture):
+    if "mInputShown=true" in adb("shell", "dumpsys", "input_method"):
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    element("resource-id", fixture["PACKAGE"] + ":id/search_src_text", expected_text="z")
+    element("text", "İz")
+    if any(n.get("text") == fixture["LAST_MESSAGE"] for n in fixture["read_tree"](adb).iter("node")):
+        raise AssertionError("The conversation must be filtered before exporting its full history")
+    element("content-desc", "More options", tap=True)
+    element("text", "Export", tap=True)
+    element("text", ("Save JSON to file", "SAVE JSON TO FILE"), tap=True)
+    check_history(save_system_document(adb, element, "sms-history*.json"), fixture)
+    element("resource-id", fixture["PACKAGE"] + ":id/search_src_text", expected_text="z")
+    print("SAF saved every message from the filtered conversation in chronological order", flush=True)
 
 
 def check_export(contents, fixture):
@@ -90,6 +139,7 @@ def check_export(contents, fixture):
     allowed = {"type", "time", "session", "uptimeMs", "action", "stage", "operation", "count", "elapsedMs", "error"}
     stages = set()
     operations = {}
+    exported = set()
     for event in records[1:]:
         if event.get("type") != "event" or set(event) - allowed:
             raise AssertionError("Unexpected diagnostic record or unreviewed field")
@@ -105,12 +155,17 @@ def check_export(contents, fixture):
         if event.get("operation") is not None:
             operation = UUID(event["operation"])
             operations.setdefault((event["action"], operation), []).append(event["stage"])
+            if (event["action"], event["stage"], event.get("count")) == ("THREAD_EXPORT", "COMPLETED", len(expected_history(fixture))):
+                exported.add(operation)
         stages.add((event["action"], event["stage"]))
     for action in ("INBOX_LOAD", "THREAD_LOAD"):
         phases = ("QUERYING", "RENDERING", "COMPLETED")
         if not any(key[0] == action and tuple(s for s in steps if s in phases) == phases
                    for key, steps in operations.items()):
             raise AssertionError("Missing completed operation for " + action)
+    phases = ("PICKER_OPENED", "PICKER_RETURNED", "QUERYING", "SNAPSHOT", "WRITING", "VERIFYING", "COMPLETED")
+    if not any(tuple(s for s in operations[("THREAD_EXPORT", op)] if s in phases) == phases for op in exported):
+        raise AssertionError("Missing the verified conversation JSON export and its message count")
     if not {("NAVIGATION", "MESSAGES"), ("DEBUG_EXPORT", "WRITING")} <= stages:
         raise AssertionError("Missing navigation or document-writing diagnostics")
     secrets = [fixture[k] for k in ("FIXTURE_EMAIL", "DID", "CONTACT", "PRIVATE_PEER",
@@ -144,28 +199,12 @@ def run(adb, element, fixture):
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     assert_messages_settled(adb, fixture)
     thread = runpy.run_path(Path(__file__).with_name("android-thread-loading.py"))
-    thread["run"](adb, element, fixture)
+    thread["run"](adb, element, fixture, export_filtered_thread)
 
     open_database_settings(adb, element, fixture)
     reveal_setting(adb, fixture, "Export debug log")
-    before = exported_files(adb)
     element("text", "Export debug log", tap=True)
-    element("package", ("com.android.documentsui", "com.google.android.documentsui"))
-    element("text", ("Save", "SAVE"), tap=True)
-    deadline = time.monotonic() + 15
-    previous = None
-    while time.monotonic() < deadline:
-        created = exported_files(adb) - before
-        if len(created) == 1:
-            path = next(iter(created))
-            contents = adb("exec-out", "cat", shlex.quote(path))
-            if contents and contents == previous:
-                check_export(contents, fixture)
-                break
-            previous = contents
-        time.sleep(.3)
-    else:
-        raise AssertionError("The system document picker did not save the debug report")
+    check_export(save_system_document(adb, element, "voipms-sms-debug-*"), fixture)
 
     toggle_debug(adb, element, fixture, False)
     assert_journal_cleared(adb, fixture["PACKAGE"])

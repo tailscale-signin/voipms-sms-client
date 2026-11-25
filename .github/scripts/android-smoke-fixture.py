@@ -83,7 +83,8 @@ def install_fixture(adb):
             now = int(time.time())
             messages = [
                 (106, now - 90, 1, DID, PRIVATE_PEER, PRIVATE_TEXT),
-                (107, now - 400, 1, DID, CONTACT, "İz"),
+                # Equal timestamps exercise the DatabaseId tie-breaker in JSON exports.
+                (107, now - 320, 1, DID, CONTACT, "İz"),
                 (101, now - 320, 1, DID, CONTACT, "Are we still meeting at ten tomorrow?"),
                 (104, now - 200, 1, DID, CONTACT, f"Your verification code is {CODE}."),
                 (105, now - 180, 1, DID, "6475550123", JUNK),

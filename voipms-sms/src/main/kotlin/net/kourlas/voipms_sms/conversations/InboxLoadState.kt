@@ -1,5 +1,28 @@
 package net.kourlas.voipms_sms.conversations
 
+import androidx.lifecycle.ViewModel
+import net.kourlas.voipms_sms.sms.ConversationId
+
+internal data class InboxSelection(val account: Long, val dids: Set<String>, val query: String, val private: Boolean, val other: Boolean)
+
+/** Retain a public scroll anchor in memory across a thread visit or rotation. Never save it to the instance-state bundle. */
+internal class InboxScrollPosition : ViewModel() {
+    data class Anchor(val id: ConversationId, val index: Int, val offset: Int)
+    private var saved: Pair<InboxSelection, Anchor>? = null
+
+    fun remember(scope: InboxSelection, anchor: Anchor) {
+        saved = if (scope.private) null else scope to anchor
+    }
+
+    fun take(scope: InboxSelection): Anchor? {
+        val entry = saved
+        saved = null
+        return entry?.takeIf { it.first == scope && !scope.private }?.second
+    }
+
+    fun clear() { saved = null }
+}
+
 internal enum class InboxPhase { HIDDEN, LOADING, READY, FAILED }
 
 /** Monotonically identifies requests, including two refreshes of the same folder. Main-thread only. */
