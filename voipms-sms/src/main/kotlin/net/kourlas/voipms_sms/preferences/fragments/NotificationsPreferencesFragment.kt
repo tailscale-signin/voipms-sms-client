@@ -73,6 +73,8 @@ class NotificationsPreferencesFragment : PreferenceFragmentCompat(),
             // Add preferences
             addPreferencesFromResource(R.xml.preferences_notifications)
 
+            net.kourlas.voipms_sms.privacy.CodePrivacy.addSettings(this)
+
             // Add listener for preference changes
             preferenceScreen
                 .sharedPreferences

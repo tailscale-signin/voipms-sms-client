@@ -36,6 +36,8 @@
 
     <FrameLayout
         android:id="@+id/preference_fragment_content"
+        android:paddingStart="@dimen/settings_gutter"
+        android:paddingEnd="@dimen/settings_gutter"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />

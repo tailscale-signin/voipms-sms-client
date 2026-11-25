@@ -21,12 +21,16 @@
     <dimen name="double_margin">32dp</dimen>
     <dimen name="quadruple_margin">64dp</dimen>
     <dimen name="sms_container_padding">12dp</dimen>
+    <dimen name="inbox_tab_text_size">14sp</dimen>
+    <dimen name="inbox_gutter">12dp</dimen>
+    <dimen name="thread_gutter">12dp</dimen>
+    <dimen name="settings_gutter">0dp</dimen>
     <dimen name="conversation_item_margin_top_primary">16dp</dimen>
     <dimen name="conversation_item_margin_top_secondary">2dp</dimen>
     <dimen name="contact_badge">40dp</dimen>
     <dimen name="adaptive_icon_drawable_outer">108dp</dimen>
     <dimen name="adaptive_icon_drawable_inner">72dp</dimen>
-    <dimen name="send_message_elevation">4dp</dimen>
+    <dimen name="send_message_elevation">2dp</dimen>
     <dimen name="toolbar_left_margin">72dp</dimen>
 
     <!-- Fast scroller -->

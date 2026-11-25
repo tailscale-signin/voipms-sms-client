@@ -49,3 +49,11 @@ The relay writes no application request logs. Cloud Run infrastructure request l
 To run the local HTTP and FCM contract tests using Node.js 24, run `node --test relay/server.test.mjs`. They use dummy numbers and simulated Google responses.
 
 [VoIP.ms SMS/MMS callbacks](https://wiki.voip.ms/article/SMS-MMS) · [Cloud Run source deployments](https://cloud.google.com/run/docs/deploying-source-code) · [Cloud Run service identity](https://cloud.google.com/run/docs/securing/service-identity) · [Firebase HTTP v1 messaging](https://firebase.google.com/docs/cloud-messaging/send/v1-api)
+
+### UnifiedPush and delivery tests
+
+The same DID-only callback can wake the F-Droid or primary app through a UnifiedPush distributor. On the phone, open **Settings → Synchronization → Google-free push**, select the receiving line, and register an installed distributor such as ntfy. Reopen that setting and select **Copy private relay subscription**. This copies a JSON map from the ten-digit DID to a list of Web Push subscriptions. Configure the relay environment variable `UNIFIEDPUSH_SUBSCRIPTIONS` with this map. For multiple phones, add their subscriptions to the same line's list. The map contains secret endpoint information. Replace a subscription on the relay after changing distributors or devices and remove it after disconnecting.
+
+Configure `ALLOWED_DIDS` and the VoIP.ms HTTPS callback as above. A UnifiedPush-only deployment can omit `FIREBASE_PROJECT_ID` when every allowed DID has a subscription. For both transports, configure both variables. The relay encrypts UnifiedPush wake-ups with each subscription's keys and only includes the event and callback time. It returns an error when forwarding fails, allowing the provider to retry. Repeated wake-ups reconcile the same provider history. To run outside Docker, use Node 24 and run `npm ci --omit=dev` in the relay directory first.
+
+Open **Test live delivery**, send the displayed code to the selected line from another phone, and lock the receiving phone. Reopen the test and refresh. Relay and phone-wake times describe the most recent push for that line during the test. The save and notification stages are tied to the matching test SMS and conversation. A test retrieved by the periodic worker displays **Scheduled catch-up**.

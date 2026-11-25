@@ -36,6 +36,7 @@
         <item name="colorOnBackground">@color/on_surface</item>
         <item name="appBarLayoutStyle">@style/AppBar</item>
         <item name="colorError">@color/send_error</item>
+        <item name="materialButtonStyle">@style/SmsButton</item>
 
         <item name="android:fontFamily">@font/sms_font</item>
         <item name="fontFamily">@font/sms_font</item>
@@ -64,7 +65,8 @@
     </style>
 
     <style name="AppBar" parent="Widget.MaterialComponents.AppBarLayout.PrimarySurface">
-        <item name="android:background">@drawable/sms_toolbar_surface</item>
+        <item name="android:background">@color/toolbar_background</item>
+        <item name="elevation">0dp</item>
     </style>
 
     <style name="ToolbarTheme" parent="ThemeOverlay.AppCompat.DayNight.ActionBar">
@@ -105,6 +107,7 @@
         <item name="android:letterSpacing">0</item>
     </style>
     <style name="SmsToolbar" parent="Widget.AppCompat.Toolbar">
+        <item name="android:minHeight">56dp</item>
         <item name="titleTextAppearance">@style/ToolbarTitle</item>
         <item name="subtitleTextAppearance">@style/Caption</item>
     </style>
@@ -113,11 +116,24 @@
         <item name="fontFamily">@font/proxima_nova_bold</item>
         <item name="android:fontFamily">@font/proxima_nova_bold</item>
         <item name="android:textStyle">bold</item>
+        <item name="android:textSize">21sp</item>
     </style>
 
     <style name="ButtonLabel" parent="TextAppearance.MaterialComponents.Button">
         <item name="fontFamily">@font/proxima_nova_medium</item>
         <item name="android:fontFamily">@font/proxima_nova_medium</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="InboxTabLabel" parent="@style/ButtonLabel">
+        <item name="android:textSize">@dimen/inbox_tab_text_size</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="SmsButton" parent="Widget.MaterialComponents.Button">
+        <item name="cornerRadius">15dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textAppearance">@style/ButtonLabel</item>
         <item name="android:textAllCaps">false</item>
     </style>
 

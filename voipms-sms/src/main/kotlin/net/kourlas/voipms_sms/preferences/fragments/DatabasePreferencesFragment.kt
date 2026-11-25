@@ -49,6 +49,7 @@ private const val TAG = "DatabasePrefsFragment"
  * Fragment used to display the database preferences.
  */
 class DatabasePreferencesFragment : PreferenceFragmentCompat() {
+    private val portable = net.kourlas.voipms_sms.privacy.BackupPreferences(this)
     // Preference activity launchers
     private val importActivityResultLauncher =
         registerForActivityResult(
@@ -78,7 +79,7 @@ class DatabasePreferencesFragment : PreferenceFragmentCompat() {
             }
         }) {
             if (it != null) {
-                export(it)
+                protectRawExport(it)
             }
         }
 
@@ -88,6 +89,7 @@ class DatabasePreferencesFragment : PreferenceFragmentCompat() {
     ) {
         // Add preferences
         addPreferencesFromResource(R.xml.preferences_database)
+        portable.attach()
 
         // Assign listeners to preferences
         for (preference in preferenceScreen.preferences) {
@@ -207,6 +209,28 @@ class DatabasePreferencesFragment : PreferenceFragmentCompat() {
     /**
      * Exports the database to the specified URI.
      */
+    private var pendingRawExport: Uri? = null
+    private val verifyRawExport = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = pendingRawExport
+        pendingRawExport = null
+        if (result.resultCode == android.app.Activity.RESULT_OK && uri != null) export(uri)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun protectRawExport(uri: Uri) {
+        if (!net.kourlas.voipms_sms.privacy.PrivateThreads.hasPrivate(requireContext())) {
+            export(uri)
+            return
+        }
+        val manager = requireContext().getSystemService(android.app.KeyguardManager::class.java)
+        val proof = manager.createConfirmDeviceCredentialIntent(getString(R.string.private_threads),
+            getString(R.string.backup_legacy_private))
+        if (proof != null) {
+            pendingRawExport = uri
+            verifyRawExport.launch(proof)
+        }
+    }
+
     private fun export(uri: Uri) {
         activity?.let {
             CustomApplication.getApplication().applicationScope.launch(

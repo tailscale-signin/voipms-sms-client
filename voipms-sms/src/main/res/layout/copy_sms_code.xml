@@ -2,7 +2,7 @@
 <com.google.android.material.button.MaterialButton xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/copy_sms_code"
-    style="@style/Widget.MaterialComponents.Button"
+    style="@style/SmsButton"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:minHeight="48dp"
@@ -11,6 +11,7 @@
     android:textColor="@color/colorOnPrimary"
     android:visibility="gone"
     app:backgroundTint="@color/primary"
-    app:cornerRadius="16dp"
+    app:cornerRadius="12dp"
+    app:iconSize="18dp"
     app:icon="@drawable/ic_content_copy_toolbar_24dp"
     app:iconTint="@color/colorOnPrimary" />

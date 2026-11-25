@@ -32,6 +32,8 @@
         android:key="push_registration_results"
         android:persistent="false"
         android:title="@string/push_delivery_title" />
+    <androidx.preference.Preference android:key="delivery_trace" android:title="@string/delivery_test_title" android:icon="@drawable/ic_sync_settings_24dp" />
+    <androidx.preference.Preference android:key="unified_push" android:title="@string/delivery_google_free" android:icon="@drawable/ic_message_settings_24dp" />
     <androidx.preference.ListPreference
         android:defaultValue="@string/preferences_sync_interval_default_value"
         android:entries="@array/preferences_sync_interval_entries"

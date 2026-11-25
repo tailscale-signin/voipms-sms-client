@@ -1,0 +1,88 @@
+<resources>
+    <string name="private_lock">Make thread private</string>
+    <string name="private_unlock">Remove thread lock</string>
+    <string name="private_threads">Private threads</string>
+    <string name="private_no_credential">Set a device screen lock before making a thread private.</string>
+    <string name="private_scope">Require your screen lock to read this thread. At the top of Messages, pull down past the refresh distance to open private threads. Repeat to return. Hide this thread from search, notifications, screenshots and sharing shortcuts. Existing exports, provider history and independently connected devices keep their own copies.</string>
+    <string name="private_remove_notice">Show this conversation in the inbox and allow new notifications and sharing shortcuts?</string>
+    <string name="private_empty">No private threads. Open a conversation and choose Make thread private.</string>
+    <string name="spam_rules">Junk rules</string>
+    <string name="spam_add_phrase">Add a phrase</string>
+    <string name="spam_phrase">Phrase (3 or more characters)</string>
+    <string name="spam_preview">Preview matches</string>
+    <plurals name="spam_preview_count">
+        <item quantity="one">%1$d additional conversation would move to Other for “%2$s”. Previous replies, contacts and manual folder choices take precedence.</item>
+        <item quantity="other">%1$d additional conversations would move to Other for “%2$s”. Previous replies, contacts and manual folder choices take precedence.</item>
+    </plurals>
+    <string name="spam_apply">Apply rule</string>
+    <string name="spam_remove">Remove this phrase?</string>
+    <string name="risky_message_notification">This message may be suspicious. Open the conversation to review it.</string>
+    <string name="spam_manual">Moved to Other manually</string>
+    <string name="spam_trust">Trust sender and move to Main</string>
+    <string name="spam_trusted">This sender will stay in Main for this line.</string>
+    <string name="telnyx_carrier">Carrier and line type · Telnyx</string>
+    <string name="telnyx_identity">Caller identity · Telnyx</string>
+    <string name="telnyx_carrier_notice">Send %1$s to Telnyx for a paid carrier and line-type lookup? Canadian data requires appropriate account access.</string>
+    <string name="telnyx_identity_notice">Send %1$s to Telnyx for a paid caller-identity lookup? Canadian data requires enabled access. Only the name and confidence are displayed.</string>
+    <string name="telnyx_key">Telnyx API key</string>
+    <string name="telnyx_key_notice">Use your own authorized account. The key is used only for this request and is never saved.</string>
+    <string name="telnyx_continue">Continue</string>
+    <string name="telnyx_submit">Run paid lookup</string>
+    <string name="code_mask">Hide verification codes in notifications</string>
+    <string name="code_masked">A verification code arrived. Open the conversation to view it.</string>
+    <string name="code_retention">Remove local verification messages</string>
+    <string-array name="code_retention_labels"><item>Keep indefinitely</item><item>After 1 day on this device</item><item>After 7 days on this device</item><item>After 30 days on this device</item></string-array>
+    <string name="backup_export">Encrypted portable backup</string>
+    <string name="backup_scope">Export non-private messages and outgoing files. Choose whether to include received attachments or app contacts. Credentials, unsent schedules, privacy settings and drafts stay on this device.</string>
+    <string name="backup_restore">Restore portable backup</string>
+    <string name="backup_restore_scope">Select conversations or app contacts to merge. Existing contact names are kept.</string>
+    <string name="backup_password">Passphrase</string>
+    <string name="backup_repeat">Repeat passphrase</string>
+    <string name="backup_mismatch">Use a matching passphrase with at least 10 characters.</string>
+    <string name="backup_saved">Encrypted backup saved.</string>
+    <string name="backup_working">Processing backup…</string>
+    <string name="backup_error">Could not process the backup. Check the passphrase, file and available storage.</string>
+    <plurals name="backup_restored">
+        <item quantity="one">Restored %1$d new message.</item>
+        <item quantity="other">Restored %1$d new messages.</item>
+    </plurals>
+    <string name="backup_pick">Select conversations to restore</string>
+    <string name="backup_legacy_private">This legacy database export includes private threads in plaintext. Unlock to continue.</string>
+    <string name="private_return">Return to messages</string>
+    <string name="private_pull_hint">Pull past the top of Messages again to return to your regular inbox.</string>
+    <string name="backup_received_label">Received MMS attachments</string>
+    <string-array name="backup_received_options">
+        <item>Keep original links only</item>
+        <item>Include files already on this device</item>
+        <item>Include saved files and download missing media from VoIP.ms</item>
+    </string-array>
+    <string name="backup_received_limit">Downloading contacts VoIP.ms and uses network data. Up to 12 MiB per attachment and 512 MiB of received files per backup. Unavailable attachments keep their original links.</string>
+    <string name="backup_received_result">Encrypted backup saved. %1$s %2$s</string>
+    <plurals name="backup_files_included">
+        <item quantity="one">%d received attachment is available offline.</item>
+        <item quantity="other">%d received attachments are available offline.</item>
+    </plurals>
+    <plurals name="backup_files_unavailable">
+        <item quantity="one">%d unavailable file was kept as a link.</item>
+        <item quantity="other">%d unavailable files were kept as links.</item>
+    </plurals>
+    <string name="backup_include_contacts">Include all saved app contacts, including names associated with private threads</string>
+    <string name="backup_restore_contents">Choose what to restore</string>
+    <string-array name="backup_restore_options">
+        <item>Conversations and app contacts</item>
+        <item>Conversations only</item>
+        <item>App contacts only</item>
+    </string-array>
+    <string name="backup_pick_contacts">Select app contacts to restore</string>
+    <string name="backup_clear_selection">Clear all</string>
+    <string name="backup_select_all">Select all</string>
+    <string name="backup_contacts_failed">%s The app contact book could not be restored. You can retry with App contacts only.</string>
+    <plurals name="backup_contacts_included">
+        <item quantity="one">The backup includes %d app contact.</item>
+        <item quantity="other">The backup includes %d app contacts.</item>
+    </plurals>
+    <plurals name="backup_contacts_restored">
+        <item quantity="one">%d new app contact was added.</item>
+        <item quantity="other">%d new app contacts were added.</item>
+    </plurals>
+</resources>

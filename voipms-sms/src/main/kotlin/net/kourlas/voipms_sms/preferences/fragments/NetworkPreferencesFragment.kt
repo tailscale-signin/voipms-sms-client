@@ -33,6 +33,13 @@ class NetworkPreferencesFragment : PreferenceFragmentCompat(),
     ) {
         // Add preferences
         addPreferencesFromResource(R.xml.preferences_network)
+        preferenceScreen.addPreference(Preference(requireContext()).apply {
+            setTitle(R.string.chat_account)
+            setOnPreferenceClickListener {
+                startActivity(android.content.Intent(requireContext(), net.kourlas.voipms_sms.rich.ui.EncryptedRoomsActivity::class.java))
+                true
+            }
+        })
 
         // Add listener for preference changes
         preferenceScreen

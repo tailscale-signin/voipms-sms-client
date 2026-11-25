@@ -555,7 +555,10 @@ suspend fun saveAccountCredentials(context: Context, email: String, password: St
                 true
             } == true
             if (saved) {
-                if (changed) Notifications.getInstance(context.applicationContext).cancelMessageNotifications()
+                if (changed) {
+                    Notifications.getInstance(context.applicationContext).cancelMessageNotifications()
+                    net.kourlas.voipms_sms.delivery.CallAlerts.cancel(context.applicationContext)
+                }
                 SyncWorker.scheduleBackgroundSync(context)
                 subscribeToDidTopics(context)
             }
@@ -563,7 +566,7 @@ suspend fun saveAccountCredentials(context: Context, email: String, password: St
         }
     }
 
-private inline fun <T> withSecurePreferences(
+internal fun <T> withSecurePreferences(
     context: Context, block: (SharedPreferences) -> T
 ): T? = synchronized(securePreferencesLock) {
     try {

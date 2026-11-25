@@ -25,6 +25,9 @@ import net.kourlas.voipms_sms.sms.ConversationId
 
 @Dao
 interface SmsDao {
+    @Query("UPDATE sms SET MediaJson = :media WHERE DatabaseId = :id AND MediaJson != :media")
+    suspend fun updateAttachments(id: Long, media: String)
+
     @Query("DELETE FROM ${Sms.TABLE_NAME}")
     suspend fun deleteAll()
 
@@ -109,6 +112,9 @@ interface SmsDao {
     """)
     suspend fun latestForDids(dids: Set<String>, filter: String, digits: String): List<Sms>
 
+    @Query("SELECT * FROM sms WHERE Did = :did AND Contact = :contact ORDER BY DeliveryInProgress DESC, Date DESC, VoipId DESC, DatabaseId DESC LIMIT 1")
+    suspend fun latestInThread(did: String, contact: String): Sms?
+
     @Query("SELECT DISTINCT Did, Contact FROM sms WHERE Did IN (:dids) AND Type = 0")
     suspend fun threadsWithReplies(dids: Set<String>): List<ConversationId>
 
@@ -125,8 +131,17 @@ interface SmsDao {
     )
     suspend fun getIdByVoipId(did: String, voipId: Long): Long?
 
+    @Query("SELECT * FROM sms WHERE Did = :did AND Contact = :contact AND VoipId IS NULL")
+    suspend fun localOnlyMessages(did: String, contact: String): List<Sms>
+
+    @Query("SELECT * FROM sms WHERE Type = 1 AND Date < :cutoff AND DatabaseId > :after ORDER BY DatabaseId LIMIT 200")
+    suspend fun codeRetentionCandidates(cutoff: Long, after: Long): List<Sms>
+
     @Query("SELECT DISTINCT ${Sms.COLUMN_DID} FROM ${Sms.TABLE_NAME}")
     suspend fun getDids(): List<String>
+
+    @Query("UPDATE sms SET DeliveryInProgress=0 WHERE DeliveryInProgress=1 AND DatabaseId NOT IN (SELECT messageId FROM OutboxPart)")
+    suspend fun resetUntrackedSends()
 
     @Insert
     suspend fun insert(sms: Sms): Long

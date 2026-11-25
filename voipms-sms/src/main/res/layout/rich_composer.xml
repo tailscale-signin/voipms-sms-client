@@ -1,0 +1,14 @@
+<LinearLayout xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools" xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rich_composer" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <ImageButton android:id="@+id/rich_attach" android:layout_width="48dp" android:layout_height="48dp"
+        android:src="@drawable/ic_rich_attachment" android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/chat_attach" app:tint="@color/primary" />
+    <EditText android:id="@+id/rich_edit" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+        android:minHeight="48dp" android:maxLines="5" android:saveEnabled="false" android:importantForAutofill="no" tools:targetApi="o" android:background="@android:color/transparent"
+        android:inputType="textMultiLine|textCapSentences|textNoSuggestions" android:hint="@string/chat_rich_draft"
+        android:paddingStart="8dp" android:paddingEnd="8dp" android:textColorHint="@color/message_hint" />
+    <ImageButton android:id="@+id/rich_send" android:layout_width="48dp" android:layout_height="48dp"
+        android:layout_margin="4dp" android:padding="10dp" android:src="@drawable/ic_send_toolbar_24dp"
+        android:background="@drawable/conversation_button_send" android:contentDescription="@string/chat_send" app:tint="@color/send_icon" />
+</LinearLayout>

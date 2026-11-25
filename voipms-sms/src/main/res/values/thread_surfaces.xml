@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_share_enabled">Suggest in Direct Share</string>
+    <string name="line_conversation_label">%1$s · %2$s</string>
+    <string name="thread_state_unread">Unread</string>
+    <string name="thread_state_selected">Selected</string>
+</resources>

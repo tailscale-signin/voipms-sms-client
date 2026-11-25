@@ -1,45 +1,69 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+name: Build privacy page
 
 on:
-  # Runs on pushes targeting the default branch
   push:
-    branches: ["master"]
-
-  # Allows you to run this workflow manually from the Actions tab
+    branches: [master]
+  pull_request:
+    branches: [master]
+    paths: [PRIVACY.md, .github/workflows/static.yml]
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      pages: ${{ steps.site.outputs.configured }}
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Render and verify the public privacy policy
+        run: |
+          mkdir -p site
+          npm install --global markdown-to-html-cli
+          markdown-to-html --source PRIVACY.md --output site/PRIVACY.html
+          grep -q 'Privacy Policy' site/PRIVACY.html
+          grep -q 'VoIP.ms' site/PRIVACY.html
+      - name: Upload the rendered privacy policy
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - name: Check the publishing source
+        id: site
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          response="$RUNNER_TEMP/sms-pages.json"
+          status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pages")
+          case "$status" in
+            200) source=$(jq -er '.build_type' "$response")
+                 if [[ "$source" == workflow ]]; then configured=true; else configured=false; fi
+                 echo "configured=$configured" >> "$GITHUB_OUTPUT" ;;
+            404) echo "This repository has no Pages site. The rendered policy is available in the workflow artifact."
+                 echo "configured=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "GitHub Pages status request returned HTTP $status"; exit 1 ;;
+          esac
+
   deploy:
+    needs: build
+    if: github.ref == 'refs/heads/master' && needs.build.outputs.pages == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Setup Pages
-        uses: actions/configure-pages@v6
-      - run: npm i markdown-to-html-cli -g
-      - run: markdown-to-html --source PRIVACY.md --output PRIVACY.html
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          # Upload entire repository
-          path: '.'
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - uses: actions/configure-pages@v6
+      - id: deployment
         uses: actions/deploy-pages@v5

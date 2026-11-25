@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="inbox_gutter">88dp</dimen>
+    <dimen name="thread_gutter">94dp</dimen>
+    <dimen name="settings_gutter">64dp</dimen>
+</resources>

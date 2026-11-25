@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="outbox_title">Outbox</string>
+    <string name="outbox_empty">Your outbox is empty.</string>
+    <string name="outbox_future">Choose a time in the future.</string>
+    <string name="outbox_queued">Queued for connection</string>
+    <string name="outbox_unknown">Unconfirmed</string>
+    <string name="outbox_submitting">Submitting…</string>
+    <string name="outbox_rejected">Rejected</string>
+    <string name="outbox_scheduled">Scheduled</string>
+    <string name="outbox_unconfirmed">VoIP.ms may have accepted this message. Check its history in the outbox before retrying.</string>
+    <string name="outbox_action_failed">Could not complete the outbox action. Check the connection and try again.</string>
+    <string name="outbox_check">Check provider history</string>
+    <string name="outbox_retry">Send again</string>
+    <string name="outbox_edit_title">Edit send · %1$s</string>
+    <string name="outbox_edit_time">Choose send time</string>
+    <string name="outbox_cancel_send">Cancel send</string>
+    <string name="outbox_too_late">The queued message has changed. Open the outbox to check its status.</string>
+    <string name="outbox_history">Possible provider matches</string>
+    <string name="outbox_no_history">No matching outbound record was found around this attempt. Records can arrive later.</string>
+    <string name="outbox_confirm_match">Use this provider record?</string>
+    <string name="outbox_match_detail">Confirm this is your message. It will be linked to provider record #%1$d at %2$s.</string>
+    <string name="outbox_confirm">Confirm match</string>
+    <string name="outbox_duplicate_warning">The first submission may have succeeded. Sending again could deliver a second copy.</string>
+    <string name="outbox_details">Send details</string>
+    <string name="outbox_schedule_action">Schedule message</string>
+    <string name="outbox_preflight">From %1$s\nTo %2$s\n%3$s\n%4$s</string>
+    <plurals name="outbox_sms_parts">
+        <item quantity="one">%1$d SMS part · %2$s</item>
+        <item quantity="other">%1$d SMS parts · %2$s</item>
+    </plurals>
+    <plurals name="outbox_utf8_bytes">
+        <item quantity="one">%1$d UTF-8 byte</item>
+        <item quantity="other">%1$d UTF-8 bytes</item>
+    </plurals>
+    <plurals name="outbox_mms_parts">
+        <item quantity="one">1 MMS · %1$d attachment · %2$s</item>
+        <item quantity="other">1 MMS · %1$d attachments · %2$s</item>
+    </plurals>
+    <plurals name="outbox_attachment_bytes">
+        <item quantity="one">%1$d byte</item>
+        <item quantity="other">%1$d bytes</item>
+    </plurals>
+    <string name="outbox_long_url">A link exceeds one SMS part. Splitting it may make it unclickable.</string>
+    <string name="outbox_queue_send">Send</string>
+    <string name="outbox_undo">Undo</string>
+    <string name="outbox_saved">Message queued</string>
+    <string name="outbox_schedule_policy">The selected local time is saved as an instant. If the phone is offline or turned off then, the message will be sent the next time Android runs it with a connection.</string>
+    <string name="outbox_destination_short">Short-code replies depend on the carrier and may fail.</string>
+    <string name="outbox_destination_unknown">Destination coverage is unverified.</string>
+    <string name="outbox_destination_unsupported">VoIP.ms supports US and Canadian ten-digit destinations. Toll-free lines cannot send to short codes.</string>
+    <string name="outbox_rate_unknown">Rate estimate unavailable.</string>
+    <string name="outbox_estimated_charge">Estimated USD %1$s before fees, using your rate confirmed %2$s.</string>
+    <string name="outbox_rate_title">Set rate</string>
+    <string name="outbox_rate_prompt">Enter the USD price per message confirmed on your account for this sending line, recipient and transport. Fees and taxes are excluded.</string>
+    <string name="outbox_rate_remove">Remove rate</string>
+    <string name="outbox_rate_invalid">Enter a nonnegative USD amount with up to eight decimal places.</string>
+    <string name="outbox_provider_accept">Accepted by VoIP.ms · %1$s</string>
+    <plurals name="outbox_text_mms">
+        <item quantity="one">1 text-only MMS · %1$d character</item>
+        <item quantity="other">1 text-only MMS · %1$d characters</item>
+    </plurals>
+    <string name="outbox_choose_sms">Split into %1$d SMS parts</string>
+    <string name="outbox_choose_mms">Send as one MMS</string>
+</resources>

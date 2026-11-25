@@ -1,4 +1,6 @@
 import com.android.build.api.dsl.ApplicationExtension
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
 import java.net.URI
 import javax.inject.Inject
 
@@ -41,9 +43,10 @@ configure<ApplicationExtension> {
     defaultConfig {
         applicationId = "net.kourlas.voipms_sms"
         minSdk = 24
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
-        versionCode = 157
-        versionName = "0.7.2"
+        versionCode = 158
+        versionName = "0.8.0"
     }
     flavorDimensions += "version"
     flavorDimensions += "demo"
@@ -94,6 +97,7 @@ configure<ApplicationExtension> {
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility(JavaVersion.VERSION_17)
         targetCompatibility(JavaVersion.VERSION_17)
     }
@@ -153,6 +157,9 @@ ksp {
 }
 
 dependencies {
+    implementation(libs.matrix.rust)
+    implementation(libs.rustls.android)
+    coreLibraryDesugaring(libs.android.desugar)
     // Kotlin libraries
     implementation(libs.kotlinx.coroutines.android)
 
@@ -162,6 +169,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.preference.ktx)
     implementation(libs.androidx.recyclerview)
@@ -177,6 +185,7 @@ dependencies {
     // fdroid-remove-start
 
     // Google and Firebase libraries
+    "primaryImplementation"(libs.mlkit.translate)
     "primaryImplementation"(libs.google.gms.playServicesBase)
     "primaryImplementation"(platform(libs.google.firebase.bom))
     "primaryImplementation"(libs.google.firebase.messaging)
@@ -185,14 +194,23 @@ dependencies {
     // fdroid-remove-end
 
     // Other third-party libraries
+    implementation(libs.tesseract4android)
     implementation(libs.google.phone.geocoder)
     implementation(libs.moshi.adapters)
     implementation(libs.moshi)
     implementation(libs.okhttp)
+    implementation("org.unifiedpush.android:connector:3.0.10") {
+        exclude(group = "com.google.crypto.tink", module = "tink")
+    }
+    // AndroidX encrypted preferences and Web Push share the Android build of Tink.
+    implementation(libs.tink.android)
     implementation(libs.mukeshsolanki.markdownView)
     implementation(libs.xabaras.recyclerViewSwipeDecorator)
     implementation(libs.saket.betterLinkMovementMethod)
     ksp(libs.moshi.kotlin.codegen)
+
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.junit)
 
     // Test libraries
     testImplementation(libs.androidx.test.core)
@@ -215,6 +233,10 @@ abstract class GenerateNoticeAssets @Inject constructor(
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val licenseMetadata: RegularFileProperty
 
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val supplementalNoticeArchives: ConfigurableFileCollection
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -232,16 +254,29 @@ abstract class GenerateNoticeAssets @Inject constructor(
                 licenseMetadata.get().asFile,
                 destination.resolve("PACKAGE_LICENSES.md")
             )
+            args(supplementalNoticeArchives.files.sortedBy { it.name }.map { it.absolutePath })
         }
     }
 }
 
 androidComponents.onVariants { variant ->
+    variant.sources.assets?.addStaticSourceDirectory("schemas")
     val notices = tasks.register<GenerateNoticeAssets>(
         "generatePackageLicenses${variant.name.replaceFirstChar { it.uppercaseChar() }}"
     ) {
         documents.from(rootProject.files("PRIVACY.md", "CHANGES.md", "NOTICE", "LICENSE.md", "HELP.md"))
         licenseTemplates.set(rootProject.layout.projectDirectory.dir("licenses"))
+        supplementalNoticeArchives.from(configurations.named("${variant.name}RuntimeClasspath").map { runtime ->
+            runtime.incoming.artifactView {
+                attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar")
+                componentFilter { id ->
+                    id is ModuleComponentIdentifier &&
+                        ((id.group == "com.google.mlkit" && id.module in setOf("common", "translate")) ||
+                            (id.group == "org.rustls" && id.module == "rustls-platform-verifier") ||
+                            (id.group == "cz.adaptech.tesseract4android" && id.module == "tesseract4android"))
+                }
+            }.files
+        })
         licenseMetadata.set(layout.buildDirectory.file(
             "generated/oss_licenses/${variant.name}/dependencies_with_licenses.json"
         ))

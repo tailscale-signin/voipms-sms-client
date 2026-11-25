@@ -72,6 +72,179 @@ class DatabaseImportTest {
     }
 
     @Test
+    fun receivedImageRestoresOfflineToASyncedThreadAndPrivateImagesStayOut(): Unit = runBlocking {
+        val media = net.kourlas.voipms_sms.media.MmsMedia
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        val remote = "https://sms.voip.ms/mms/public-image.png"
+        val privateRemote = "https://sms.voip.ms/mms/private-image.png"
+        val unavailable = "https://example.invalid/unsupported.png"
+        val privatePeer = ConversationId(conversationId.did, "5145550122")
+        val image = android.util.Base64.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tm1sAAAAASUVORK5CYII=",
+            android.util.Base64.DEFAULT)
+        val directory = File(context.cacheDir, "mms_preview").apply { mkdirs() }
+        fun cached(ref: String) = File(directory, "${media.receivedHash(ref)}.png").apply { writeBytes(image) }
+        val primaryCache = cached(remote)
+        val privateCache = cached(privateRemote)
+        val messages = listOf(
+            IncomingMessage(34, Date(10000), true, conversationId.did, conversationId.contact, null, remote, unavailable, null),
+            IncomingMessage(35, Date(20000), true, privatePeer.did, privatePeer.contact, null, privateRemote, null, null))
+        database.insertMessagesVoipMsApi(messages, false, null, null)
+        val locks = context.getSharedPreferences("private-threads", Context.MODE_PRIVATE)
+        locks.edit().putBoolean(privatePeer.getId(), true).commit()
+        val uri = android.net.Uri.fromFile(File(context.cacheDir, "received-test.vsms"))
+        val pass = "portable test pass".toCharArray()
+        try {
+            val report = archive.export(context, uri, pass, net.kourlas.voipms_sms.privacy.PortableBackup.ReceivedMode.CACHED)
+            assertEquals(1, report.included)
+            assertEquals(1, report.unavailable)
+            val contents = archive.preview(context, uri, pass)
+            try {
+                assertEquals(setOf(conversationId), contents.counts.keys)
+                assertEquals(setOf(media.receivedHash(remote)), contents.received.keys)
+                assertTrue(primaryCache.delete())
+                assertNull(media.knownReceived(context, remote))
+                assertEquals(0, database.restorePortableThreads(contents, setOf(conversationId)))
+                val local = requireNotNull(media.knownReceived(context, remote))
+                assertEquals("mms_received", local.parentFile!!.name)
+                assertTrue(image.contentEquals(media.previewFile(context, remote).readBytes()))
+                assertFalse(database.getConversationMessagesUnsorted(conversationId).single().isDeliveryInProgress)
+                local.delete()
+            } finally { contents.zip.delete() }
+        } finally {
+            locks.edit().remove(privatePeer.getId()).commit()
+            privateCache.delete()
+        }
+    }
+
+    @Test
+    fun portableBackupPreviewsAndMergesOnlySelectedHistoryWithoutRequeueing() = runBlocking {
+        val peer = ConversationId(conversationId.did, "5145550117")
+        val attachmentDir = File(context.filesDir, "mms_outgoing").apply { mkdirs() }
+        val media = (1..4).map { index ->
+            File(attachmentDir, "${java.util.UUID.randomUUID()}.jpg").apply { writeBytes(byteArrayOf(index.toByte())) }
+        }
+        database.insertConversationMessagesDeliveryInProgress(conversationId, listOf("with four images"),
+            media.map { "mms-local:" + it.name })
+        insertMessages(1)
+        database.insertConversationMessagesDeliveryInProgress(peer, listOf("leave behind"))
+        val uri = android.net.Uri.fromFile(File(context.cacheDir, "portable-test.vsms"))
+        val pass = "local test archive".toCharArray()
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        archive.export(context, uri, pass)
+        assertThrows(Exception::class.java) { archive.preview(context, uri, "incorrect".toCharArray()) }
+        assertEquals(2, messageCount())
+        val contents = archive.preview(context, uri, pass)
+        try {
+            assertEquals(mapOf(conversationId to 2, peer to 1), contents.counts)
+            assertEquals(0, database.restorePortableThreads(contents, setOf(conversationId)))
+            database.deleteTablesContents()
+            media.forEach { assertTrue(it.delete()) }
+            assertEquals(2, database.restorePortableThreads(contents, setOf(conversationId)))
+            assertEquals(listOf(1, 2, 3, 4), media.map { it.readBytes().single().toInt() })
+            assertEquals(4, database.getConversationMessagesUnsorted(conversationId).first { it.text == "with four images" }.medias.size)
+            assertEquals(0, database.restorePortableThreads(contents, setOf(conversationId)))
+            assertTrue(database.getConversationMessagesUnsorted(peer).isEmpty())
+            assertTrue(database.getConversationMessagesUnsorted(conversationId).none { it.isDeliveryInProgress })
+        } finally { contents.zip.delete() }
+    }
+
+    @Test
+    fun originalVersionOnePortableArchiveRestoresWithoutAnAddressBook(): Unit = runBlocking {
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        val zip = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(zip).use { out ->
+            out.putNextEntry(java.util.zip.ZipEntry("version"))
+            out.write('1'.code)
+            out.closeEntry()
+            out.putNextEntry(java.util.zip.ZipEntry("threads/" + conversationId.getId()))
+            val record = """{"time":10000,"provider":21,"in":1,"text":"original archive","unread":1,"sent":1,"media":[]}""".toByteArray()
+            val data = java.io.DataOutputStream(out)
+            data.writeInt(record.size)
+            data.write(record)
+            data.writeInt(0)
+            out.closeEntry()
+        }
+        val file = File(context.cacheDir, "original-portable.vsms")
+        val password = "version one passphrase".toCharArray()
+        try {
+            file.outputStream().use { dest ->
+                net.kourlas.voipms_sms.privacy.BackupEnvelope.write(zip.toByteArray().inputStream(), dest, password)
+            }
+            val parsed = archive.preview(context, android.net.Uri.fromFile(file), password)
+            try {
+                assertTrue(parsed.contacts.isEmpty())
+                val restored = archive.restore(context, parsed, net.kourlas.voipms_sms.privacy.PortableBackup.Selection(
+                    setOf(conversationId), emptySet()))
+                assertEquals(1, restored.messages)
+                assertEquals(0, restored.contacts)
+                assertEquals("original archive", database.getConversationMessagesUnsorted(conversationId).single().text)
+            } finally { parsed.zip.delete() }
+        } finally { password.fill('\u0000'); file.delete() }
+    }
+
+    @Test
+    fun encryptedContactBookIsOptionalAndCanRestoreSelectedNamesWithoutAnyHistory(): Unit = runBlocking {
+        val contacts = net.kourlas.voipms_sms.contacts.LocalContacts
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        val target = File(context.noBackupFilesDir, "local_contacts.v1")
+        val instance = contacts.javaClass.getDeclaredField("instance").apply { isAccessible = true }
+        val key = javax.crypto.KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+        val monday = "5145550177"
+        val conflict = "5145550188"
+        val ignored = "5145550192"
+        fun attachEmptyBook() {
+            if (target.exists()) assertTrue(target.delete())
+            instance.set(contacts, net.kourlas.voipms_sms.contacts.ContactFile(target) { key })
+        }
+        attachEmptyBook()
+        val document = File(context.cacheDir, "contacts-test.vsms")
+        val uri = android.net.Uri.fromFile(document)
+        val password = "local contacts passphrase".toCharArray()
+        try {
+            contacts.save(context, monday, "Équipe du lundi")
+            contacts.save(context, conflict, "Backup name")
+            contacts.save(context, ignored, "Unselected person")
+            insertMessages(1)
+            assertNull(archive.export(context, uri, password, includeContacts = false).contacts)
+            val messagesOnly = archive.preview(context, uri, password)
+            try {
+                assertTrue(messagesOnly.contacts.isEmpty())
+                java.util.zip.ZipFile(messagesOnly.zip).use { assertNull(it.getEntry(net.kourlas.voipms_sms.privacy.BackupContacts.ENTRY)) }
+            } finally { messagesOnly.zip.delete() }
+            assertEquals(3, archive.export(context, uri, password).contacts)
+            val preview = archive.preview(context, uri, password)
+            try {
+                assertEquals(3, preview.contacts.size)
+                java.util.zip.ZipFile(preview.zip).use { zip ->
+                    val encrypted = zip.getInputStream(zip.getEntry(net.kourlas.voipms_sms.privacy.BackupContacts.ENTRY)).use { it.readBytes() }
+                    assertFalse(String(encrypted, Charsets.ISO_8859_1).contains(monday))
+                    assertFalse(String(encrypted, Charsets.ISO_8859_1).contains("Backup name"))
+                    assertThrows(Exception::class.java) {
+                        net.kourlas.voipms_sms.privacy.BackupContacts.read(encrypted.inputStream(), "wrong".toCharArray())
+                    }
+                }
+                attachEmptyBook()
+                contacts.save(context, conflict, "Current name")
+                database.deleteTablesContents()
+                val selection = net.kourlas.voipms_sms.privacy.PortableBackup.Selection(emptySet(), setOf(monday, conflict))
+                val result = archive.restore(context, preview, selection)
+                assertEquals(0, result.messages)
+                assertEquals(1, result.contacts)
+                assertFalse(result.contactsFailed)
+                assertEquals(mapOf(monday to "Équipe du lundi", conflict to "Current name"), contacts.snapshot(context))
+                assertEquals(0, archive.restore(context, preview, selection).contacts)
+                assertEquals(0, messageCount())
+            } finally { preview.zip.delete() }
+        } finally {
+            instance.set(contacts, null)
+            target.delete()
+            document.delete()
+            password.fill('\u0000')
+        }
+    }
+
+    @Test
     fun importValidExportReplacesMessages() = runBlocking {
         insertMessages(3)
         val exportFile = exportDatabase()
@@ -151,10 +324,9 @@ class DatabaseImportTest {
     }
 
     @Test
-    fun importDatabaseWithOtherSchemaRestoresBackup() = runBlocking {
+    fun importDatabaseWithOtherSchemaKeepsCurrentMessages() = runBlocking {
         insertMessages(3)
-        // This file passes checkImportFile, so the failure occurs when Room
-        // opens it, after the current database was replaced.
+        // A supported version alone does not identify a valid backup.
         val file = File(context.cacheDir, "other.db")
         SQLiteDatabase.openOrCreateDatabase(file, null).use {
             it.execSQL("CREATE TABLE other (id INTEGER PRIMARY KEY)")
@@ -168,9 +340,36 @@ class DatabaseImportTest {
         assertEquals(3, messageCount())
         assertFalse(backupFile().exists())
 
-        // The restored database accepts new messages.
+        // The original database still accepts new messages.
         insertMessages(1)
         assertEquals(4, messageCount())
+    }
+
+    @Test
+    fun wrongRoomIdentityRestoresOriginalDatabase() = runBlocking {
+        insertMessages(1)
+        val exported = exportDatabase()
+        SQLiteDatabase.openDatabase(exported.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            it.execSQL("UPDATE room_master_table SET identity_hash = 'unknown' WHERE id = 42")
+        }
+        insertMessages(2)
+        assertThrows(IllegalStateException::class.java) { runBlocking { importFile(exported) } }
+        assertEquals(3, messageCount())
+        insertMessages(1)
+        assertEquals(4, messageCount())
+    }
+
+    @Test
+    fun importRejectsUnexpectedTriggerIncludingOneUsingAnExpectedName() = runBlocking {
+        insertMessages(2)
+        val exported = exportDatabase()
+        SQLiteDatabase.openDatabase(exported.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            it.execSQL("DROP TRIGGER search_removed")
+            it.execSQL("CREATE TRIGGER search_removed AFTER DELETE ON sms BEGIN SELECT 1; END")
+        }
+        assertThrows(DatabaseImportException::class.java) { runBlocking { importFile(exported) } }
+        assertEquals(2, messageCount())
+        assertFalse(backupFile().exists())
     }
 
     @Test
@@ -250,6 +449,13 @@ class DatabaseImportTest {
         // Reconstruct the version 11 schema from the export before replaying both migrations.
         val legacy = exportDatabase()
         SQLiteDatabase.openDatabase(legacy.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            for (name in listOf("search_added", "search_changed", "search_removed", "search_media_changed")) {
+                it.execSQL("DROP TRIGGER " + name)
+            }
+            it.execSQL("DROP TABLE message_search")
+            it.execSQL("DROP TABLE OutboxPart")
+            it.execSQL("DROP INDEX index_sms_search_date")
+            it.execSQL("ALTER TABLE sms DROP COLUMN MediaJson")
             it.execSQL("DROP INDEX index_sms_inbox")
             it.execSQL("ALTER TABLE archived RENAME TO archived_current")
             it.execSQL("CREATE TABLE archived (DatabaseId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, Did TEXT NOT NULL, Contact TEXT NOT NULL, Archived INTEGER NOT NULL)")
@@ -276,6 +482,9 @@ class DatabaseImportTest {
                 }
             }
         }
+        // A migrated installation can export and re-import the same data a second time.
+        importFile(migrated)
+        assertEquals("previous history", database.getConversationMessagesUnsorted(conversationId).single().text)
     }
 
     @Test

@@ -3,4 +3,7 @@
     <exclude domain="sharedpref" path="net.kourlas.voipms_sms_encrypted.xml" />
     <exclude domain="sharedpref" path="net.kourlas.voipms_sms.demo_encrypted.xml" />
     <exclude domain="sharedpref" path="SecurePreferences.xml" />
+    <exclude domain="sharedpref" path="line_delivery.xml" />
+    <exclude domain="sharedpref" path="local-junk-feedback.xml" />
+    <exclude domain="sharedpref" path="inbox-review.xml" />
 </full-backup-content>

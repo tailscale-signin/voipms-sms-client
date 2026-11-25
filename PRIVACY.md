@@ -37,17 +37,38 @@ Google processes the topic subscription and associates it with a Firebase instal
 
 When you start a listening session, the app repeatedly contacts VoIP.ms using your configured account. Android displays the session as a foreground service. You can stop it from the notification or Synchronization settings.
 
+## App contacts, encrypted chat and nearby devices
+
+A name saved by tapping a number stays in the app’s encrypted address book. An Android Keystore key protects the file. Saving a name does not create an Android Contacts entry or send the name to a directory service. The encrypted portable backup uses its own passphrase so you can restore app contacts on another device.
+
+If you sign in to a Matrix homeserver, it handles your account, room membership, encrypted events and connection metadata. Your linked room is a choice you make on this device. Choosing to open a decrypted attachment in an external viewer gives that app access to the selected file.
+
+Nearby discovers devices through Android Wi-Fi Direct and exchanges messages with the peer you confirm. Paired devices use mutual TLS. Queued message bodies and history are encrypted in the app’s private storage. Opening an external carrier draft gives the chosen messaging app the destination and draft text after confirmation.
+
 ## Optional number lookup
 
 Opening the inbox or receiving a message does not send numbers to any lookup provider. Each online lookup explains what it sends before connecting. The service can receive network information such as your IP address. SMS content, your address book, and VoIP.ms credentials are excluded from these requests.
 
-* Local Calling Guide receives the six-digit North American area code and exchange when you choose to look up prefix origin. Offline region labels use numbering data bundled in the app.
-* Wikidata receives a query for the number in several common formats and may return a public organization name. The app keeps directory results in memory for the current account session. [Wikimedia privacy policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy)
-* Choosing Truecaller copies the selected number to the Android clipboard and opens its official search page. You choose whether to paste and submit it in the browser. [Truecaller privacy policy](https://www.truecaller.com/privacy-policy)
-* Choosing ShadyCall sends the number to its US reputation service. Its reports are shown on request. [ShadyCall privacy policy](https://shadycall.com/privacy)
+The caller card shows which sources you selected and what they receive before you confirm. The Canadian Numbering Administrator receives an area code to download its public assignments. Local Calling Guide receives the area code and exchange. The offline lookup uses bundled numbering data. PhoneBlock receives a four-character SHA-1 prefix and a provider token. The app compares the returned candidates locally and does not submit a report.
+
+Wikidata receives the selected number in several common formats. ShadyCall receives the selected US number. Each other selected account-based provider receives the full number and its own credentials. The app reads the fields displayed on the caller card and discards raw responses. Truecaller opens its official search form and puts the number on the Android clipboard with the sensitive flag for you to paste. [Provider list](HELP.md#connect-additional-providers) · [Wikimedia privacy policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) · [ShadyCall privacy policy](https://shadycall.com/privacy) · [Truecaller privacy policy](https://www.truecaller.com/privacy-policy)
+
+Provider credentials are held in process memory for the current SMS account and can be disconnected. The Telnyx single-source shortcut uses its key for one lookup. The app keeps successful results for up to 15 minutes and empty results for two minutes. Changing SMS accounts or closing the app process clears the caller cards and provider credentials. Lookups do not write names to contacts, messages, backups or diagnostic logs.
 
 Spam classification and code detection run on the device. Manual folder choices are stored with your conversations. Tapping **Copy code** places the selected code on the Android clipboard with the sensitive flag.
 
+Notification masking replaces detected verification codes with a generic message. Optional retention removes older, clearly marked verification messages from this device. Provider history and previously exported files have independent retention.
+
+Private threads require a device credential to open. The app hides these threads from regular inbox searches, message notifications, sharing shortcuts and portable backups. The legacy SQLite export requires device authentication when the app has private threads and includes them in the resulting database.
+
+Portable backups encrypt message history and locally stored outgoing attachments with your passphrase. A preview lets you select conversations to merge. Received attachments keep their provider links. In the export dialog you can include already-downloaded files or authorize fetching missing media over HTTPS from VoIP.ms. The downloader sends no account credentials. Restored attachment bytes are stored privately on the device for offline viewing. API keys, pending send jobs and private threads stay out of the portable archive. Encrypted portable backups include your app-saved numbers and names by default, including entries for private conversations. You can deselect the address book before exporting. The address book is sealed with your passphrase before being written to temporary storage. Contact backup and restore access only the app address book.
+
 A selected custom font stays on the device.
 
+The Home call trail retrieves call records and voicemail metadata from the signed-in VoIP.ms account. The phone stores the trail by account. Playing a recording requests the audio from VoIP.ms. A device that receives a notification can display the call or voicemail according to the line, conversation and Android lock-screen settings.
+
+With UnifiedPush enabled, the relay forwards an encrypted wake-up containing the event and callback time to the distributor endpoint you configure. The endpoint and Web Push keys are private subscription information. The browser companion is a separately configured service. Its operator controls which users and devices can see messages, notes and drafts for each line. Native draft handoff transfers the selected draft to the paired companion. Review the [companion setup and access controls](companion/README.md).
+
 For questions about a fork build, use the [project issue tracker](https://github.com/tailscale-signin/voipms-sms-client/issues). Keep account details and message content private.
+
+The SMS junk analyzer runs on the device without sending messages or opening links. It uses your manual folder decisions and stores up to 128 campaign fingerprints per account and receiving line. Fingerprints omit the URL query. The app excludes private conversations and recognized verification-code messages when learning corrections.

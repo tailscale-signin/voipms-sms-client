@@ -59,6 +59,7 @@ class MarkReadReceiver : BroadcastReceiver() {
             )
                 ?: throw Exception("No contact provided")
             val conversationId = ConversationId(did, contact)
+            if (net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, conversationId)) return
 
             val pendingResult =
                 goAsync() ?: throw Exception("No PendingResult returned")

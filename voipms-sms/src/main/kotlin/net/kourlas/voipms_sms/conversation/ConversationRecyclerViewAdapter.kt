@@ -40,10 +40,16 @@ import android.widget.Filterable
 import android.widget.QuickContactBadge
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
+import net.kourlas.voipms_sms.delivery.CallFeedItem
+import net.kourlas.voipms_sms.delivery.CallPlayback
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.runBlocking
 import me.saket.bettermovementmethod.BetterLinkMovementMethod
+import net.kourlas.voipms_sms.rich.ui.ChatRoute
+import net.kourlas.voipms_sms.rich.ui.ChatHolder
+import net.kourlas.voipms_sms.rich.ui.ThreadChatEvent
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.Database
@@ -53,7 +59,6 @@ import net.kourlas.voipms_sms.sms.Message
 import net.kourlas.voipms_sms.sms.VerificationCode
 import net.kourlas.voipms_sms.ui.FastScroller
 import net.kourlas.voipms_sms.utils.applyCircularMask
-import net.kourlas.voipms_sms.utils.applyRoundedCornersMask
 import net.kourlas.voipms_sms.utils.getConversationViewDate
 import net.kourlas.voipms_sms.utils.getConversationViewTopDate
 import net.kourlas.voipms_sms.utils.getScrollBarDate
@@ -71,16 +76,14 @@ private const val TAG = "ConversationAdapter"
  * @param layoutManager The layout manager used by the recycler view.
  * @param conversationId The conversation ID of the conversation displayed by
  * the activity, consisting of the DID and contact.
- * @param contactBitmap The photo associated with the contact.
  */
 class ConversationRecyclerViewAdapter(
     private val activity: ConversationActivity,
     private val recyclerView: RecyclerView,
     private val layoutManager: LinearLayoutManager,
-    private val conversationId: ConversationId,
-    private val contactBitmap: Bitmap
+    private val conversationId: ConversationId
 ) :
-    RecyclerView.Adapter<ConversationRecyclerViewAdapter.MessageViewHolder>(),
+    RecyclerView.Adapter<RecyclerView.ViewHolder>(),
     Filterable,
     Iterable<ConversationRecyclerViewAdapter.MessageItem>,
     FastScroller.SectionTitleProvider {
@@ -91,7 +94,83 @@ class ConversationRecyclerViewAdapter(
     val messageItems: List<MessageItem>
         get() = _messageItems
 
+    private sealed interface Row {
+        val key: String
+        val timestamp: Long
+    }
+    private data class TextRow(val item: MessageItem) : Row {
+        override val key = if (BuildConfig.IS_DEMO) "demo/" + item.message.databaseId + "/" + item.message.text
+            else "sms/" + item.message.databaseId
+        override val timestamp = item.message.date.time
+    }
+    private data class CallRow(val event: CallFeedItem) : Row {
+        override val key = "call/" + event.id
+        override val timestamp = event.receivedAt
+    }
+    private val junkProfile by lazy {
+        net.kourlas.voipms_sms.privacy.JunkProfiles(activity).line(conversationId.did)
+    }
+    private data class ChatRow(val event: ThreadChatEvent) : Row {
+        override val key = "chat/" + event.route.name + "/" + event.key
+        override val timestamp = event.time
+    }
+    private val chat = mutableMapOf<ChatRoute, List<ThreadChatEvent>>()
+
+    internal fun updateChat(route: ChatRoute, events: List<ThreadChatEvent>) {
+        if (events == chat[route] || events.isEmpty() && chat[route].isNullOrEmpty()) return
+        chat[route] = events
+        renderTimeline()
+    }
+    private var timeline: List<Row> = emptyList()
+    private var calls = emptyList<CallFeedItem>()
+    private var visibleEventLimit = ADDITIONAL_ITEMS_INCREMENT.toInt()
+
+    internal fun updateCalls(events: List<CallFeedItem>) {
+        val updated = matchingCalls(events, conversationId)
+        if (updated == calls) return
+        calls = updated
+        renderTimeline()
+    }
+
+    private fun renderTimeline(filterChanged: Boolean = false) {
+        val previous = timeline
+        val atBottom = previous.isEmpty() || !recyclerView.canScrollVertically(1)
+        val bounds = messageItems.map { it.message.date.time }
+        val oldest = if (showAnchor || currLimit < maxLimit) bounds.minOrNull() ?: Long.MIN_VALUE else Long.MIN_VALUE
+        val newest = if (showAnchor) bounds.maxOrNull() ?: Long.MAX_VALUE else Long.MAX_VALUE
+        val visibleCalls = if (currConstraint.isEmpty()) calls.asSequence()
+            .filter { it.receivedAt in oldest..newest }
+            .take(visibleEventLimit).map { CallRow(it) }.toList() else emptyList()
+        val visibleChat = chat.values.asSequence().flatten()
+            .filter { it.time in oldest..newest && it.body.contains(currConstraint, ignoreCase = true) }
+            .sortedByDescending { it.time }.take(visibleEventLimit).map(::ChatRow).toList()
+        val current = (messageItems.map { TextRow(it) } + visibleCalls + visibleChat)
+            .sortedWith(compareBy<Row> { it.timestamp }.thenBy { if (it is TextRow) 0 else 1 }
+                .thenBy { (it as? TextRow)?.item?.message?.databaseId ?: 0L }.thenBy { it.key })
+        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = previous.size
+            override fun getNewListSize() = current.size
+            override fun areItemsTheSame(old: Int, new: Int) = previous[old].key == current[new].key
+            override fun areContentsTheSame(old: Int, new: Int): Boolean {
+                val a = previous[old]
+                val b = current[new]
+                if (a is TextRow && b is TextRow) return !filterChanged && a.item.message == b.item.message &&
+                    previous.getOrNull(old - 1)?.key == current.getOrNull(new - 1)?.key
+                return a == b
+            }
+        }, false)
+        timeline = current
+        diff.dispatchUpdatesTo(this)
+        val empty = activity.findViewById<TextView>(R.id.empty_text)
+        if (current.isNotEmpty()) empty.text = "" else empty.setText(
+            if (currConstraint.isEmpty()) R.string.conversation_no_messages else R.string.conversation_no_results)
+        if (atBottom && current.isNotEmpty() && !showAnchor) layoutManager.scrollToPosition(current.lastIndex)
+    }
+
     // Current and previous filter constraint.
+    private val anchorId = activity.intent.getLongExtra(net.kourlas.voipms_sms.tools.MessageSearch.ANCHOR, -1)
+    private var showAnchor = anchorId > 0
+    private var positionedAnchor = false
     private var currConstraint: String = ""
     private var prevConstraint: String = ""
 
@@ -103,10 +182,24 @@ class ConversationRecyclerViewAdapter(
     // Whether the adapter is currently loading additional items.
     var loadingMoreItems = false
 
+    private var contactPhoto: Bitmap? = null
+
+    fun updateContactPhoto(photo: Bitmap) {
+        contactPhoto = photo
+        for (index in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(index)
+            (recyclerView.getChildViewHolder(child) as? MessageViewHolder)?.contactBadge?.setImageBitmap(photo)
+        }
+    }
+
     override fun onCreateViewHolder(
         parent: ViewGroup,
         viewType: Int
-    ): MessageViewHolder {
+    ): RecyclerView.ViewHolder {
+        if (viewType == R.layout.thread_chat_entry) return ChatHolder(
+            LayoutInflater.from(parent.context).inflate(viewType, parent, false))
+        if (viewType == R.layout.thread_call_entry) return CallHolder(
+            LayoutInflater.from(parent.context).inflate(viewType, parent, false))
         // Inflate the appropriate view, given the view type
         val itemView = when (viewType) {
             R.layout.conversation_item_incoming -> {
@@ -131,14 +224,34 @@ class ConversationRecyclerViewAdapter(
     }
 
     override fun onBindViewHolder(
-        holder: MessageViewHolder,
+        holder: RecyclerView.ViewHolder,
         position: Int
     ) {
+        val row = timeline[position]
+        if (row is ChatRow && holder is ChatHolder) {
+            holder.bind(row.event, activity::openRichMedia)
+            return
+        }
+        if (row is CallRow && holder is CallHolder) {
+            val event = row.event
+            holder.name.setText(if (event.voicemail) R.string.thread_voicemail_event else R.string.thread_missed_event)
+            holder.time.text = if (event.dateOnly) event.providerDate
+                else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(event.receivedAt))
+            holder.controls.removeAllViews()
+            if (event.voicemail) holder.controls.addView(CallPlayback.controls(activity, event))
+            return
+        }
+        if (holder !is MessageViewHolder || row !is TextRow) return
         // Set up view to match message at position
         updateViewHolderViewHeight(holder, position)
         updateViewHolderContactBadge(holder, position)
         updateViewHolderMessageText(holder, position)
-        val code = VerificationCode.extract(messageItems[position].message.text)
+        holder.warning?.let { warning ->
+            val assessment = net.kourlas.voipms_sms.sms.InboxRules.assess(row.item.message.text, junkProfile)
+            warning.text = assessment.description
+            warning.visibility = if (assessment.description != null) View.VISIBLE else View.GONE
+        }
+        val code = VerificationCode.extract(row.item.message.text)
         holder.copyCode.visibility = if (code == null) View.GONE else View.VISIBLE
         holder.copyCode.setOnClickListener(if (code == null) null else View.OnClickListener {
             val clip = ClipData.newPlainText(activity.getString(R.string.clipboard_code), code)
@@ -196,7 +309,7 @@ class ConversationRecyclerViewAdapter(
         holder: MessageViewHolder,
         position: Int
     ) {
-        val messageItem = messageItems[position]
+        val messageItem = get(position) ?: return
         val message = messageItem.message
 
         val contactBadge = holder.contactBadge
@@ -209,7 +322,10 @@ class ConversationRecyclerViewAdapter(
             ) {
                 holder.contactBadge.visibility = View.VISIBLE
                 contactBadge.assignContactFromPhone(message.contact, true)
-                contactBadge.setImageBitmap(contactBitmap)
+                if (!BuildConfig.IS_DEMO) contactBadge.setOnClickListener { activity.editLocalContact() }
+                val photo = contactPhoto
+                if (photo != null) contactBadge.setImageBitmap(photo)
+                else contactBadge.setImageResource(R.drawable.ic_account_box_settings_24dp)
             } else {
                 holder.contactBadge.visibility = View.INVISIBLE
             }
@@ -227,7 +343,7 @@ class ConversationRecyclerViewAdapter(
         holder: MessageViewHolder,
         position: Int
     ) {
-        val messageItem = messageItems[position]
+        val messageItem = get(position) ?: return
         val message = messageItem.message
 
         val messageText = holder.messageText
@@ -272,22 +388,18 @@ class ConversationRecyclerViewAdapter(
                 }
             }
 
-            if (message.medias.isNotEmpty()) {
-                if (message.text != "") {
-                    messageTextBuilder.append("\n\n")
-                }
 
-                val length = messageTextBuilder.length
-
-                messageTextBuilder.append(message.mediaDisplayText)
-                messageTextBuilder.setSpan(
-                    StyleSpan(Typeface.ITALIC), length,
-                    messageTextBuilder.length,
-                    Spanned.SPAN_INCLUSIVE_EXCLUSIVE
-                )
-            }
         }
 
+        val gallery = holder.itemView.findViewById<android.widget.Button>(R.id.message_gallery)
+        gallery.visibility = if (message.medias.isEmpty()) View.GONE else View.VISIBLE
+        if (message.medias.isNotEmpty()) {
+            gallery.text = activity.getString(R.string.mms_gallery_count, message.medias.size)
+            gallery.setOnClickListener {
+                net.kourlas.voipms_sms.media.MmsGallery.show(activity, message.databaseId, message.medias, 0)
+            }
+        } else gallery.setOnClickListener(null)
+        messageText.visibility = if (messageTextBuilder.isEmpty() && message.medias.isNotEmpty()) View.GONE else View.VISIBLE
         messageText.text = messageTextBuilder
 
         Linkify.addLinks(
@@ -325,12 +437,25 @@ class ConversationRecyclerViewAdapter(
         holder: MessageViewHolder,
         position: Int
     ) {
-        val messageItem = messageItems[position]
+        val messageItem = get(position) ?: return
         val message = messageItem.message
 
         // Set per-message date and time
         val dateText = holder.dateText
-        if (!message.isDelivered) {
+        if (message.outboxState != null && !message.isDelivered) {
+            val state = message.outboxState
+            val dueAt = message.outboxDueAt ?: 0
+            dateText.text = when (state) {
+                net.kourlas.voipms_sms.database.entities.OutboxPart.UNKNOWN -> activity.getString(R.string.outbox_unknown)
+                net.kourlas.voipms_sms.database.entities.OutboxPart.REJECTED -> activity.getString(R.string.outbox_rejected)
+                net.kourlas.voipms_sms.database.entities.OutboxPart.ATTEMPTING -> activity.getString(R.string.outbox_submitting)
+                else -> if (dueAt > System.currentTimeMillis() + net.kourlas.voipms_sms.sms.workers.Outbox.UNDO_MS)
+                    activity.getString(R.string.outbox_scheduled) + " · " + java.text.DateFormat.getDateTimeInstance(
+                        java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(dueAt))
+                else activity.getString(R.string.outbox_queued)
+            }
+            dateText.visibility = View.VISIBLE
+        } else if (!message.isDelivered) {
             if (!message.isDeliveryInProgress) {
                 // Show tried but failed to send text
                 val dateTextBuilder = SpannableStringBuilder()
@@ -365,7 +490,9 @@ class ConversationRecyclerViewAdapter(
             }
             dateText.visibility = View.VISIBLE
         } else {
-            dateText.text = getConversationViewDate(activity, message.date)
+            val date = getConversationViewDate(activity, message.date)
+            dateText.text = if (!message.isIncoming && message.voipId != null)
+                activity.getString(R.string.outbox_provider_accept, date) else date
         }
 
         // Set conversation group date and time
@@ -385,31 +512,31 @@ class ConversationRecyclerViewAdapter(
      * @param position The position of the view in the adapter.
      */
     fun updateViewHolderColours(holder: MessageViewHolder, position: Int) {
-        holder.smsContainer.isActivated = messageItems[position].checked
+        val item = get(position) ?: return
+        val isSearchMatch = showAnchor && item.message.databaseId == anchorId
+        holder.smsContainer.isActivated = item.checked || isSearchMatch
+        androidx.core.view.ViewCompat.setStateDescription(holder.smsContainer,
+            if (item.checked) activity.getString(R.string.thread_state_selected) else null)
     }
 
-    override fun getItemViewType(i: Int): Int =
-    // There are two different view types: one for incoming messages and
-        // one for outgoing messages
-        if (messageItems[i].message.isIncoming) {
-            R.layout.conversation_item_incoming
-        } else {
-            R.layout.conversation_item_outgoing
-        }
-
-    override fun getItemCount(): Int = messageItems.size
+    override fun getItemViewType(position: Int): Int = when (val row = timeline[position]) {
+        is ChatRow -> R.layout.thread_chat_entry
+        is CallRow -> R.layout.thread_call_entry
+        is TextRow -> if (row.item.message.isIncoming) R.layout.conversation_item_incoming else R.layout.conversation_item_outgoing
+    }
+    override fun getItemCount(): Int = timeline.size
 
     /**
      * Gets the number of items in the adapter that are checked.
      */
     fun getCheckedItemCount(): Int = messageItems.filter { it.checked }.size
 
-    operator fun get(i: Int): MessageItem = messageItems[i]
+    operator fun get(i: Int): MessageItem? = (timeline.getOrNull(i) as? TextRow)?.item
 
     override fun iterator(): Iterator<MessageItem> = messageItems.iterator()
 
     override fun getSectionTitle(position: Int): String =
-        getScrollBarDate(messageItems[position].message.date)
+        getScrollBarDate(java.util.Date(timeline[position].timestamp))
 
     override fun getFilter(): Filter = messageFilter
 
@@ -425,6 +552,11 @@ class ConversationRecyclerViewAdapter(
                     val filterString = constraint.toString()
                         .trim()
                         .lowercase(Locale.getDefault())
+                    if (showAnchor && filterString.isEmpty()) {
+                        resultsObject.messages.addAll(Database.getInstance(activity).messagesAtAnchor(conversationId, anchorId))
+                        if (resultsObject.messages.isNotEmpty()) return@runBlocking
+                        showAnchor = false
+                    }
                     maxLimit = Database.getInstance(activity)
                         .getConversationMessagesFilteredCount(
                             conversationId, filterString
@@ -490,107 +622,18 @@ class ConversationRecyclerViewAdapter(
             val resultsObject = results.values as ConversationFilter
             val newMessages = resultsObject.messages
 
-            // Create copy of current messages
-            val oldMessages = mutableListOf<Message>()
-            messageItems.mapTo(oldMessages) { it.message }
+            val checked = messageItems.filter { it.checked }.map { it.message.databaseId }.toSet()
+            _messageItems.clear()
+            newMessages.mapTo(_messageItems) { MessageItem(it, it.databaseId in checked) }
+            renderTimeline(prevConstraint != currConstraint)
 
-            // Iterate through messages, determining which messages have
-            // been added, changed, or removed to show appropriate
-            // animations and update views
-            var newIdx = 0
-            var oldIdx = 0
-            val messageIndexes = mutableListOf<Int>()
-            while (oldIdx < oldMessages.size || newIdx < newMessages.size) {
-                // Positive value indicates addition, negative value
-                // indicates deletion, zero indicates changed, moved, or
-                // nothing
-                val comparison: Int = when {
-                    newIdx >= newMessages.size -> -1
-                    oldIdx >= oldMessages.size -> 1
-                    else -> oldMessages[oldIdx]
-                        .conversationViewCompareTo(newMessages[newIdx])
-                }
-
-                when {
-                    comparison < 0 -> {
-                        // Remove old message
-                        _messageItems.removeAt(newIdx)
-                        notifyItemRemoved(newIdx)
-                        oldIdx += 1
-                    }
-
-                    comparison > 0 -> {
-                        // Add new message
-                        _messageItems.add(
-                            newIdx,
-                            MessageItem(newMessages[newIdx])
-                        )
-                        notifyItemInserted(newIdx)
-                        newIdx += 1
-                    }
-
-                    else -> {
-                        // Even though the view might not need to be changed,
-                        // update the underlying message anyways just to be
-                        // safe
-                        messageItems[newIdx].message = newMessages[newIdx]
-                        if (oldMessages[oldIdx] != newMessages[newIdx] || prevConstraint != currConstraint ||
-                            oldMessages.getOrNull(oldIdx - 1) != newMessages.getOrNull(newIdx - 1)) {
-                            messageIndexes.add(newIdx)
-                        }
-
-                        oldIdx += 1
-                        newIdx += 1
-                    }
+            if (showAnchor && !positionedAnchor) {
+                val at = timeline.indexOfFirst { it is TextRow && it.item.message.databaseId == anchorId }
+                if (at >= 0) {
+                    layoutManager.scrollToPositionWithOffset(at, recyclerView.height / 3)
+                    positionedAnchor = true
                 }
             }
-
-            for (idx in messageIndexes) {
-                // Get the view holder for the view
-                val viewHolder = recyclerView
-                    .findViewHolderForAdapterPosition(idx)
-                    as MessageViewHolder?
-
-                if (viewHolder != null) {
-                    // Try to update the view holder directly so that we
-                    // don't see the "change" animation
-                    onBindViewHolder(viewHolder, idx)
-                } else {
-                    // We can't find the view holder (probably because
-                    // it's not actually visible), so we'll just tell
-                    // the adapter to redraw the whole view to be safe
-                    notifyItemChanged(idx)
-                }
-            }
-
-            // Show message if filter returned no messages
-            val emptyTextView = activity.findViewById<TextView>(
-                R.id.empty_text
-            )
-            if (messageItems.isEmpty()) {
-                if (currConstraint == "") {
-                    emptyTextView.text = activity.getString(
-                        R.string.conversation_no_messages
-                    )
-                } else {
-                    emptyTextView.text = activity.getString(
-                        R.string.conversation_no_results, currConstraint
-                    )
-                }
-            } else {
-                emptyTextView.text = ""
-            }
-
-            // Hack to force last message to not be below the send message
-            // text box
-            if (messageItems.size > 1) {
-                if (layoutManager.findLastVisibleItemPosition()
-                    >= messageItems.size - 2
-                ) {
-                    layoutManager.scrollToPosition(messageItems.size - 1)
-                }
-            }
-
             loadingMoreItems = false
         }
     }
@@ -606,6 +649,7 @@ class ConversationRecyclerViewAdapter(
      * Refreshes the adapter using the specified filter constraint.
      */
     fun refresh(constraint: String) {
+        showAnchor = false
         requestedConstraint = constraint
         refresh()
     }
@@ -614,7 +658,9 @@ class ConversationRecyclerViewAdapter(
      * Loads additional items from the database.
      */
     fun loadMoreItems() {
-        if (!loadingMoreItems && currLimit < maxLimit) {
+        val remainingEvents = visibleEventLimit < calls.size || visibleEventLimit < chat.values.sumOf { it.size }
+        if (!loadingMoreItems && (currLimit < maxLimit || remainingEvents)) {
+            visibleEventLimit += ADDITIONAL_ITEMS_INCREMENT.toInt()
             loadingMoreItems = true
             currLimit = minOf(maxLimit, currLimit + ADDITIONAL_ITEMS_INCREMENT)
             refresh()
@@ -641,12 +687,8 @@ class ConversationRecyclerViewAdapter(
     private fun isFirstMessageInGroup(
         position: Int, combineIncomingOutgoing: Boolean
     ): Boolean {
-        val message = _messageItems[position].message
-        val previousMessage: Message? = if (position > 0) {
-            _messageItems[position - 1].message
-        } else {
-            null
-        }
+        val message = get(position)?.message ?: return true
+        val previousMessage = get(position - 1)?.message
         return previousMessage == null
             || (!combineIncomingOutgoing
             && message.isIncoming != previousMessage.isIncoming)
@@ -659,8 +701,8 @@ class ConversationRecyclerViewAdapter(
      *
      * @param message The message represented by the message item.
      */
-    inner class MessageItem(var message: Message) {
-        private var _checked = false
+    inner class MessageItem(val message: Message, initialChecked: Boolean = false) {
+        private var _checked = initialChecked
         val checked: Boolean
             get() = _checked
 
@@ -675,7 +717,7 @@ class ConversationRecyclerViewAdapter(
             _checked = checked
 
             val holder = recyclerView.findViewHolderForAdapterPosition(position)
-                as MessageViewHolder?
+                as? MessageViewHolder
 
             if ((previous && !_checked) || (!previous && _checked)) {
                 if (holder != null) {
@@ -699,6 +741,12 @@ class ConversationRecyclerViewAdapter(
      *
      * @param itemView The primary view of the message item.
      */
+    private class CallHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val name: TextView = view.findViewById(R.id.call_entry_name)
+        val time: TextView = view.findViewById(R.id.call_entry_time)
+        val controls: android.widget.FrameLayout = view.findViewById(R.id.call_entry_controls)
+    }
+
     class MessageViewHolder internal constructor(
         itemView: View,
         viewType: Int
@@ -714,6 +762,7 @@ class ConversationRecyclerViewAdapter(
             }
         internal val smsContainer: View =
             itemView.findViewById(R.id.sms_container)
+        internal val warning: TextView? = itemView.findViewById(R.id.message_risk_warning)
         internal val copyCode: View = itemView.findViewById(R.id.copy_sms_code)
         internal val messageText: TextView =
             itemView.findViewById(R.id.message)
@@ -727,7 +776,7 @@ class ConversationRecyclerViewAdapter(
             // corners to it
             smsContainer.isClickable = true
             smsContainer.isLongClickable = true
-            applyRoundedCornersMask(smsContainer)
+            androidx.core.view.ViewCompat.setScreenReaderFocusable(smsContainer, true)
 
             // Apply circular mask to and remove overlay from contact badge
             // to match Android Messages aesthetic
@@ -739,6 +788,10 @@ class ConversationRecyclerViewAdapter(
     }
 
     companion object {
+        internal fun matchingCalls(events: List<CallFeedItem>, thread: ConversationId): List<CallFeedItem> =
+            events.filter { it.did == thread.did && it.peer == thread.contact }.distinctBy { it.id }
+                .sortedWith(compareByDescending<CallFeedItem> { it.receivedAt }.thenBy { it.id })
+
         // The number of additional items to retrieve when loadMoreItems is
         // called.
         private const val ADDITIONAL_ITEMS_INCREMENT = 100L

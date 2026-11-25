@@ -39,19 +39,35 @@
                 app:collapseIcon="@drawable/ic_close_toolbar_24dp"
                 app:titleTextColor="@android:color/white" />
 
-            <com.google.android.material.tabs.TabLayout
-                android:id="@+id/inbox_tabs"
+            <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@color/inbox_surface"
-                android:visibility="gone"
-                app:tabGravity="fill"
-                app:tabIndicatorColor="@color/primary"
-                app:tabIndicatorFullWidth="false"
-                app:tabMode="fixed"
-                app:tabSelectedTextColor="@color/primary"
-                app:tabTextAppearance="@style/ButtonLabel"
-                app:tabTextColor="@color/on_surface" />
+                android:background="@color/surface">
+
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/inbox_tabs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/inbox_gutter"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginEnd="@dimen/inbox_gutter"
+                    android:layout_marginBottom="6dp"
+                    android:background="@android:color/transparent"
+                    android:minHeight="48dp"
+                    android:visibility="gone"
+                    app:tabBackground="@drawable/tab_capsule"
+                    app:tabGravity="fill"
+                    app:tabIconTint="@color/inbox_tab_tint"
+                    app:tabInlineLabel="true"
+                    app:tabIndicatorHeight="0dp"
+                    app:tabMode="fixed"
+                    app:tabMinWidth="0dp"
+                    app:tabPaddingStart="4dp"
+                    app:tabPaddingEnd="4dp"
+                    app:tabSelectedTextColor="@color/on_message_outgoing"
+                    app:tabTextAppearance="@style/InboxTabLabel"
+                    app:tabTextColor="@color/message_hint" />
+            </FrameLayout>
         </com.google.android.material.appbar.AppBarLayout>
 
         <FrameLayout
@@ -74,7 +90,7 @@
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/list"
-                    android:paddingTop="6dp"
+                    android:paddingTop="4dp"
                     android:paddingBottom="88dp"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
@@ -83,6 +99,13 @@
                     android:clipToPadding="false"
                     android:scrollbars="vertical" />
             </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            <FrameLayout
+                android:id="@+id/call_home_container"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@color/surface"
+                android:visibility="gone" />
         </FrameLayout>
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -94,6 +117,8 @@
             android:contentDescription="@string/conversations_action_chat"
             android:src="@drawable/ic_chat_toolbar_24dp"
             app:backgroundTint="@color/primary"
+            app:elevation="3dp"
+            app:maxImageSize="26dp"
             app:shapeAppearanceOverlay="@style/ComposeButtonShape"
             app:tint="@color/colorOnPrimary" />
     </androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -72,6 +72,10 @@ test('managed identity can send two distinct data-only high-priority messages wi
   const results = await Promise.all(dids.map(did => fetch(base + '/?did=' + did)));
   for (const response of results) assert.equal(await response.text(), 'ok');
   assert.equal(metadata, 1);
+  for (const message of messages) {
+    assert.ok(Number(message.data.callbackTime) > 0);
+    delete message.data.callbackTime;
+  }
   assert.deepEqual(messages.sort((a, b) => a.topic.localeCompare(b.topic)), dids.map(did => ({
     topic: 'did-' + did, android: { priority: 'HIGH' }, data: { event: 'sync' },
   })));
@@ -96,4 +100,16 @@ test('credential failure, rejection, malformed upstream success and network loss
   }
   reply = Response.json({ name: 'projects/sms-demo/messages/retried' });
   assert.equal(await (await fetch(base + '/?did=4165550100')).text(), 'ok');
+});
+
+test('Google-free callbacks route only to subscribed devices for their own line', async () => {
+  const { createRouter } = await import('./server.mjs');
+  const subscription = {endpoint:'https://push.example/u/token', keys:{p256dh:'A'.repeat(87),auth:'B'.repeat(22)}};
+  const config = readConfig({ALLOWED_DIDS:'4165550100', UNIFIEDPUSH_SUBSCRIPTIONS:JSON.stringify({'4165550100':[subscription]})});
+  const sent = [];
+  const route = createRouter(config, () => assert.fail('unexpected Google push'), async (sub, time) => sent.push([sub,time]));
+  await route('4165550100',100);
+  assert.deepEqual(sent, [[subscription,100]]);
+  await assert.rejects(route('4165550199',101));
+  assert.throws(() => readConfig({ ALLOWED_DIDS:'4165550100' }));
 });

@@ -83,6 +83,7 @@ class LiveDeliveryService : Service() {
                     return@launch
                 }
 
+                net.kourlas.voipms_sms.delivery.CallFeedSync.refresh(applicationContext)
                 val sync = MessageSynchronization(applicationContext, forceRecent = true,
                     expectedAccountGeneration = generation)
                 withContext(Dispatchers.IO) { sync.run() }

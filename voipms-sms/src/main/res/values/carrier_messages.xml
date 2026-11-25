@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carrier_messages_action">Open carrier Messages…</string>
+    <string name="carrier_messages_open">Open draft</string>
+    <string name="carrier_messages_app_choice">The messaging app you choose</string>
+    <string name="carrier_messages_choose">Choose a messaging app</string>
+    <string name="carrier_messages_disclosure">%1$s will receive the number %2$s and a copy of your draft. Check the sending line and the RCS or SMS indicator there before sending. Replies and receipts appear in that app. Your VoIP.ms draft stays here.</string>
+    <string name="carrier_messages_attachments">Your attachments stay here. To include them, attach them in the carrier app.</string>
+    <string name="carrier_messages_invalid_number">Open a conversation with a single phone number to use carrier messaging.</string>
+    <string name="carrier_messages_unavailable">No messaging app could open this carrier draft.</string>
+</resources>

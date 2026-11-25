@@ -7,6 +7,10 @@ on:
   pull_request:
     branches: [ master ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,8 +18,11 @@ jobs:
       VOIPMS_PUSH_CALLBACK_URL: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.VOIPMS_PUSH_CALLBACK_URL || '' }}
     steps:
       - uses: actions/checkout@v7
-      - name: Test VoIP.ms callback relay
-        run: node --test relay/server.test.mjs
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Test callback delivery and the browser companion
+        run: node --test relay/server.test.mjs companion/server.test.mjs
       - name: Set up JDK 21
         uses: actions/setup-java@v6
         with:
@@ -49,6 +56,13 @@ jobs:
       - name: Lint with Gradle
         id: lint
         run: ./gradlew lintPrimaryFullRelease
+      - name: Preserve the verified master release APK for signing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v7
+        with:
+          name: voipms-sms-primary-release-unsigned
+          path: voipms-sms/build/outputs/apk/primaryFull/release/*-unsigned.apk
+          if-no-files-found: error
       - name: Upload lint report
         if: failure() && steps.lint.outcome == 'failure'
         uses: actions/upload-artifact@v7

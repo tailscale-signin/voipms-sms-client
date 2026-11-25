@@ -17,6 +17,8 @@
 
 package net.kourlas.voipms_sms.newConversation
 
+import net.kourlas.voipms_sms.contacts.LocalContacts
+import net.kourlas.voipms_sms.contacts.ContactNameDialog
 import android.graphics.Bitmap
 import android.provider.ContactsContract
 import android.util.Log
@@ -77,10 +79,11 @@ class NewConversationRecyclerViewAdapter(
     // using filtering for this number if not null
     var typedInPhoneNumber: String = ""
 
-    init {
-        // When the recycler view adapter is created, load all contacts from
-        // the Android contacts provider
-        loadAllContactItems()
+    private val reloadDirectory = java.util.concurrent.atomic.AtomicBoolean(true)
+
+    fun reload() {
+        reloadDirectory.set(true)
+        refresh()
     }
 
     override fun onCreateViewHolder(
@@ -97,9 +100,15 @@ class NewConversationRecyclerViewAdapter(
         )
 
     override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
+        val item = contactItems[position]
+        val canName = !BuildConfig.IS_DEMO && LocalContacts.number(item.primaryPhoneNumber) != null &&
+            (item !is ContactItem || item.phoneNumbersAndTypes.size == 1)
+        val editName = if (canName) View.OnClickListener {
+            ContactNameDialog.show(activity, item.primaryPhoneNumber) { reload() }
+        } else null
         updateViewHolderIndex(holder, position)
-        updateViewHolderContactBadge(holder, position)
-        updateViewHolderContact(holder, position)
+        updateViewHolderContactBadge(holder, item, editName)
+        updateViewHolderContact(holder, item, editName)
     }
 
     /**
@@ -145,18 +154,23 @@ class NewConversationRecyclerViewAdapter(
      * letter.
      *
      * @param holder The message view holder to use.
-     * @param position The position of the view in the adapter.
+     * @param contactItem The recipient shown in this row.
+     * @param editName Action for editing a single phone number in the app.
      */
     private fun updateViewHolderContactBadge(
         holder: ContactViewHolder,
-        position: Int
+        contactItem: BaseContactItem,
+        editName: View.OnClickListener?
     ) {
-        val contactItem = contactItems[position]
-
-        // Set contact photo
-        holder.contactBadge.assignContactFromPhone(
-            contactItem.primaryPhoneNumber, true
-        )
+        if (contactItem is ContactItem && contactItem.id >= 0) {
+            holder.contactBadge.assignContactFromPhone(contactItem.primaryPhoneNumber, true)
+            holder.contactBadge.setOnClickListener(holder.contactBadge)
+        } else {
+            // Detach any system contact left on a recycled badge before exposing a local-only action.
+            holder.contactBadge.assignContactUri(null)
+            holder.contactBadge.setOnClickListener(editName)
+            holder.contactBadge.isEnabled = editName != null
+        }
         if (contactItem is TypedInContactItem) {
             // Show dialpad for typed in phone number
             holder.contactBadge.scaleType = ImageView.ScaleType.CENTER
@@ -167,7 +181,8 @@ class NewConversationRecyclerViewAdapter(
         } else if (contactItem is ContactItem) {
             holder.contactBadge.scaleType = ImageView.ScaleType.CENTER_CROP
             holder.contactBadge.setBackgroundResource(0)
-            holder.contactBadge.setImageBitmap(contactItem.bitmap)
+            holder.contactBadge.setImageBitmap(contactItem.bitmap ?: getGenericContactPhotoBitmap(
+                activity, contactItem.name, contactItem.primaryPhoneNumber, activity.resources.getDimensionPixelSize(R.dimen.contact_badge)))
         }
     }
 
@@ -176,14 +191,14 @@ class NewConversationRecyclerViewAdapter(
      * on the view holder.
      *
      * @param holder The message view holder to use.
-     * @param position The position of the view in the adapter.
+     * @param contactItem The recipient shown in this row.
+     * @param editName Action for editing a single phone number in the app.
      */
     private fun updateViewHolderContact(
         holder: ContactViewHolder,
-        position: Int
+        contactItem: BaseContactItem,
+        editName: View.OnClickListener?
     ) {
-        val contactItem = contactItems[position]
-
         // Set contact name
         if (contactItem is TypedInContactItem) {
             holder.contactText.text = activity.getString(
@@ -193,10 +208,12 @@ class NewConversationRecyclerViewAdapter(
             holder.contactText.text = contactItem.name
         }
 
-        // Set phone number text
-        if (contactItem is ContactItem
-            && !contactItem.showSeparateNameAndPhoneNumber()
-        ) {
+        val numberIsTitle = contactItem is ContactItem && !contactItem.showSeparateNameAndPhoneNumber()
+        holder.contactText.setOnClickListener(if (numberIsTitle) editName else null)
+        holder.contactText.isClickable = numberIsTitle && editName != null
+        holder.phoneNumberText.setOnClickListener(editName)
+        holder.phoneNumberText.isClickable = editName != null
+        if (numberIsTitle) {
             holder.phoneNumberText.visibility = View.GONE
         } else {
             var text = contactItem.primaryPhoneNumber
@@ -242,7 +259,9 @@ class NewConversationRecyclerViewAdapter(
         }
     }
 
-    override fun getFilter(): Filter = object : Filter() {
+    override fun getFilter(): Filter = contactFilter
+
+    private val contactFilter = object : Filter() {
         /**
          * Perform filtering using the specified filter constraint.
          *
@@ -293,6 +312,10 @@ class NewConversationRecyclerViewAdapter(
         override fun performFiltering(
             constraint: CharSequence
         ): FilterResults = try {
+            if (reloadDirectory.getAndSet(false)) {
+                allContactItems.clear()
+                loadAllContactItems()
+            }
             val filteredContactItems = doFiltering(constraint)
 
             // Return the filtered results
@@ -451,6 +474,14 @@ class NewConversationRecyclerViewAdapter(
             return
         }
 
+        val local = try {
+            LocalContacts.snapshot(activity)
+        } catch (_: Exception) {
+            activity.runOnUiThread {
+                showSnackbar(activity, R.id.coordinator_layout, activity.getString(R.string.local_contact_error))
+            }
+            emptyMap()
+        }
         try {
             val cursor = activity.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
@@ -483,9 +514,8 @@ class NewConversationRecyclerViewAdapter(
                         if (index < 0) {
                             continue
                         }
-                        val phoneNumber = cursor.getString(
-                            index
-                        ) ?: continue
+                        val phoneNumber = cursor.getString(index) ?: continue
+                        if (LocalContacts.number(phoneNumber) in local) continue
 
                         index = cursor.getColumnIndex(
                             ContactsContract.Contacts.DISPLAY_NAME
@@ -588,6 +618,10 @@ class NewConversationRecyclerViewAdapter(
             // Do nothing.
         }
 
+        local.entries.forEachIndexed { i, (number, name) ->
+            val numberAndType = PhoneNumberAndType(number, activity.getString(R.string.local_contact_source))
+            allContactItems.add(ContactItem(-1L - i, name, mutableListOf(numberAndType), null))
+        }
         // Sort contact items
         allContactItems.sortBy {
             it.getSortingName()
@@ -655,7 +689,7 @@ class NewConversationRecyclerViewAdapter(
         val id: Long,
         val name: String,
         val phoneNumbersAndTypes: MutableList<PhoneNumberAndType>,
-        val bitmap: Bitmap
+        val bitmap: Bitmap?
     ) :
         BaseContactItem(phoneNumbersAndTypes[0].phoneNumber) {
         /**

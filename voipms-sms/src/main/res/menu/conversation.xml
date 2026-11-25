@@ -47,4 +47,9 @@
         android:id="@+id/lookup_number"
         android:title="@string/lookup_action"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/suggest_in_share"
+        android:title="@string/shortcut_share_enabled"
+        android:checkable="true"
+        app:showAsAction="never" />
 </menu>

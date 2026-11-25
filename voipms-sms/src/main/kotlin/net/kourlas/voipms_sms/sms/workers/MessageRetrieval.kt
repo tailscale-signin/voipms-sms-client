@@ -29,7 +29,8 @@ data class IncomingMessage(
     val text: String?,
     val media1: String?,
     val media2: String?,
-    val media3: String?
+    val media3: String?,
+    val medias: List<String> = listOfNotNull(media1, media2, media3)
 )
 
 internal fun accountKey(email: String): String =
@@ -125,12 +126,12 @@ internal data class MessageResponse(
         val position = ParsePosition(0)
         val timestamp = formatter.parse(dateText, position) ?: return null
         if (position.index != dateText.length) return null
-        val attachments = (listOf(col_media1, col_media2, col_media3) + media.orEmpty())
+        val attachments = (media.orEmpty() + listOf(col_media1, col_media2, col_media3))
             .filterNotNull().filter(String::isNotBlank).distinct()
         if (message.isNullOrEmpty() && attachments.isEmpty()) return null
         return IncomingMessage(
             voipId, timestamp, incoming, line, address, message,
-            attachments.getOrNull(0), attachments.getOrNull(1), attachments.getOrNull(2)
+            attachments.getOrNull(0), attachments.getOrNull(1), attachments.getOrNull(2), attachments
         )
     }
 }

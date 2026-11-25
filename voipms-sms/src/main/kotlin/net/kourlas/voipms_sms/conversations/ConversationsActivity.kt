@@ -103,6 +103,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 private const val TAG = "ConversationsActivity"
+internal const val OPEN_NOTIFICATION_MESSAGES = "open_messages"
 
 /**
  * Activity that contains a generic list of conversations.
@@ -116,11 +117,100 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private lateinit var recyclerView: RecyclerView
     protected lateinit var adapter: ConversationsRecyclerViewAdapter<
         ConversationsActivity>
+    private val remindersListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != null && !key.startsWith("since_") && ::adapter.isInitialized) adapter.refresh()
+    }
     private val messageBack = MessageBackCallback()
     private var actionMode: ActionMode?
         get() = messageBack.selection
         set(value) { messageBack.selection = value }
-    private var showOther = false
+    private enum class InboxTab(val label: Int, val icon: Int) {
+        HOME(R.string.inbox_home, R.drawable.ic_tab_home),
+        MESSAGES(R.string.inbox_main, R.drawable.ic_tab_messages),
+        OTHER(R.string.inbox_other, R.drawable.ic_tab_other)
+    }
+    private var selectedTab = InboxTab.HOME
+    private val showOther get() = selectedTab == InboxTab.OTHER
+    private val homeFeed by lazy {
+        net.kourlas.voipms_sms.delivery.HomeCallFeed(this, findViewById(R.id.call_home_container))
+    }
+    private var homeFeedVisible = false
+    private var inboxSearchItem: MenuItem? = null
+    private var countedVisibleList = false
+    private fun isMessagesTab() = !archived && selectedTab == InboxTab.MESSAGES
+    private var privateInbox = false
+    private val vaultGesture by lazy {
+        net.kourlas.voipms_sms.privacy.PrivateInboxGesture(156f * resources.displayMetrics.density)
+    }
+    private var capturedVaultPull = false
+    private val vaultBack = object : androidx.activity.OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = closePrivateInbox()
+    }
+    private val unlockInbox = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
+        if (it.resultCode == RESULT_OK && !isFinishing && !archived && isMessagesTab()) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            privateInbox = true
+            vaultBack.isEnabled = true
+            supportActionBar?.subtitle = getString(R.string.private_threads)
+            adapter.switchPrivateView(true)
+            invalidateOptionsMenu()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun togglePrivateInbox() {
+        if (privateInbox) { closePrivateInbox(); return }
+        if (!isMessagesTab() || archived || actionMode != null) return
+        val proof = getSystemService(android.app.KeyguardManager::class.java).createConfirmDeviceCredentialIntent(
+            getString(R.string.private_threads), getString(R.string.private_pull_hint))
+        if (proof == null) android.widget.Toast.makeText(this, R.string.private_no_credential, android.widget.Toast.LENGTH_LONG).show()
+        else unlockInbox.launch(proof)
+    }
+
+    private fun closePrivateInbox() {
+        if (!privateInbox) return
+        privateInbox = false
+        vaultBack.isEnabled = false
+        actionMode?.finish()
+        supportActionBar?.subtitle = null
+        adapter.switchPrivateView(false)
+        invalidateOptionsMenu()
+        // Keep this Activity's recents snapshot protected until the Activity is recreated.
+    }
+
+    override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+        val kind = event.actionMasked
+        if (kind == android.view.MotionEvent.ACTION_DOWN) {
+            capturedVaultPull = false
+            val bounds = android.graphics.Rect()
+            val eligible = ::recyclerView.isInitialized && !archived && isMessagesTab() && actionMode == null &&
+                !recyclerView.canScrollVertically(-1) && recyclerView.getGlobalVisibleRect(bounds) &&
+                bounds.contains(event.x.toInt(), event.y.toInt())
+            vaultGesture.start(event.x, event.y, eligible)
+        } else if (kind == android.view.MotionEvent.ACTION_MOVE && !capturedVaultPull &&
+            event.pointerCount == 1 && vaultGesture.move(event.x, event.y)) {
+            val cancel = android.view.MotionEvent.obtain(event)
+            cancel.action = android.view.MotionEvent.ACTION_CANCEL
+            super.dispatchTouchEvent(cancel)
+            cancel.recycle()
+            capturedVaultPull = true
+            recyclerView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        } else if (kind == android.view.MotionEvent.ACTION_POINTER_DOWN) {
+            vaultGesture.cancel()
+        }
+        if (capturedVaultPull) {
+            if (kind == android.view.MotionEvent.ACTION_UP) {
+                capturedVaultPull = false
+                togglePrivateInbox()
+            }
+            if (kind == android.view.MotionEvent.ACTION_CANCEL) capturedVaultPull = false
+            return true
+        }
+        if (kind == android.view.MotionEvent.ACTION_UP || kind == android.view.MotionEvent.ACTION_CANCEL) vaultGesture.cancel()
+        return super.dispatchTouchEvent(event)
+    }
+
+
 
     // Mapping between items in the navigation menu and their corresponding DIDs
     private lateinit var navViewMenuItemDidMap: HashMap<MenuItem, String>
@@ -200,8 +290,14 @@ open class ConversationsActivity(val archived: Boolean = false) :
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, messageBack)
+        onBackPressedDispatcher.addCallback(this, vaultBack)
         setContentView(R.layout.conversations)
-        showOther = savedInstanceState?.getBoolean("showOther") == true
+        selectedTab = when {
+            archived -> InboxTab.MESSAGES
+            savedInstanceState != null -> InboxTab.entries.firstOrNull { it.name == savedInstanceState.getString("inbox_tab") }
+                ?: if (savedInstanceState.getBoolean("showOther")) InboxTab.OTHER else InboxTab.MESSAGES
+            else -> tabForIntent(intent) ?: InboxTab.HOME
+        }
 
         setupToolbar()
         setupRecyclerViewAndSwipeRefreshLayout()
@@ -217,26 +313,105 @@ open class ConversationsActivity(val archived: Boolean = false) :
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean("showOther", showOther)
+        outState.putString("inbox_tab", selectedTab.name)
         super.onSaveInstanceState(outState)
+    }
+
+    private fun tabForIntent(incoming: Intent?): InboxTab? = when {
+        incoming?.getBooleanExtra(net.kourlas.voipms_sms.delivery.CallAlerts.SHOW_CALL_HOME, false) == true -> InboxTab.HOME
+        incoming?.dataString == "voipms-sms://notifications/inbox" ||
+            incoming?.getBooleanExtra(OPEN_NOTIFICATION_MESSAGES, false) == true -> InboxTab.MESSAGES
+        else -> null
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (!archived) tabForIntent(intent)?.let { tab ->
+            findViewById<TabLayout>(R.id.inbox_tabs).getTabAt(tab.ordinal)?.select()
+        }
     }
 
     private fun setupInboxTabs() {
         if (archived) return
         val tabs = findViewById<TabLayout>(R.id.inbox_tabs)
         tabs.visibility = View.VISIBLE
-        tabs.addTab(tabs.newTab().setText(R.string.inbox_main), !showOther)
-        tabs.addTab(tabs.newTab().setText(R.string.inbox_other), showOther)
-        adapter.showFolder(showOther)
+        InboxTab.entries.forEach { tab ->
+            tabs.addTab(tabs.newTab().setText(tab.label), selectedTab == tab)
+        }
+        val labelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = androidx.core.content.res.ResourcesCompat.getFont(this@ConversationsActivity, R.font.proxima_nova_medium)
+            textSize = resources.getDimension(R.dimen.inbox_tab_text_size)
+        }
+        val widestLabel = InboxTab.entries.maxOf { labelPaint.measureText(getString(it.label)) }
+        tabs.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            val width = right - left
+            if (width <= 0 || width == oldRight - oldLeft) return@addOnLayoutChangeListener
+            val density = resources.displayMetrics.density
+            val slot = width.toFloat() / InboxTab.entries.size
+            val labelsFit = widestLabel + 12 * density <= slot
+            val iconsFit = widestLabel + 44 * density <= slot && resources.configuration.fontScale <= 1.2f
+            val mode = if (labelsFit) TabLayout.MODE_FIXED else TabLayout.MODE_SCROLLABLE
+            if (tabs.tabMode != mode) {
+                tabs.tabMode = mode
+                tabs.tabGravity = if (labelsFit) TabLayout.GRAVITY_FILL else TabLayout.GRAVITY_START
+            }
+            for (entry in InboxTab.entries) {
+                val tab = tabs.getTabAt(entry.ordinal) ?: continue
+                if (iconsFit && tab.icon == null) tab.setIcon(entry.icon)
+                else if (!iconsFit && tab.icon != null) tab.setIcon(null)
+            }
+        }
         tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 actionMode?.finish()
-                showOther = tab.position == 1
-                adapter.showFolder(showOther)
+                if (isMessagesTab()) closePrivateInbox()
+                selectedTab = InboxTab.entries[tab.position]
+                if (selectedTab == InboxTab.HOME) inboxSearchItem?.takeIf { it.isActionViewExpanded }?.collapseActionView()
+                updateTabContent()
             }
             override fun onTabUnselected(tab: TabLayout.Tab) = Unit
             override fun onTabReselected(tab: TabLayout.Tab) = Unit
         })
+        updateTabContent()
+    }
+
+    private fun updateTabContent() {
+        if (archived) return
+        val home = selectedTab == InboxTab.HOME
+        findViewById<View>(R.id.call_home_container).visibility = if (home) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.swipe_refresh_layout).visibility = if (home) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.empty_text).visibility = if (home) View.GONE else View.VISIBLE
+        updateComposeVisibility()
+        if (!home) adapter.showFolder(showOther)
+        val resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        setHomeFeedVisible(home && resumed)
+        markMessageListVisible(!home && resumed)
+    }
+
+    private fun markMessageListVisible(visible: Boolean) {
+        if (visible == countedVisibleList) return
+        countedVisibleList = visible
+        val app = application as CustomApplication
+        if (visible) app.conversationsActivityIncrementCount() else app.conversationsActivityDecrementCount()
+    }
+
+    private fun updateComposeVisibility() {
+        val available = !archived && selectedTab != InboxTab.HOME &&
+            (BuildConfig.IS_DEMO || didsConfigured(applicationContext))
+        findViewById<View>(R.id.chat_button).visibility = if (available) View.VISIBLE else View.GONE
+    }
+
+    private fun setHomeFeedVisible(visible: Boolean) {
+        if (visible == homeFeedVisible) return
+        homeFeedVisible = visible
+        if (visible) homeFeed.show() else homeFeed.hide()
+    }
+
+    override fun onStop() {
+        closePrivateInbox()
+        setHomeFeedVisible(false)
+        super.onStop()
     }
 
     /**
@@ -382,14 +557,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
             findViewById<View>(R.id.chat_button).visibility = View.GONE
         } else {
             findViewById<FloatingActionButton>(R.id.chat_button).let {
-                if (!didsConfigured(
-                        applicationContext
-                    ) && !BuildConfig.IS_DEMO
-                ) {
-                    (it as View).visibility = View.GONE
-                } else {
-                    (it as View).visibility = View.VISIBLE
-                }
+                updateComposeVisibility()
                 it.setOnClickListener {
                     val newConversationIntent = Intent(
                         this, NewConversationActivity::class.java
@@ -453,7 +621,12 @@ open class ConversationsActivity(val archived: Boolean = false) :
             // Filter the list of conversations to the selected DID
             drawerLayout.closeDrawer(GravityCompat.START)
             navViewMenuItemDidMap[menuItem]?.let {
+                val lineChanged = getActiveDid(applicationContext) != it
                 setActiveDid(applicationContext, it)
+                if (lineChanged && homeFeedVisible) {
+                    setHomeFeedVisible(false)
+                    setHomeFeedVisible(true)
+                }
                 menuItem.isChecked = true
                 adapter.refresh()
             }
@@ -474,9 +647,11 @@ open class ConversationsActivity(val archived: Boolean = false) :
 
     override fun onResume() {
         super.onResume()
+        net.kourlas.voipms_sms.tools.ThreadReminders.observe(this, remindersListener, true)
+        setHomeFeedVisible(!archived && selectedTab == InboxTab.HOME)
 
-        // Track number of activities
-        (application as CustomApplication).conversationsActivityIncrementCount()
+        // An incoming SMS still needs a notification when only the call timeline is visible.
+        markMessageListVisible(archived || selectedTab != InboxTab.HOME)
 
         // Register dynamic receivers for this activity
         registerNonExportedReceiver(
@@ -564,14 +739,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
             }
         }
 
-        // Update chat button visibility
-        findViewById<FloatingActionButton>(R.id.chat_button).let {
-            if (archived || !didsConfigured(applicationContext) && !BuildConfig.IS_DEMO) {
-                (it as View).visibility = View.GONE
-            } else {
-                (it as View).visibility = View.VISIBLE
-            }
-        }
+        updateComposeVisibility()
     }
 
     /**
@@ -668,7 +836,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
             for (did in listOf("") + dids.sorted()) {
                 val menuItem = navigationView.menu.add(
                     if (did == "") getString(R.string.conversations_all_dids)
-                    else getFormattedPhoneNumber(did)
+                    else net.kourlas.voipms_sms.tools.LineProfiles.styled(this, did)
                 )
                 navViewMenuItemDidMap[menuItem] = did
                 menuItem.isCheckable = true
@@ -682,6 +850,8 @@ open class ConversationsActivity(val archived: Boolean = false) :
     }
 
     override fun onPause() {
+        net.kourlas.voipms_sms.tools.ThreadReminders.observe(this, remindersListener, false)
+        closePrivateInbox()
         super.onPause()
 
         // Unregister all dynamic receivers for this activity
@@ -693,7 +863,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
 
         // Track number of activities
         (application as CustomApplication).stopVisibleRefresh()
-        (application as CustomApplication).conversationsActivityDecrementCount()
+        markMessageListVisible(false)
     }
 
     @SuppressLint("DiscouragedPrivateApi")
@@ -701,7 +871,36 @@ open class ConversationsActivity(val archived: Boolean = false) :
         // Create standard options menu
         val inflater = menuInflater
         inflater.inflate(R.menu.conversations, menu)
-        menu.findItem(R.id.search_button).setOnActionExpandListener(messageBack)
+
+        if (!BuildConfig.IS_DEMO) {
+            menu.add(R.string.chat_rooms).setOnMenuItemClickListener {
+                startActivity(Intent(this, net.kourlas.voipms_sms.rich.ui.EncryptedRoomsActivity::class.java)); true
+            }
+            menu.add(R.string.chat_nearby).setOnMenuItemClickListener {
+                startActivity(net.kourlas.voipms_sms.nearby.NearbyActivity.intent(this)); true
+            }
+            menu.add(R.string.tools_search).setOnMenuItemClickListener { net.kourlas.voipms_sms.tools.MessageSearch.open(this); true }
+            menu.add(R.string.tools_snoozed).setOnMenuItemClickListener { net.kourlas.voipms_sms.tools.ThreadReminders.showSnoozed(this); true }
+        }
+        menu.add(R.string.spam_rules).setOnMenuItemClickListener {
+            net.kourlas.voipms_sms.privacy.SpamReview.show(this) { adapter.refresh() }
+            true
+        }
+        if (!archived) menu.add(if (privateInbox) R.string.private_return else R.string.private_threads).setOnMenuItemClickListener {
+            if (isMessagesTab()) togglePrivateInbox()
+            else startActivity(Intent(this, net.kourlas.voipms_sms.privacy.PrivateThreadGateActivity::class.java))
+            true
+        }
+        inboxSearchItem = menu.findItem(R.id.search_button)
+        inboxSearchItem?.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
+            override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+                if (!archived && selectedTab == InboxTab.HOME) {
+                    findViewById<TabLayout>(R.id.inbox_tabs).getTabAt(InboxTab.MESSAGES.ordinal)?.select()
+                }
+                return messageBack.onMenuItemActionExpand(item)
+            }
+            override fun onMenuItemActionCollapse(item: MenuItem) = messageBack.onMenuItemActionCollapse(item)
+        })
 
         // Configure the search box to trigger adapter filtering when the
         // text changes
@@ -749,6 +948,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
         }
 
         if (archived) {
+            menu.findItem(R.id.global_outbox_button).isVisible = false
             menu.findItem(R.id.archived_button).isVisible = false
             menu.findItem(R.id.message_center_button).isVisible = false
             menu.findItem(R.id.preferences_button).isVisible = false
@@ -777,6 +977,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
                 return true
             }
 
+            R.id.global_outbox_button -> {
+                net.kourlas.voipms_sms.conversation.OutboxUi(this).show()
+                return true
+            }
             R.id.message_center_button -> {
                 try {
                     val portal = "https://voip.ms/m/sms.php".toUri()
@@ -845,6 +1049,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
                 lifecycleScope.launch {
                     try {
                         Database.getInstance(applicationContext).moveToInboxFolder(selected, destination)
+                        Database.getInstance(applicationContext).updateShortcuts()
                         adapter.refresh()
                     } catch (e: CancellationException) {
                         throw e
@@ -1019,6 +1224,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
             }
 
             val conversationItem = adapter[position]
+            if (privateInbox) net.kourlas.voipms_sms.privacy.PrivateThreads.grant(conversationItem.message.conversationId)
             val intent = Intent(this, ConversationActivity::class.java)
             intent.putExtra(
                 getString(R.string.conversation_did),
@@ -1107,6 +1313,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
                     Database.getInstance(applicationContext)
                         .markConversationArchived(message.conversationId)
                 }
+                Database.getInstance(applicationContext).updateShortcuts()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1145,10 +1352,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
                                         .markConversationUnarchived(
                                             message.conversationId
                                         )
-
-                                    lifecycleScope.launch(Dispatchers.Main) {
-                                        adapter.refresh()
-                                    }
+                                }
+                                Database.getInstance(applicationContext).updateShortcuts()
+                                lifecycleScope.launch(Dispatchers.Main) {
+                                    adapter.refresh()
                                 }
                             } catch (e: CancellationException) {
                                 throw e
@@ -1186,6 +1393,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
                     Database.getInstance(applicationContext)
                         .markConversationUnarchived(message.conversationId)
                 }
+                Database.getInstance(applicationContext).updateShortcuts()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1224,10 +1432,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
                                         .markConversationArchived(
                                             message.conversationId
                                         )
-
-                                    lifecycleScope.launch(Dispatchers.Main) {
-                                        adapter.refresh()
-                                    }
+                                }
+                                Database.getInstance(applicationContext).updateShortcuts()
+                                lifecycleScope.launch(Dispatchers.Main) {
+                                    adapter.refresh()
                                 }
                             } catch (e: CancellationException) {
                                 throw e

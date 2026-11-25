@@ -52,6 +52,7 @@ internal class MessageSynchronization(
     private val forceRecent: Boolean,
     private val targetDid: String? = null,
     private val expectedAccountGeneration: Long? = null,
+    private val route: String = "Live listener",
     private val onStarted: () -> Unit = {},
     private val onProgress: suspend (Int) -> Unit = {}
 ) {
@@ -259,6 +260,7 @@ internal class MessageSynchronization(
                             messages, retrieveDeletedMessages, request.checkpoint.takeIf { request.did !in incompleteDids },
                             request.previousThrough
                         )
+                        net.kourlas.voipms_sms.delivery.DeliveryTrace.fetched(applicationContext, request.did, messages, route)
                         if (conversations.isNotEmpty()) {
                             Notifications.getInstance(applicationContext).showNotifications(conversations)
                         }
