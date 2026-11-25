@@ -1,3 +1,9 @@
+### Unreleased ###
+
+* Messages and individual conversations show loading progress and offer a retry after a read failure. Rapid tab changes and incoming thread intents cancel obsolete loads.
+* Diagnose loading, sync and file transfers with an optional local debug log. Export a timestamped report from Database settings.
+* Export a complete SMS thread to a chosen file. Portable backup exports read message history in pages.
+
 ### 0.8.0 ###
 
 * Tap a phone number to save a name in the encrypted app address book. Reuse that name in conversations, call history and the new-message picker. Encrypted portable backups can restore individual contacts.

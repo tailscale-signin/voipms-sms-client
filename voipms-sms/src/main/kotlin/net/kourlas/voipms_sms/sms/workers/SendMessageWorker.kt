@@ -28,6 +28,10 @@ import kotlinx.coroutines.CancellationException
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.database.entities.OutboxPart
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DebugTrace
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import net.kourlas.voipms_sms.network.NetworkManager
 import net.kourlas.voipms_sms.notifications.Notifications
 import net.kourlas.voipms_sms.preferences.AccountCredentials
@@ -48,24 +52,52 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
     private var error: String? = null
     private var rejected = false
+    private var failureCause: Exception? = null
 
     override suspend fun doWork(): Result {
-        val batch = inputData.getString(Outbox.BATCH) ?: return Result.success()
+        val trace = DebugJournal.begin(applicationContext, DiagnosticAction.OUTBOX_SEND)
+        try {
+            return sendBatch(trace)
+        } catch (e: CancellationException) {
+            trace.step(DiagnosticStep.CANCELLED)
+            throw e
+        } catch (e: Exception) {
+            trace.step(DiagnosticStep.FAILED, error = e)
+            throw e
+        }
+    }
+
+    private suspend fun sendBatch(trace: DebugTrace): Result {
+        trace.step(DiagnosticStep.VALIDATING)
+        val batch = inputData.getString(Outbox.BATCH)
+        if (batch == null) {
+            trace.step(DiagnosticStep.SKIPPED)
+            return Result.success()
+        }
         val generation = inputData.getLong(ACCOUNT_GENERATION, -1)
         val context = applicationContext
         val db = Database.getInstance(context)
         val parts = db.outboxTransaction { outboxDao().parts(batch) }
+        var accepted = 0L
+        var outcome = DiagnosticStep.SKIPPED
         for (part in parts) {
             if (part.generation != generation || part.state == OutboxPart.ACCEPTED) continue
-            if (part.state == OutboxPart.UNKNOWN || part.state == OutboxPart.REJECTED) break
+            if (part.state == OutboxPart.UNKNOWN || part.state == OutboxPart.REJECTED) {
+                outcome = DiagnosticStep.SKIPPED
+                break
+            }
             val message = db.getMessageDatabaseId(part.messageId) ?: continue
             if (part.state == OutboxPart.ATTEMPTING) {
                 Outbox.failed(context, part, true, context.getString(R.string.outbox_unconfirmed))
                 notifyConversation(message, context.getString(R.string.outbox_unconfirmed))
+                outcome = DiagnosticStep.FAILED
                 break
             }
             if (part.dueAt > System.currentTimeMillis() ||
-                !NetworkManager.getInstance().isNetworkConnectionAvailable(context)) return Result.retry()
+                !NetworkManager.getInstance().isNetworkConnectionAvailable(context)) {
+                trace.step(DiagnosticStep.RETRY, count = accepted)
+                return Result.retry()
+            }
             error = null
             rejected = false
             val finished = try {
@@ -83,6 +115,7 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                     if (db.outboxTransaction { outboxDao().claim(batch, part.messageId, System.currentTimeMillis()) } != 1)
                         return@withCurrentAccount false
                     // A cancelled process after this point leaves a durable attempted state.
+                    if (accepted == 0L) trace.step(DiagnosticStep.SENDING)
                     val id = sendMessageWithVoipMsApi(message, account, part.isMms)
                     if (id == null) {
                         Outbox.failed(context, part, !rejected, error ?: context.getString(R.string.outbox_unconfirmed))
@@ -98,12 +131,19 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                     Outbox.failed(context, part, false, error!!)
                     false
                 }
-            } catch (_: IOException) {
+            } catch (e: IOException) {
+                trace.step(DiagnosticStep.RETRY, count = accepted, error = e)
                 return Result.retry()
             }
             notifyConversation(message, error)
-            if (!finished) break
+            if (!finished) {
+                outcome = if (error == null) DiagnosticStep.SKIPPED else DiagnosticStep.FAILED
+                break
+            }
+            accepted++
+            outcome = DiagnosticStep.COMPLETED
         }
+        trace.step(outcome, count = accepted, error = failureCause)
         return Result.success()
     }
 
@@ -204,9 +244,11 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                 null
             }
         } catch (e: IOException) {
+            failureCause = e
             error = applicationContext.getString(R.string.send_message_error_api_request)
             return null
         } catch (e: JsonDataException) {
+            failureCause = e
             Log.e(TAG, "Failed to parse send message response", e)
             error = applicationContext.getString(
                 R.string.send_message_error_api_parse
@@ -215,6 +257,7 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            failureCause = e
             Log.e(TAG, "Failed to send message request", e)
             error = applicationContext.getString(
                 R.string.send_message_error_unknown

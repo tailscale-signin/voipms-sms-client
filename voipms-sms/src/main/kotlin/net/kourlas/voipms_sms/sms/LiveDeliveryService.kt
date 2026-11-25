@@ -86,7 +86,7 @@ class LiveDeliveryService : Service() {
                 net.kourlas.voipms_sms.delivery.CallFeedSync.refresh(applicationContext)
                 val sync = MessageSynchronization(applicationContext, forceRecent = true,
                     expectedAccountGeneration = generation)
-                withContext(Dispatchers.IO) { sync.run() }
+                withContext(Dispatchers.IO) { sync.run(retryOnTransient = true) }
                 if (sync.accountRejected) {
                     finishListening(sync.error)
                     return@launch

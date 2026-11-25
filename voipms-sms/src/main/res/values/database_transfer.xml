@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="database_export_unverified">Database written. The selected provider does not allow reopening the file for verification.</string>
+    <string name="database_file_access_failed">Check access to the selected file and available storage, then try again.</string>
+    <string name="database_export_unlock_unavailable">Unlock with your device credential to export private conversations. If a screen lock is unavailable, set one up and try again.</string>
+</resources>

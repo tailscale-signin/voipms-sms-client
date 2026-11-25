@@ -34,11 +34,15 @@ internal object BackupEnvelope {
         }
     }
 
-    fun write(source: InputStream, dest: OutputStream, password: CharArray, checkActive: () -> Unit = {}) {
+    fun write(source: InputStream, dest: OutputStream, password: CharArray, checkActive: () -> Unit = {},
+              onWriting: () -> Unit = {}) {
         val random = SecureRandom()
         val salt = ByteArray(16).also(random::nextBytes)
         val prefix = ByteArray(8).also(random::nextBytes)
+        checkActive()
         val key = derive(password, salt)
+        checkActive()
+        onWriting()
         val stream = DataOutputStream(dest)
         stream.write(magic)
         stream.write(salt)
@@ -61,7 +65,9 @@ internal object BackupEnvelope {
         stream.flush()
     }
 
-    fun read(source: InputStream, dest: OutputStream, password: CharArray, maxBytes: Long = MAX_BYTES) {
+    fun read(source: InputStream, dest: OutputStream, password: CharArray, maxBytes: Long = MAX_BYTES,
+             checkActive: () -> Unit = {}) {
+        checkActive()
         val stream = DataInputStream(source)
         fun take(size: Int) = ByteArray(size).also(stream::readFully)
         require(take(magic.size).contentEquals(magic)) { "Unknown backup format" }
@@ -70,6 +76,7 @@ internal object BackupEnvelope {
         var sequence = 0
         var total = 0L
         while (true) {
+            checkActive()
             val size = stream.readInt()
             require(size in 16..(CHUNK + 16))
             val plain = cipher(Cipher.DECRYPT_MODE, key, prefix, sequence++).doFinal(take(size))

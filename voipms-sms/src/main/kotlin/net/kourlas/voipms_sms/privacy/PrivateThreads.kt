@@ -24,6 +24,10 @@ import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
 
 internal object PrivateThreads {
     private fun prefs(c: Context) = c.getSharedPreferences("private-threads", Context.MODE_PRIVATE)
+    fun observe(context: Context, listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener, enabled: Boolean) {
+        if (enabled) prefs(context).registerOnSharedPreferenceChangeListener(listener)
+        else prefs(context).unregisterOnSharedPreferenceChangeListener(listener)
+    }
     fun isPrivate(context: Context, id: ConversationId) = prefs(context).getBoolean(id.getId(), false)
     fun hasPrivate(context: Context) = prefs(context).all.values.any { it == true }
     private var permitted: Pair<ConversationId, Long>? = null

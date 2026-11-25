@@ -9,12 +9,16 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.database.entities.OutboxPart
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.withCurrentAccount
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.Message
 import net.kourlas.voipms_sms.utils.getMessageTexts
 import net.kourlas.voipms_sms.utils.httpPostWithMultipartFormData
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -35,14 +39,25 @@ internal object Outbox {
                         generation: Long, due: Long, inline: Boolean = false, asMms: Boolean = false): String {
         val batch = token()
         val part = OutboxPart(0, batch, generation, due, inline, isMms = asMms || media.isNotEmpty())
-        withContext(NonCancellable) {
-            check(withCurrentAccount(context, generation) {
-                require(thread.did in getDids(context))
-                Database.getInstance(context).insertConversationMessagesDeliveryInProgress(
-                    thread, if (part.isMms) listOf(text) else getMessageTexts(context, text), media, part
-                )
-            } != null)
-            schedule(context, part)
+        val trace = DebugJournal.begin(context, DiagnosticAction.OUTBOX_SEND)
+        try {
+            withContext(NonCancellable) {
+                trace.step(DiagnosticStep.WRITING)
+                check(withCurrentAccount(context, generation) {
+                    require(thread.did in getDids(context))
+                    Database.getInstance(context).insertConversationMessagesDeliveryInProgress(
+                        thread, if (part.isMms) listOf(text) else getMessageTexts(context, text), media, part
+                    )
+                } != null)
+                trace.step(DiagnosticStep.QUEUED)
+                schedule(context, part)
+            }
+        } catch (e: CancellationException) {
+            trace.step(DiagnosticStep.CANCELLED)
+            throw e
+        } catch (e: Exception) {
+            trace.step(DiagnosticStep.FAILED, error = e)
+            throw e
         }
         return batch
     }

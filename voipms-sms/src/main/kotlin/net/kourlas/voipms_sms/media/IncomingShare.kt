@@ -11,6 +11,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import net.kourlas.voipms_sms.sms.Message
 
 internal object IncomingShare {
@@ -42,7 +45,9 @@ internal object IncomingShare {
     }
     fun share(owner: AppCompatActivity, message: Message) {
         owner.lifecycleScope.launch {
+            val trace = if (message.medias.isEmpty()) null else DebugJournal.begin(owner, DiagnosticAction.MEDIA_EXPORT)
             try {
+                trace?.step(DiagnosticStep.READING, count = message.medias.size.toLong())
                 val files = withContext(Dispatchers.IO) { message.medias.map { MmsMedia.previewFile(owner, it) } }
                 val refs = ArrayList(files.map { MmsMedia.uri(owner, it) })
                 val intent = Intent(if (refs.size > 1) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND)
@@ -63,8 +68,13 @@ internal object IncomingShare {
                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 owner.startActivity(Intent.createChooser(intent, null))
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) {
+                // The receiving app owns any subsequent save or share.
+                trace?.step(DiagnosticStep.HANDOFF, count = refs.size.toLong())
+            } catch (e: CancellationException) {
+                trace?.step(DiagnosticStep.CANCELLED)
+                throw e
+            } catch (e: Exception) {
+                trace?.step(DiagnosticStep.FAILED, error = e)
                 android.widget.Toast.makeText(owner, net.kourlas.voipms_sms.R.string.mms_unavailable,
                     android.widget.Toast.LENGTH_LONG).show()
             }

@@ -83,6 +83,7 @@ def install_fixture(adb):
             now = int(time.time())
             messages = [
                 (106, now - 90, 1, DID, PRIVATE_PEER, PRIVATE_TEXT),
+                (107, now - 400, 1, DID, CONTACT, "İz"),
                 (101, now - 320, 1, DID, CONTACT, "Are we still meeting at ten tomorrow?"),
                 (104, now - 200, 1, DID, CONTACT, f"Your verification code is {CODE}."),
                 (105, now - 180, 1, DID, "6475550123", JUNK),
@@ -373,6 +374,9 @@ def run(adb, element, screenshot):
     element("content-desc", "More options", tap=True)
     element("text", "Move to Messages", tap=True)
     element("text", "No suspected spam or junk conversations.")
+    empty_ids = {n.get("resource-id") for n in read_tree(adb).iter("node")}
+    if any(PACKAGE + ":id/" + view in empty_ids for view in ("message", "inbox_loading", "inbox_retry")):
+        raise AssertionError("The empty Other folder still displays rows, loading or retry")
     element("text", "Messages", tap=True)
     element("text", JUNK, hold=True)
     element("content-desc", "More options", tap=True)

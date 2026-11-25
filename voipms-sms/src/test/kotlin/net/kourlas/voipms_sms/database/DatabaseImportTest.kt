@@ -150,6 +150,27 @@ class DatabaseImportTest {
     }
 
     @Test
+    fun portableExportReadsAllPagesAndReplacesALargerDocument(): Unit = runBlocking {
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        val file = File(context.cacheDir, "multi-page.vsms").apply { writeBytes(ByteArray(128 * 1024)) }
+        val password = "paged backup test".toCharArray()
+        try {
+            insertMessages(257)
+            val uri = android.net.Uri.fromFile(file)
+            val report = archive.export(context, uri, password, includeContacts = false)
+            assertTrue(report.verified)
+            assertTrue(file.length() < 128 * 1024)
+            val preview = archive.preview(context, uri, password)
+            try {
+                assertEquals(257, preview.counts[conversationId])
+                java.util.zip.ZipFile(preview.zip).use { zip ->
+                    assertEquals(List(257) { "Message $it" }, archive.rows(zip, conversationId).map { it.text }.toList())
+                }
+            } finally { preview.zip.delete() }
+        } finally { password.fill('\u0000'); file.delete() }
+    }
+
+    @Test
     fun originalVersionOnePortableArchiveRestoresWithoutAnAddressBook(): Unit = runBlocking {
         val archive = net.kourlas.voipms_sms.privacy.PortableBackup
         val zip = java.io.ByteArrayOutputStream()

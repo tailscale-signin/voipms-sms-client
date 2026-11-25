@@ -32,6 +32,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import net.kourlas.voipms_sms.diagnostics.DebugLifecycle
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.preferences.accountConfigured
 import net.kourlas.voipms_sms.preferences.didsConfigured
@@ -54,41 +58,41 @@ class CustomApplication : Application() {
     private val conversationActivitiesVisible: MutableMap<ConversationId, Int> =
         HashMap()
 
+    @Synchronized
     fun conversationsActivityVisible(): Boolean {
         return conversationsActivitiesVisible > 0
     }
 
+    @Synchronized
     fun conversationsActivityIncrementCount() {
         conversationsActivitiesVisible++
     }
 
+    @Synchronized
     fun conversationsActivityDecrementCount() {
-        conversationsActivitiesVisible--
+        if (conversationsActivitiesVisible > 0) conversationsActivitiesVisible--
     }
 
+    @Synchronized
     fun conversationActivityVisible(conversationId: ConversationId): Boolean {
         val count = conversationActivitiesVisible[conversationId]
         return count != null && count > 0
     }
 
+    @Synchronized
     fun conversationActivityIncrementCount(
         conversationId: ConversationId
     ) {
-        var count = conversationActivitiesVisible[conversationId]
-        if (count == null) {
-            count = 0
-        }
-        conversationActivitiesVisible[conversationId] = count + 1
+        conversationActivitiesVisible[conversationId] = (conversationActivitiesVisible[conversationId] ?: 0) + 1
     }
 
+    @Synchronized
     fun conversationActivityDecrementCount(
         conversationId: ConversationId
     ) {
-        var count = conversationActivitiesVisible[conversationId]
-        if (count == null) {
-            count = 0
-        }
-        conversationActivitiesVisible[conversationId] = count - 1
+        val count = conversationActivitiesVisible[conversationId] ?: return
+        if (count <= 1) conversationActivitiesVisible.remove(conversationId)
+        else conversationActivitiesVisible[conversationId] = count - 1
     }
 
     /**
@@ -99,6 +103,7 @@ class CustomApplication : Application() {
      */
     val applicationScope = CoroutineScope(
         SupervisorJob() + CoroutineExceptionHandler { _, e ->
+            DebugJournal.record(this, DiagnosticAction.APP, DiagnosticStep.FAILED, error = e)
             Log.e(TAG, "Uncaught exception in application scope", e)
             // The handler can run on a background thread, so show the toast
             // on the main thread.
@@ -130,6 +135,7 @@ class CustomApplication : Application() {
     }
 
     fun stopVisibleRefresh() {
+        if (visibleMessagingScreens == 0) return
         visibleMessagingScreens--
         if (visibleMessagingScreens == 0) {
             visibleRefresh?.cancel()
@@ -139,6 +145,7 @@ class CustomApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        DebugLifecycle.install(this)
 
         net.kourlas.voipms_sms.privacy.PortableBackup.clearInterruptedWork(this)
         ChatFont.start(this)

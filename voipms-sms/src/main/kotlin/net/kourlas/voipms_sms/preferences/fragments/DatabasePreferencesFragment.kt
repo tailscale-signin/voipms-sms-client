@@ -17,31 +17,37 @@
 
 package net.kourlas.voipms_sms.preferences.fragments
 
-import android.content.ActivityNotFoundException
+import android.app.Activity
+import android.app.KeyguardManager
 import android.content.Context
-import android.content.Intent
-import android.content.Intent.CATEGORY_OPENABLE
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
 import androidx.appcompat.app.AlertDialog
-import androidx.lifecycle.lifecycleScope
+import androidx.core.net.toUri
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.CustomApplication
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.database.DatabaseImportException
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DebugTrace
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
+import net.kourlas.voipms_sms.privacy.PrivateThreads
+import java.io.IOException
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.utils.preferences
 import net.kourlas.voipms_sms.utils.showAlertDialog
 import net.kourlas.voipms_sms.utils.showErrorMessage
-import net.kourlas.voipms_sms.utils.showSnackbar
 
 private const val TAG = "DatabasePrefsFragment"
 
@@ -50,46 +56,67 @@ private const val TAG = "DatabasePrefsFragment"
  */
 class DatabasePreferencesFragment : PreferenceFragmentCompat() {
     private val portable = net.kourlas.voipms_sms.privacy.BackupPreferences(this)
-    // Preference activity launchers
-    private val importActivityResultLauncher =
-        registerForActivityResult(
-            object : ActivityResultContracts.OpenDocument() {
-                override fun createIntent(
-                    context: Context,
-                    input: Array<String>
-                ): Intent {
-                    val intent = super.createIntent(context, input)
-                    intent.addCategory(CATEGORY_OPENABLE)
-                    return intent
-                }
-            }) {
-            if (it != null) {
-                import(it)
+    private val debug = net.kourlas.voipms_sms.diagnostics.DiagnosticPreferences(this)
+    private var importId: String? = null
+    private var exportId: String? = null
+    private var pendingRawExport: Uri? = null
+
+    private val importPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val trace = DebugJournal.resume(requireContext(), DiagnosticAction.DATABASE_IMPORT, importId)
+        importId = null
+        if (uri == null) trace.step(DiagnosticStep.CANCELLED)
+        else {
+            trace.step(DiagnosticStep.PICKER_RETURNED)
+            transfer(uri, false, trace)
+        }
+    }
+
+    private val exportPicker = registerForActivityResult(CreateDocument(SQLITE_MIME_TYPE)) { uri ->
+        val trace = DebugJournal.resume(requireContext(), DiagnosticAction.DATABASE_EXPORT, exportId)
+        if (uri == null) {
+            exportId = null
+            trace.step(DiagnosticStep.CANCELLED)
+        } else {
+            trace.step(DiagnosticStep.PICKER_RETURNED)
+            protectRawExport(uri, trace)
+        }
+    }
+
+    private val verifyRawExport = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val context = requireContext()
+        val trace = DebugJournal.resume(context, DiagnosticAction.DATABASE_EXPORT, exportId)
+        val uri = pendingRawExport
+        pendingRawExport = null
+        exportId = null
+        when {
+            result.resultCode != Activity.RESULT_OK -> trace.step(DiagnosticStep.CANCELLED)
+            uri != null -> transfer(uri, true, trace)
+            else -> {
+                trace.step(DiagnosticStep.FAILED)
+                showStatus(context, R.string.database_export_unlock_unavailable)
             }
         }
-    private val exportActivityResultLauncher =
-        registerForActivityResult(object : CreateDocument(SQLITE_MIME_TYPE) {
-            override fun createIntent(
-                context: Context,
-                input: String
-            ): Intent {
-                val intent = super.createIntent(context, input)
-                intent.type = SQLITE_MIME_TYPE
-                return intent
-            }
-        }) {
-            if (it != null) {
-                protectRawExport(it)
-            }
-        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        debug.saveState(outState)
+        outState.putString("rawImportTrace", importId)
+        outState.putString("rawExportTrace", exportId)
+        outState.putString("rawExportDocument", pendingRawExport?.toString())
+    }
 
     override fun onCreatePreferences(
         savedInstanceState: Bundle?,
         rootKey: String?
     ) {
+        importId = savedInstanceState?.getString("rawImportTrace")
+        exportId = savedInstanceState?.getString("rawExportTrace")
+        pendingRawExport = savedInstanceState?.getString("rawExportDocument")?.toUri()
         // Add preferences
         addPreferencesFromResource(R.xml.preferences_database)
         portable.attach()
+        debug.attach(savedInstanceState)
 
         // Assign listeners to preferences
         for (preference in preferenceScreen.preferences) {
@@ -97,24 +124,7 @@ class DatabasePreferencesFragment : PreferenceFragmentCompat() {
                 getString(R.string.preferences_database_import_key) ->
                     preference.onPreferenceClickListener =
                         Preference.OnPreferenceClickListener {
-                            try {
-                                importActivityResultLauncher.launch(
-                                    arrayOf(
-                                        SQLITE_MIME_TYPE,
-                                        OCTET_STREAM_MIME_TYPE
-                                    )
-                                )
-                            } catch (_: ActivityNotFoundException) {
-                                activity?.let {
-                                    showSnackbar(
-                                        it,
-                                        R.id.coordinator_layout,
-                                        getString(
-                                            R.string.preferences_database_fail_open_document
-                                        )
-                                    )
-                                }
-                            }
+                            launchPicker(false)
                             true
                         }
 
@@ -123,19 +133,7 @@ class DatabasePreferencesFragment : PreferenceFragmentCompat() {
                 ) ->
                     preference.onPreferenceClickListener =
                         Preference.OnPreferenceClickListener {
-                            try {
-                                exportActivityResultLauncher.launch("sms.db")
-                            } catch (_: ActivityNotFoundException) {
-                                activity?.let {
-                                    showSnackbar(
-                                        it,
-                                        R.id.coordinator_layout,
-                                        getString(
-                                            R.string.preferences_database_fail_create_document
-                                        )
-                                    )
-                                }
-                            }
+                            launchPicker(true)
                             true
                         }
 
@@ -160,116 +158,89 @@ class DatabasePreferencesFragment : PreferenceFragmentCompat() {
         }
     }
 
-    /**
-     * Imports the database located at the specified URI.
-     */
-    private fun import(uri: Uri) {
-        activity?.let {
-            CustomApplication.getApplication().applicationScope.launch(
-                Dispatchers.IO
-            ) {
-                try {
-                    val importFd = it.contentResolver.openFileDescriptor(
-                        uri, "r"
-                    )
-                        ?: throw Exception("Could not open file")
-                    Database.getInstance(it).import(importFd)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to import database", e)
-                    lifecycleScope.launch(Dispatchers.Main) {
-                        showSnackbar(
-                            it,
-                            R.id.coordinator_layout,
-                            getString(
-                                R.string.preferences_database_import_fail,
-                                if (e is DatabaseImportException) {
-                                    e.message
-                                } else {
-                                    "${e.message} (${e.javaClass.simpleName})"
-                                }
-                            )
-                        )
-                    }
-                    return@launch
-                }
-
-                lifecycleScope.launch(Dispatchers.Main) {
-                    showSnackbar(
-                        it, R.id.coordinator_layout, it.getString(
-                            R.string.preferences_database_import_success
-                        )
-                    )
-                }
-            }
-        }
+    override fun onResume() {
+        super.onResume()
+        debug.refresh()
     }
 
-    /**
-     * Exports the database to the specified URI.
-     */
-    private var pendingRawExport: Uri? = null
-    private val verifyRawExport = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val uri = pendingRawExport
-        pendingRawExport = null
-        if (result.resultCode == android.app.Activity.RESULT_OK && uri != null) export(uri)
+    private fun launchPicker(writing: Boolean) {
+        val context = requireContext()
+        val trace = DebugJournal.begin(context, if (writing) DiagnosticAction.DATABASE_EXPORT else DiagnosticAction.DATABASE_IMPORT)
+        trace.step(DiagnosticStep.PICKER_OPENED)
+        try {
+            if (writing) {
+                exportId = trace.id
+                exportPicker.launch("sms.db")
+            } else {
+                importId = trace.id
+                importPicker.launch(arrayOf(SQLITE_MIME_TYPE, OCTET_STREAM_MIME_TYPE))
+            }
+        } catch (e: RuntimeException) {
+            if (writing) exportId = null else importId = null
+            trace.step(DiagnosticStep.FAILED, error = e)
+            showStatus(context, if (writing) R.string.preferences_database_fail_create_document else R.string.preferences_database_fail_open_document)
+        }
     }
 
     @Suppress("DEPRECATION")
-    private fun protectRawExport(uri: Uri) {
-        if (!net.kourlas.voipms_sms.privacy.PrivateThreads.hasPrivate(requireContext())) {
-            export(uri)
-            return
-        }
-        val manager = requireContext().getSystemService(android.app.KeyguardManager::class.java)
-        val proof = manager.createConfirmDeviceCredentialIntent(getString(R.string.private_threads),
-            getString(R.string.backup_legacy_private))
-        if (proof != null) {
+    private fun protectRawExport(uri: Uri, trace: DebugTrace) {
+        val context = requireContext()
+        try {
+            if (!PrivateThreads.hasPrivate(context)) {
+                exportId = null
+                transfer(uri, true, trace)
+                return
+            }
+            trace.step(DiagnosticStep.AUTHORIZING)
+            val proof = context.getSystemService(KeyguardManager::class.java)?.createConfirmDeviceCredentialIntent(
+                getString(R.string.private_threads), getString(R.string.backup_legacy_private)
+            )
+            if (proof == null) {
+                exportId = null
+                trace.step(DiagnosticStep.FAILED)
+                showStatus(context, R.string.database_export_unlock_unavailable)
+                return
+            }
             pendingRawExport = uri
             verifyRawExport.launch(proof)
+        } catch (e: RuntimeException) {
+            exportId = null
+            pendingRawExport = null
+            trace.step(DiagnosticStep.FAILED, error = e)
+            showStatus(context, R.string.database_export_unlock_unavailable)
         }
     }
 
-    private fun export(uri: Uri) {
-        activity?.let {
-            CustomApplication.getApplication().applicationScope.launch(
-                Dispatchers.IO
-            ) {
-                try {
-                    val exportFd = it.contentResolver.openFileDescriptor(
-                        uri, "w"
-                    )
-                        ?: throw Exception("Could not open file")
-                    Database.getInstance(it).export(exportFd)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to export database", e)
-                    lifecycleScope.launch(Dispatchers.Default) {
-                        showSnackbar(
-                            it,
-                            R.id.coordinator_layout,
-                            getString(
-                                R.string.preferences_database_export_fail,
-                                "${e.message} (${e.javaClass.simpleName})"
-                            )
-                        )
-
+    private fun transfer(uri: Uri, writing: Boolean, trace: DebugTrace) {
+        val context = requireContext().applicationContext
+        CustomApplication.getApplication().applicationScope.launch(Dispatchers.IO) {
+            val status = try {
+                val database = Database.getInstance(context)
+                if (writing) {
+                    val result = database.export(trace, readBack = { context.contentResolver.openInputStream(uri) }) { mode ->
+                        context.contentResolver.openFileDescriptor(uri, mode)
                     }
-                    return@launch
+                    trace.step(DiagnosticStep.COMPLETED, count = result.bytes)
+                    context.getString(if (result.verified) R.string.preferences_database_export_success else R.string.database_export_unverified)
+                } else {
+                    database.import(trace) { context.contentResolver.openFileDescriptor(uri, "r") ?: throw IOException() }
+                    trace.step(DiagnosticStep.COMPLETED)
+                    context.getString(R.string.preferences_database_import_success)
                 }
-
-                lifecycleScope.launch(Dispatchers.Default) {
-                    showSnackbar(
-                        it, R.id.coordinator_layout, it.getString(
-                            R.string.preferences_database_export_success
-                        )
-                    )
-
-                }
+            } catch (e: CancellationException) {
+                trace.step(DiagnosticStep.CANCELLED)
+                throw e
+            } catch (e: Exception) {
+                trace.step(DiagnosticStep.FAILED, error = e)
+                val detail = if (e is DatabaseImportException) e.message else context.getString(R.string.database_file_access_failed)
+                context.getString(if (writing) R.string.preferences_database_export_fail else R.string.preferences_database_import_fail, detail)
             }
+            withContext(Dispatchers.Main) { Toast.makeText(context, status, Toast.LENGTH_LONG).show() }
         }
+    }
+
+    private fun showStatus(context: Context, message: Int) {
+        Toast.makeText(context.applicationContext, message, Toast.LENGTH_LONG).show()
     }
 
     private fun cleanUp() {

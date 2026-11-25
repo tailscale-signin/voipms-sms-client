@@ -70,12 +70,17 @@ import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.catch
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import net.kourlas.voipms_sms.lookup.NumberOrigin
 import net.kourlas.voipms_sms.lookup.OnlineNumberLookup
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.squareup.moshi.JsonClass
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -106,7 +111,6 @@ import net.kourlas.voipms_sms.sms.DestinationSupport
 import net.kourlas.voipms_sms.sms.workers.Outbox
 import net.kourlas.voipms_sms.utils.hasOversizedSmsUrl
 import net.kourlas.voipms_sms.ui.FastScroller
-import net.kourlas.voipms_sms.utils.JsonParserManager
 import net.kourlas.voipms_sms.utils.abortActivity
 import net.kourlas.voipms_sms.privacy.PrivateThreads
 import net.kourlas.voipms_sms.preferences.ShareSuggestions
@@ -146,6 +150,9 @@ open class ConversationActivity(val bubble: Boolean = false) :
     val conversationId: ConversationId
         get() = ConversationId(did, contact)
 
+    private var smsWatcher: TextWatcher? = null
+    private var draftRead: Job? = null
+    private var lastDraftWrite: Job? = null
     private var privateDictationPending = false
     private var keepReviewedDraft = false
     private val dictate = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
@@ -261,7 +268,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
     internal fun openRichMedia(event: ThreadChatEvent) { routes?.open(event) }
 
     private var privateSession = false
-    private var resumedConversation = false
+    private var resumedConversation: ConversationId? = null
 
     public override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -294,6 +301,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        val wasResumed = resumedConversation != null
+        leaveVisibleConversation()
+        val previous = if (::adapter.isInitialized) conversationId else null
+        val previousAnchor = this.intent.getLongExtra(net.kourlas.voipms_sms.tools.MessageSearch.ANCHOR, -1)
         clearRichFile()
         setIntent(intent)
         if (intent.hasExtra(net.kourlas.voipms_sms.delivery.CallAlerts.GENERATION) &&
@@ -316,11 +327,23 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 return
             }
         }
+        draftRead?.cancel()
         contactJob?.cancel()
+        val editor = findViewById<EditText>(R.id.message_edit_text)
+        smsWatcher?.let(editor::removeTextChangedListener)
+        routes?.close()
+        val replaceAdapter = previous != conversationId ||
+            previousAnchor != intent.getLongExtra(net.kourlas.voipms_sms.tools.MessageSearch.ANCHOR, -1)
+        if (replaceAdapter && previous != null) actionMode?.finish()
+        if (previous != null && previous != conversationId) {
+            androidx.lifecycle.ViewModelProvider(this)[net.kourlas.voipms_sms.delivery.VoicePlaybackModel::class.java].stop()
+            editor.text.clear()
+            keepReviewedDraft = false
+        }
         contactName = null
         offlineRegion = null
         setupToolbar()
-        setupRecyclerView()
+        if (replaceAdapter) setupRecyclerView()
         setupMessageText()
         getMessageTextFromIntent()
         setupSendButton()
@@ -333,11 +356,11 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) loadContactPresentation()
         findViewById<View>(R.id.chat_route).visibility = if (BuildConfig.IS_DEMO) View.GONE else View.VISIBLE
-        routes?.close()
         routes = if (BuildConfig.IS_DEMO) null else ThreadRoutes(this, conversationId, richFeed, ::pickRichFile,
             { mmsComposer.attachments.isNotEmpty() }, adapter::updateChat)
         setupDemo()
 
+        if (wasResumed) enterVisibleConversation()
         if (ShareSuggestions.enabled(this, conversationId) && !PrivateThreads.isPrivate(this, conversationId)) {
             ShortcutManagerCompat.reportShortcutUsed(applicationContext, conversationId.getId())
         }
@@ -522,10 +545,14 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
     private fun setupRecyclerView() {
         // Set up recycler view with most recent message at bottom of list
-        layoutManager = LinearLayoutManager(this)
-        layoutManager.orientation = RecyclerView.VERTICAL
-        layoutManager.stackFromEnd = true
-        recyclerView = findViewById(R.id.list)
+        val firstSetup = !::recyclerView.isInitialized
+        if (firstSetup) {
+            layoutManager = LinearLayoutManager(this)
+            layoutManager.orientation = RecyclerView.VERTICAL
+            layoutManager.stackFromEnd = true
+            recyclerView = findViewById(R.id.list)
+            recyclerView.layoutManager = layoutManager
+        }
         adapter = ConversationRecyclerViewAdapter(
             this,
             recyclerView,
@@ -533,15 +560,22 @@ open class ConversationActivity(val bubble: Boolean = false) :
             conversationId
         )
         recyclerView.setHasFixedSize(true)
-        recyclerView.layoutManager = layoutManager
         recyclerView.adapter = adapter
+        val target = conversationId
+        val targetAdapter = adapter
         callFeedObservation?.cancel()
         if (!BuildConfig.IS_DEMO) callFeedObservation = lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 net.kourlas.voipms_sms.delivery.CallFeedSync.refresh(applicationContext)
-                net.kourlas.voipms_sms.delivery.CallFeedStore.observe(applicationContext, conversationId).collect { adapter.updateCalls(it) }
+                net.kourlas.voipms_sms.delivery.CallFeedStore.observe(applicationContext, target)
+                    .catch { error ->
+                        if (error !is Exception || error is CancellationException) throw error
+                        threadReadFailure(error)
+                    }
+                    .collect { if (adapter === targetAdapter) targetAdapter.updateCalls(it) }
             }
         }
+        if (!firstSetup) return
         recyclerView.addOnScrollListener(object :
                                              RecyclerView.OnScrollListener() {
             override fun onScrolled(
@@ -549,9 +583,8 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 dy: Int
             ) {
                 super.onScrolled(recyclerView, dx, dy)
-                if (!adapter.loadingMoreItems
-                    && layoutManager.findFirstVisibleItemPosition()
-                    <= ConversationRecyclerViewAdapter.START_LOAD_INDEX
+                if (dy < 0 && !adapter.loadingMoreItems
+                    && layoutManager.findFirstVisibleItemPosition() in 0..ConversationRecyclerViewAdapter.START_LOAD_INDEX.toInt()
                 ) {
                     adapter.loadMoreItems()
                 }
@@ -606,7 +639,8 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
         // Set up message text box
         val messageEditText = findViewById<EditText>(R.id.message_edit_text)
-        messageEditText.addTextChangedListener(object : TextWatcher {
+        val target = conversationId
+        smsWatcher = object : TextWatcher {
             override fun beforeTextChanged(
                 s: CharSequence, start: Int,
                 count: Int,
@@ -619,8 +653,8 @@ open class ConversationActivity(val bubble: Boolean = false) :
             ) = Unit
 
             override fun afterTextChanged(s: Editable) =
-                onMessageTextChange(s.toString())
-        })
+                onMessageTextChange(target, s.toString())
+        }.also(messageEditText::addTextChangedListener)
         messageEditText.onFocusChangeListener =
             View.OnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
@@ -661,7 +695,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
     /**
      * Called when the message text box text changes.
      */
-    private fun onMessageTextChange(newText: String) {
+    private fun onMessageTextChange(target: ConversationId, newText: String) {
         val maxLength = applicationContext.resources.getInteger(
             R.integer.sms_max_length
         )
@@ -693,12 +727,13 @@ open class ConversationActivity(val bubble: Boolean = false) :
             )
         }
 
-        CustomApplication.getApplication().applicationScope.launch(Dispatchers.Default) {
-            Database.getInstance(applicationContext)
-                .updateConversationDraft(
-                    conversationId,
-                    newText
-                )
+        val previous = lastDraftWrite
+        lastDraftWrite = CustomApplication.getApplication().applicationScope.launch(Dispatchers.IO) {
+            previous?.join()
+            try {
+                Database.getInstance(applicationContext).updateConversationDraft(target, newText)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { threadReadFailure(e) }
         }
     }
 
@@ -856,9 +891,13 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
     override fun onResume() {
         super.onResume()
+        enterVisibleConversation()
+    }
 
-        if (isFinishing || !::adapter.isInitialized) return
-        resumedConversation = true
+    private fun enterVisibleConversation() {
+        if (isFinishing || !::adapter.isInitialized || resumedConversation != null) return
+        val target = conversationId
+        resumedConversation = target
         routes?.refresh()
         // Register all dynamic receivers for this activity
         registerNonExportedReceiver(
@@ -883,21 +922,22 @@ open class ConversationActivity(val bubble: Boolean = false) :
         val restoreDraft = !keepReviewedDraft
         keepReviewedDraft = false
         val beforeRestore = messageText.text.toString()
-        lifecycleScope.launch(Dispatchers.Default) {
-            val draftMessage =
-                Database.getInstance(applicationContext).getConversationDraft(
-                    conversationId
-                )
-
-            ensureActive()
-
-            withContext(Dispatchers.Main) {
-                if (restoreDraft && draftMessage != null && messageText.text.toString() == beforeRestore) {
+        val pendingSave = lastDraftWrite
+        draftRead?.cancel()
+        draftRead = lifecycleScope.launch {
+            try {
+                val draftMessage = withContext(Dispatchers.IO) {
+                    pendingSave?.join()
+                    Database.getInstance(applicationContext).getConversationDraft(target)
+                }
+                if (target == conversationId && !isFinishing && restoreDraft && draftMessage != null &&
+                    lastDraftWrite === pendingSave && messageText.text.toString() == beforeRestore && draftMessage.text != beforeRestore) {
                     messageText.setText(draftMessage.text)
                     messageText.requestFocus()
                     messageText.setSelection(messageText.text.length)
                 }
-            }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { threadReadFailure(e) }
         }
 
         // Set max lines
@@ -914,9 +954,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
             Notifications.getInstance(applicationContext).validateGroupNotification()
         }
         CustomApplication.getApplication().applicationScope.launch(Dispatchers.Default) {
-            Database.getInstance(applicationContext).markConversationRead(
-                conversationId
-            )
+            try {
+                Database.getInstance(applicationContext).markConversationRead(target)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { threadReadFailure(e) }
         }
         adapter.refresh()
 
@@ -924,15 +965,23 @@ open class ConversationActivity(val bubble: Boolean = false) :
         // Track number of activities
         if (!bubble) {
             (application as CustomApplication)
-                .conversationActivityIncrementCount(conversationId)
+                .conversationActivityIncrementCount(target)
         }
+    }
+
+    private fun threadReadFailure(error: Exception) {
+        DebugJournal.begin(applicationContext, DiagnosticAction.THREAD_LOAD).step(DiagnosticStep.FAILED, error = error)
     }
 
     override fun onPause() {
         super.onPause()
+        leaveVisibleConversation()
+    }
 
-        if (!resumedConversation) return
-        resumedConversation = false
+    private fun leaveVisibleConversation() {
+        draftRead?.cancel()
+        val target = resumedConversation ?: return
+        resumedConversation = null
         // Unregister all dynamic receivers for this activity
         safeUnregisterReceiver(this, syncCompleteReceiver)
         safeUnregisterReceiver(this, sentMessageReceiver)
@@ -941,7 +990,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         // Track number of activities
         if (!bubble) {
             (application as CustomApplication)
-                .conversationActivityDecrementCount(conversationId)
+                .conversationActivityDecrementCount(target)
         }
     }
 
@@ -1293,37 +1342,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
      * Handles the export button.
      */
     private fun onExportButtonClick() {
-        try {
-            val messages = adapter.messageItems.map { it.message }
-            val json = JsonParserManager.getInstance().parser.adapter(
-                ExportableMessages::class.java
-            )
-                .toJson(ExportableMessages(messages))
-            val clipboard = getSystemService(
-                CLIPBOARD_SERVICE
-            ) as ClipboardManager
-            val clip = ClipData.newPlainText(
-                getString(
-                    R.string.conversation_conversation_clipboard_description
-                ),
-                json
-            )
-            clipboard.setPrimaryClip(clip)
-            Toast.makeText(
-                this, getString(
-                    R.string.conversation_copied_conversation_toast_message
-                ),
-                Toast.LENGTH_SHORT
-            ).show()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy conversation", e)
-            Toast.makeText(
-                this, getString(
-                    R.string.conversation_copied_conversation_fail_toast_message
-                ),
-                Toast.LENGTH_SHORT
-            ).show()
-        }
+        ThreadExportActivity.open(this, conversationId)
     }
 
     override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
@@ -1600,38 +1619,20 @@ open class ConversationActivity(val bubble: Boolean = false) :
     }
 
     fun onItemClick(view: View) {
+        val row = recyclerView.findContainingItemView(view) ?: return
+        val item = adapter[recyclerView.getChildAdapterPosition(row)] ?: return
         if (actionMode != null) {
-            // Check or uncheck item when action mode is enabled
-            toggleItem(getRecyclerViewContainingItem(view))
+            toggleItem(row)
+        } else if (!item.message.isIncoming && !item.message.isDelivered) {
+            OutboxUi(this) { adapter.refresh() }.reviewMessage(item.message)
         } else {
-            // Resend message if has not yet been sent
-            val position = recyclerView.getChildAdapterPosition(
-                getRecyclerViewContainingItem(view)
-            )
-            if (position != RecyclerView.NO_POSITION) {
-                val messageItem = adapter[position] ?: return
-                val message = messageItem.message
-                if (!message.isIncoming && !message.isDelivered) {
-                    OutboxUi(this) { adapter.refresh() }.reviewMessage(message)
-                    return
-                }
-            }
-
-            // Toggle the date
-            val date = getRecyclerViewContainingItem(
-                view
-            ).findViewById<TextView>(R.id.date)
-            if (date.isGone) {
-                date.visibility = View.VISIBLE
-            } else {
-                date.visibility = View.GONE
-            }
+            val date = row.findViewById<TextView>(R.id.date)
+            date.visibility = if (date.isGone) View.VISIBLE else View.GONE
         }
     }
 
     fun onItemLongClick(view: View) {
-        // On long click, toggle selected item
-        toggleItem(getRecyclerViewContainingItem(view))
+        recyclerView.findContainingItemView(view)?.let(::toggleItem)
     }
 
     override fun onRequestPermissionsResult(
@@ -1714,17 +1715,6 @@ open class ConversationActivity(val bubble: Boolean = false) :
             infoAction.isVisible = count < 2
             copyAction.isVisible = count < 2
             shareAction.isVisible = count < 2
-        }
-    }
-
-    /**
-     * Gets the containing item for the specified view in the recycler view.
-     */
-    private fun getRecyclerViewContainingItem(view: View): View {
-        return if (view.parent is RecyclerView) {
-            view
-        } else {
-            getRecyclerViewContainingItem(view.parent as View)
         }
     }
 

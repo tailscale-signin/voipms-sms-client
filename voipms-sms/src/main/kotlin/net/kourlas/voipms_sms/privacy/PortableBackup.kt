@@ -1,10 +1,13 @@
 package net.kourlas.voipms_sms.privacy
 
 import android.content.Context
+import net.kourlas.voipms_sms.utils.DocumentOutput
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import net.kourlas.voipms_sms.diagnostics.DebugTrace
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import net.kourlas.voipms_sms.contacts.LocalContacts
 import net.kourlas.voipms_sms.media.MmsMedia
 import net.kourlas.voipms_sms.database.Database
@@ -24,14 +27,14 @@ internal object PortableBackup {
     private val media = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(?:jpg|gif|png|mp3|wav|mid|mp4|3gp)")
     private const val MAX_RECORD = 1024 * 1024
     enum class ReceivedMode { LINKS, CACHED, FETCH }
-    data class ExportResult(val included: Int, val unavailable: Int, val contacts: Int? = null)
+    data class ExportResult(val included: Int, val unavailable: Int, val contacts: Int? = null, val verified: Boolean = true)
     data class Preview(val zip: File, val counts: Map<ConversationId, Int>, val received: Map<String, String>,
                        val contacts: Map<String, String> = emptyMap())
     data class Selection(val threads: Set<ConversationId>, val contacts: Set<String>)
     data class RestoreResult(val messages: Int, val contacts: Int, val contactsFailed: Boolean = false)
 
     private fun staging(context: Context) = File(context.cacheDir, "portable-messages-stage").apply {
-        check(isDirectory || mkdirs())
+        check(mkdirs() || isDirectory)
     }
 
     /** Clean abandoned plaintext staging files before this process can start a new export or restore. */
@@ -69,14 +72,16 @@ internal object PortableBackup {
     }
 
     suspend fun export(context: Context, uri: Uri, password: CharArray, mode: ReceivedMode = ReceivedMode.LINKS,
-                       includeContacts: Boolean = true): ExportResult {
+                       includeContacts: Boolean = true, trace: DebugTrace? = null): ExportResult {
         val job = currentCoroutineContext()
         val received = mutableSetOf<String>()
         var included = 0
         var unavailable = 0
+        trace?.step(DiagnosticStep.SNAPSHOT)
         val temp = File.createTempFile("portable-", ".zip", staging(context))
         try {
             val files = mutableSetOf<String>()
+            if (includeContacts) trace?.step(DiagnosticStep.CONTACTS)
             val contacts = if (includeContacts) LocalContacts.snapshot(context) else null
             ZipOutputStream(temp.outputStream().buffered()).use { zip ->
                 zip.putNextEntry(ZipEntry("version"))
@@ -87,10 +92,14 @@ internal object PortableBackup {
                     BackupContacts.write(zip, contacts, password) { job.ensureActive() }
                     zip.closeEntry()
                 }
+                trace?.step(DiagnosticStep.MESSAGES)
+                var messageCount = 0L
                 Database.getInstance(context).readPortableThreads { id, rows ->
-                    zip.putNextEntry(ZipEntry("threads/" + id.getId()))
+                    val entry = "threads/" + id.getId()
+                    require(thread.matches(entry))
+                    zip.putNextEntry(ZipEntry(entry))
                     val data = DataOutputStream(zip)
-                    for (r in rows) {
+                    rows.collect { r ->
                         job.ensureActive()
                         val refs = attachments(r)
                         if (r.incoming == 1L && mode != ReceivedMode.LINKS) {
@@ -101,15 +110,26 @@ internal object PortableBackup {
                             require(media.matches(name))
                             files.add(name)
                         }
+                        require(refs.size <= 128)
                         val bytes = JSONObject().put("provider", r.voipId ?: JSONObject.NULL).put("time", r.date)
                             .put("in", r.incoming).put("text", r.text).put("unread", r.unread)
                             .put("sent", r.delivered).put("media", org.json.JSONArray(refs)).toString().toByteArray()
                         require(bytes.size in 1..MAX_RECORD)
                         data.writeInt(bytes.size)
                         data.write(bytes)
+                        messageCount++
                     }
                     data.writeInt(0)
                     zip.closeEntry()
+                }
+                trace?.step(DiagnosticStep.MESSAGES, count = messageCount)
+                trace?.step(DiagnosticStep.ATTACHMENTS, count = received.size.toLong() + files.size)
+                var fileNumber = 0L
+                fun nextFile(): Boolean {
+                    fileNumber++
+                    val sample = fileNumber <= 3 || fileNumber % 100 == 0L
+                    if (sample) trace?.step(DiagnosticStep.FILE, count = fileNumber)
+                    return sample
                 }
                 // Network reads happen after closing the database snapshot. Preserve the provider URL
                 // on every row, even when the attachment has expired or has an unsupported format.
@@ -117,16 +137,19 @@ internal object PortableBackup {
                 val limit = 512L * 1024 * 1024
                 for (ref in received) {
                     job.ensureActive()
+                    val sample = nextFile()
+                    var cause: java.io.IOException? = null
                     val file = try {
                         if (receivedBytes >= limit) null else MmsMedia.forBackup(context, ref, mode == ReceivedMode.FETCH)
                     } catch (e: CancellationException) { throw e }
-                    catch (_: java.io.IOException) { null }
+                    catch (e: java.io.IOException) { cause = e; null }
                     val bytes = try {
                         if (file == null || file.length() > limit - receivedBytes) null
                         else file.inputStream().use { input -> with(MmsMedia) { input.readBounded(MAX_RECEIVED_BYTES) } }
-                    } catch (_: java.io.IOException) { null }
+                    } catch (e: java.io.IOException) { cause = e; null }
                     if (file == null || bytes == null || MmsMedia.detect(bytes) != file.extension) {
                         unavailable++
+                        if (sample) trace?.step(DiagnosticStep.UNAVAILABLE, count = fileNumber, error = cause)
                         continue
                     }
                     job.ensureActive()
@@ -136,38 +159,74 @@ internal object PortableBackup {
                     receivedBytes += bytes.size
                     included++
                 }
+                if (unavailable > 0) trace?.step(DiagnosticStep.UNAVAILABLE, count = unavailable.toLong())
+                val buffer = ByteArray(64 * 1024)
                 for (name in files) {
                     job.ensureActive()
-                    zip.putNextEntry(ZipEntry("media/$name"))
-                    File(context.filesDir, "mms_outgoing/$name").inputStream().use { it.copyTo(zip) }
-                    zip.closeEntry()
+                    nextFile()
+                    try {
+                        zip.putNextEntry(ZipEntry("media/$name"))
+                        File(context.filesDir, "mms_outgoing/$name").inputStream().use { input ->
+                            while (true) {
+                                job.ensureActive()
+                                val size = input.read(buffer)
+                                if (size < 0) break
+                                zip.write(buffer, 0, size)
+                            }
+                        }
+                        zip.closeEntry()
+                    } catch (e: java.io.IOException) {
+                        trace?.step(DiagnosticStep.FILE, count = fileNumber, error = e)
+                        throw e
+                    }
                 }
             }
+            trace?.step(DiagnosticStep.VALIDATING)
             require(temp.length() <= BackupEnvelope.MAX_BYTES)
             ZipFile(temp).use { zip ->
                 require(zip.size() <= 100_000 && zip.entries().asSequence().sumOf { it.size } <= BackupEnvelope.MAX_BYTES)
             }
-            requireNotNull(context.contentResolver.openOutputStream(uri, "wt")).use { dest ->
-                temp.inputStream().buffered().use { BackupEnvelope.write(it, dest, password) { job.ensureActive() } }
-            }
-            return ExportResult(included, unavailable, contacts?.size)
+            job.ensureActive()
+            trace?.step(DiagnosticStep.OPENING_STREAM)
+            val verified = DocumentOutput.write(
+                openOutput = { mode -> context.contentResolver.openOutputStream(uri, mode) },
+                openInput = { context.contentResolver.openInputStream(uri) },
+                writeContent = { dest ->
+                    trace?.step(DiagnosticStep.ENCRYPTING)
+                    temp.inputStream().buffered().use { source ->
+                        BackupEnvelope.write(source, dest, password, checkActive = { job.ensureActive() },
+                            onWriting = { trace?.step(DiagnosticStep.WRITING) })
+                    }
+                },
+                verifying = { trace?.step(DiagnosticStep.VERIFYING) },
+                checkActive = { job.ensureActive() }
+            )
+            if (!verified) trace?.step(DiagnosticStep.UNAVAILABLE)
+            return ExportResult(included, unavailable, contacts?.size, verified)
         } finally { temp.delete() }
     }
 
-    fun preview(context: Context, uri: Uri, password: CharArray): Preview {
+    fun preview(context: Context, uri: Uri, password: CharArray, trace: DebugTrace? = null,
+                checkActive: () -> Unit = {}): Preview {
+        trace?.step(DiagnosticStep.SNAPSHOT)
         val temp = File.createTempFile("restore-", ".zip", staging(context))
         try {
-            requireNotNull(context.contentResolver.openInputStream(uri)).buffered().use { source ->
-                temp.outputStream().buffered().use { BackupEnvelope.read(source, it, password) }
+            trace?.step(DiagnosticStep.OPENING_STREAM)
+            val input = context.contentResolver.openInputStream(uri) ?: throw DocumentOutput.Unavailable()
+            input.buffered().use { source ->
+                trace?.step(DiagnosticStep.DECRYPTING)
+                temp.outputStream().buffered().use { BackupEnvelope.read(source, it, password, checkActive = checkActive) }
             }
+            trace?.step(DiagnosticStep.VALIDATING)
             val counts = linkedMapOf<ConversationId, Int>()
             val referenced = mutableSetOf<String>()
             val receivedHashes = mutableSetOf<String>()
             val receivedEntries = mutableMapOf<String, String>()
             var contacts: Map<String, String> = emptyMap()
             ZipFile(temp).use { zip ->
-                val entries = zip.entries().asSequence().toList()
-                require(entries.size in 1..100_000 && entries.map { it.name }.distinct().size == entries.size)
+                require(zip.size() in 1..100_000)
+                val entries = zip.entries().asSequence()
+                val names = mutableSetOf<String>()
                 val version = requireNotNull(zip.getEntry("version"))
                 require(version.size == 1L)
                 val versionCode = zip.getInputStream(version).use { it.read() }
@@ -175,6 +234,8 @@ internal object PortableBackup {
                 require((versionCode == '3'.code) == (zip.getEntry(BackupContacts.ENTRY) != null))
                 var total = 0L
                 for (e in entries) {
+                    checkActive()
+                    require(names.add(e.name))
                     require(e.size in 0..BackupEnvelope.MAX_BYTES)
                     total += e.size
                     require(total <= BackupEnvelope.MAX_BYTES)
@@ -189,6 +250,7 @@ internal object PortableBackup {
                             val id = ConversationId(match.groupValues[1], match.groupValues[2])
                             var count = 0
                             rows(zip, id).forEach { row ->
+                                checkActive()
                                 count++
                                 if (row.incoming == 1L) attachments(row).mapNotNullTo(receivedHashes, MmsMedia::receivedHash)
                                 attachments(row).filter { it.startsWith("mms-local:") }
@@ -211,6 +273,7 @@ internal object PortableBackup {
                             zip.getInputStream(e).use { input ->
                                 val buf = ByteArray(16 * 1024)
                                 while (true) {
+                                    checkActive()
                                     val n = input.read(buf)
                                     if (n < 0) break
                                     actual += n
@@ -229,11 +292,13 @@ internal object PortableBackup {
         } catch (e: Throwable) { temp.delete(); throw e }
     }
 
-    suspend fun restore(context: Context, preview: Preview, selection: Selection): RestoreResult {
+    suspend fun restore(context: Context, preview: Preview, selection: Selection, trace: DebugTrace? = null): RestoreResult {
         require(preview.counts.keys.containsAll(selection.threads) && preview.contacts.keys.containsAll(selection.contacts))
+        trace?.step(DiagnosticStep.MERGING, count = selection.threads.size.toLong())
         val messages = if (selection.threads.isEmpty()) 0 else
             Database.getInstance(context).restorePortableThreads(preview, selection.threads)
         if (selection.contacts.isEmpty()) return RestoreResult(messages, 0)
+        trace?.step(DiagnosticStep.CONTACTS, count = selection.contacts.size.toLong())
         val selectedNames = preview.contacts.filterKeys { it in selection.contacts }
         return try {
             RestoreResult(messages, LocalContacts.mergeMissing(context, selectedNames))
@@ -241,6 +306,7 @@ internal object PortableBackup {
         catch (e: Exception) {
             if (selection.threads.isEmpty()) throw e
             // Message transactions and the encrypted address book commit independently. Both merges are idempotent.
+            trace?.step(DiagnosticStep.PARTIAL, error = e)
             RestoreResult(messages, 0, contactsFailed = true)
         }
     }

@@ -100,6 +100,15 @@ interface SmsDao {
         contact: String
     ): List<Sms>
 
+    @Query("SELECT DISTINCT Did, Contact FROM sms")
+    suspend fun portableConversationIds(): List<ConversationId>
+
+    @Query("""
+        SELECT * FROM sms WHERE Did = :did AND Contact = :contact
+        AND DatabaseId >= :first ORDER BY DatabaseId LIMIT :limit
+    """)
+    suspend fun portablePage(did: String, contact: String, first: Long, limit: Int): List<Sms>
+
     // The covering index provides an ordered seek per thread on every supported SQLite version.
     @Query("""
         SELECT sms.* FROM (SELECT DISTINCT Did, Contact FROM sms WHERE Did IN (:dids)) AS threads

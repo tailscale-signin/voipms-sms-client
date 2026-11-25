@@ -35,6 +35,8 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -57,14 +59,20 @@ import net.kourlas.voipms_sms.demo.getDemoNotification
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.Message
 import net.kourlas.voipms_sms.sms.workers.IncomingMessage
+import net.kourlas.voipms_sms.utils.DocumentOutput
 import net.kourlas.voipms_sms.utils.CoroutineReadWriteLock
 import net.kourlas.voipms_sms.utils.getContactName
 import net.kourlas.voipms_sms.utils.getContactPhotoAdaptiveBitmap
 import net.kourlas.voipms_sms.utils.getDigitsOfString
 import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import net.kourlas.voipms_sms.diagnostics.DebugTrace
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import java.util.Date
 import java.util.Locale
 
@@ -186,34 +194,90 @@ class Database private constructor(private val context: Context) {
     /**
      * Exports the database to the specified file descriptor.
      */
-    suspend fun export(exportFd: ParcelFileDescriptor) =
-        importExportLock.write {
-            val dbFile = context.getDatabasePath(DATABASE_NAME)
+    suspend fun export(exportFd: ParcelFileDescriptor) {
+        export(null) { exportFd.dup() }
+    }
 
-            try {
-                // Close database to persist it to disk before export
-                database.close()
+    internal data class RawExportResult(val bytes: Long, val verified: Boolean)
 
-                val exportStream = FileOutputStream(exportFd.fileDescriptor)
-                val dbStream = FileInputStream(dbFile)
-                exportStream.channel.truncate(0)
-                val buffer = ByteArray(1024)
-                do {
-                    val length = dbStream.read(buffer)
-                    if (length > 0) {
-                        exportStream.write(buffer, 0, length)
-                    } else {
-                        break
+    internal suspend fun export(
+        trace: DebugTrace?,
+        readBack: () -> InputStream? = { null },
+        openDestination: (String) -> ParcelFileDescriptor?
+    ): RawExportResult {
+        val job = currentCoroutineContext()
+        val checkActive = { job.ensureActive() }
+        trace?.step(DiagnosticStep.SNAPSHOT)
+        val stage = File.createTempFile("raw-export-", ".tmp", context.cacheDir)
+        try {
+            // Unlink while the handles are open. Process death cannot leave a raw private snapshot behind.
+            return stage.outputStream().use { staging ->
+                stage.inputStream().use { snapshot ->
+                    if (!stage.delete()) throw IOException()
+                    val expected = importExportLock.write {
+                        // Room is lazy. A new installation still needs a valid SQLite schema in its export.
+                        checkpoint(database)
+                        database.close()
+                        try {
+                            context.getDatabasePath(DATABASE_NAME).inputStream().use { it.copyChecked(staging, checkActive) }
+                        } finally {
+                            database = createDatabase(context)
+                        }
                     }
-                } while (true)
-                exportStream.close()
-                dbStream.close()
-            } finally {
-                // Refresh database after export
-                database.close()
-                database = createDatabase(context)
+                    check(expected > 0)
+                    trace?.step(DiagnosticStep.OPENING_STREAM)
+                    val verified = DocumentOutput.write(
+                        openOutput = { mode -> openDestination(mode)?.outputFromStart() },
+                        openInput = readBack,
+                        writeContent = { output ->
+                            trace?.step(DiagnosticStep.WRITING, count = expected)
+                            val written = snapshot.copyChecked(output, checkActive)
+                            if (written != expected) throw DocumentOutput.Incomplete()
+                        },
+                        verifying = { trace?.step(DiagnosticStep.VERIFYING, count = expected) },
+                        checkActive = checkActive
+                    )
+                    if (!verified) trace?.step(DiagnosticStep.UNAVAILABLE)
+                    RawExportResult(expected, verified)
+                }
             }
+        } finally {
+            if (stage.exists()) stage.delete()
         }
+    }
+
+    private fun ParcelFileDescriptor.outputFromStart(): OutputStream {
+        val output = ParcelFileDescriptor.AutoCloseOutputStream(this)
+        try {
+            // Some providers implement "w" without truncation. Pipes cannot seek.
+            if (statSize >= 0) {
+                output.channel.truncate(0)
+                output.channel.position(0)
+            }
+            return output
+        } catch (e: Exception) {
+            output.close()
+            throw e
+        }
+    }
+
+    private fun checkpoint(room: AbstractDatabase) {
+        room.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").use { result ->
+            if (!result.moveToFirst() || result.getInt(0) != 0) throw IOException()
+        }
+    }
+
+    private fun InputStream.copyChecked(output: OutputStream, checkActive: () -> Unit): Long {
+        val buffer = ByteArray(64 * 1024)
+        var copied = 0L
+        while (true) {
+            checkActive()
+            val read = read(buffer)
+            if (read < 0) return copied
+            output.write(buffer, 0, read)
+            copied += read
+        }
+    }
 
     /**
      * Gets the draft message for the specified conversation.
@@ -350,18 +414,23 @@ class Database private constructor(private val context: Context) {
         }
     }
 
-    /**
-     * Gets all DIDs used in the database.
-     */
-    internal suspend fun readPortableThreads(visit: (ConversationId, List<Sms>) -> Unit) =
+    /** Stream regular threads in bounded pages within a consistent database snapshot. */
+    internal suspend fun readPortableThreads(visit: suspend (ConversationId, Flow<Sms>) -> Unit) =
         importExportLock.read {
             database.withTransaction {
                 val dao = database.smsDao()
-                val lines = dao.getDids().toSet()
-                for (id in dao.getConversationIds(lines)) {
-                    if (!net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, id)) {
-                        visit(id, dao.getConversationMessagesUnsorted(id.did, id.contact))
-                    }
+                for (id in dao.portableConversationIds()) {
+                    if (net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, id)) continue
+                    visit(id, flow {
+                        var first = Long.MIN_VALUE
+                        val batchSize = 128
+                        while (true) {
+                            val page = dao.portablePage(id.did, id.contact, first, batchSize)
+                            for (row in page) emit(row)
+                            if (page.size < batchSize || page.last().databaseId == Long.MAX_VALUE) break
+                            first = page.last().databaseId + 1
+                        }
+                    })
                 }
             }
         }
@@ -506,58 +575,66 @@ class Database private constructor(private val context: Context) {
 
     /**
      * Imports the database from the specified file descriptor. Checks the
-     * file before it replaces the current database. If Room cannot open the
-     * imported database, restores the current database.
+     * file and its Room migrations before it atomically replaces the current database.
      *
      * @throws DatabaseImportException If the file is not a database, is
      * damaged, or is from an unsupported schema version.
      */
-    suspend fun import(importFd: ParcelFileDescriptor) = coroutineScope {
-        importExportLock.write {
-            val dbFile = context.getDatabasePath(DATABASE_NAME)
-            val backupFile = File("${dbFile.absolutePath}.backup")
-            val importFile = File.createTempFile("sms-import-", ".db", context.cacheDir)
+    suspend fun import(importFd: ParcelFileDescriptor) {
+        import(null) { importFd.dup() }
+    }
 
-            try {
-                // Copy the file to a temporary file and check it before the
-                // current database changes.
-                FileInputStream(importFd.fileDescriptor).use { input ->
-                    importFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+    internal suspend fun import(trace: DebugTrace?, openSource: () -> ParcelFileDescriptor) {
+        val job = currentCoroutineContext()
+        val importFile = File.createTempFile("sms-import-", ".db", context.cacheDir)
+        try {
+            trace?.step(DiagnosticStep.OPENING_STREAM)
+            openSource().use { descriptor ->
+                ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
+                    trace?.step(DiagnosticStep.READING)
+                    val copied = importFile.outputStream().use { input.copyChecked(it) { job.ensureActive() } }
+                    trace?.step(DiagnosticStep.VALIDATING, count = copied)
                 }
-                checkImportFile(importFile)
-
-                // Replace the current database, but keep a backup of it.
-                database.close()
-                dbFile.copyTo(backupFile, overwrite = true)
-                try {
-                    // deleteDatabase also deletes the -journal, -shm and -wal
-                    // files of the current database.
-                    context.deleteDatabase(DATABASE_NAME)
-                    importFile.copyTo(dbFile)
-                    database = createDatabase(context)
-
-                    // Room opens the file only when it is first used. Open it
-                    // here, so that the migration and the schema check run
-                    // while the backup still exists.
-                    database.openHelper.writableDatabase
-                    // Restoring someone else's backup never authorizes its future transmissions.
-                    database.withTransaction {
-                        database.outboxDao().clear()
-                        database.smsDao().resetUntrackedSends()
-                    }
-                } catch (e: Exception) {
-                    database.close()
-                    context.deleteDatabase(DATABASE_NAME)
-                    backupFile.copyTo(dbFile)
-                    database = createDatabase(context)
-                    throw e
-                }
-            } finally {
-                SQLiteDatabase.deleteDatabase(importFile)
-                backupFile.delete()
             }
+            checkImportFile(importFile)
+
+            trace?.step(DiagnosticStep.VERIFYING)
+            val candidate = createDatabase(context, importFile.absolutePath)
+            try {
+                candidate.openHelper.writableDatabase
+                // Importing a backup never authorizes its pending transmissions.
+                candidate.withTransaction {
+                    candidate.outboxDao().clear()
+                    candidate.smsDao().resetUntrackedSends()
+                }
+                checkpoint(candidate)
+            } finally {
+                candidate.close()
+            }
+
+            // Prepare the entire replacement before taking the lock, then atomically switch to
+            // the migrated file. On failure or process death SQLite sees either complete database.
+            importExportLock.write {
+                trace?.step(DiagnosticStep.MERGING)
+                val dbFile = context.getDatabasePath(DATABASE_NAME)
+                checkpoint(database)
+                database.close()
+                try {
+                    // Closing the last writable connection checkpoints and removes the WAL. If a
+                    // stale journal remains, keep the old database rather than apply it to a new one.
+                    for (suffix in listOf("-wal", "-journal")) {
+                        if (File(dbFile.path + suffix).length() > 0L || File(importFile.path + suffix).length() > 0L) {
+                            throw IOException()
+                        }
+                    }
+                    job.ensureActive()
+                    if (!importFile.renameTo(dbFile)) throw IOException()
+                } finally {
+                    database = createDatabase(context)
+                }
+            }
+        } finally {
+            SQLiteDatabase.deleteDatabase(importFile)
         }
     }
 
@@ -1210,10 +1287,10 @@ class Database private constructor(private val context: Context) {
         /**
          * Creates a RoomDatabase instance.
          */
-        private fun createDatabase(context: Context): AbstractDatabase {
+        private fun createDatabase(context: Context, name: String = DATABASE_NAME): AbstractDatabase {
             return Room.databaseBuilder(
                 context, AbstractDatabase::class.java,
-                DATABASE_NAME
+                name
             )
                 .addMigrations(migration9To10)
                 .addCallback(object : androidx.room.RoomDatabase.Callback() {

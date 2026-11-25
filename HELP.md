@@ -174,6 +174,16 @@ Choose **Encrypted portable backup** and enter the same passphrase twice. Keep t
 
 Encrypted portable backups include your app address book by default, including names you saved for private conversations. Clear **Include all saved app contacts** to export messages without the address book. Android device contacts are separate. During restore, choose **App contacts only** to recover selected names without importing messages, or choose both, then review each list. When a number already has an app contact, its existing name is preserved. Older backups remain readable.
 
+### Diagnose a Messages crash or file export
+
+1. Open **Settings → Database → Debug mode** and turn it on.
+2. Reproduce the problem. For a loading issue, open **Messages** and the affected thread. For a file issue, repeat the export and select the same destination. If the app closes, reopen it.
+3. Return to **Settings → Database → Export debug log** and choose a destination. The resulting `.jsonl` file opens in a text editor. Each line after the header is an event. Follow an `operation` ID to see its steps, timings, counts and any error location.
+
+The recorder keeps up to 512 KiB of recent history on this device. A fatal app exception can leave a crash entry. Android force-stops and native process failures may end the app before it can write one. A saved report covers events through the moment it was written. Later verification and completion appear in the next report.
+
+**Clear debug log** starts a fresh recording. Turning **Debug mode** off erases the local history. You control any copies saved through the file picker.
+
 ### Clean up database
 
 This option allows you to remove certain data from the database that might be considered outdated or no longer useful, such as:

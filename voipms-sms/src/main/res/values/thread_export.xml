@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="thread_export_title">Export SMS history</string>
+    <string name="thread_export_scope">Export every SMS and MMS message in this conversation, including attachment references, in chronological order.</string>
+    <string name="thread_export_private">This private conversation will be readable wherever you save or copy it. Confirm your screen lock to continue.</string>
+    <string name="thread_export_save">Save JSON to file</string>
+    <string name="thread_export_copy">Copy JSON</string>
+    <string name="thread_export_busy">Preparing SMS history…</string>
+    <string name="thread_export_verified">SMS history saved and verified.</string>
+    <string name="thread_export_written">SMS history written. The document provider did not allow verification.</string>
+    <string name="thread_export_error">Couldn’t finish the export. A selected file may be incomplete.</string>
+    <string name="thread_export_clip_limit">This conversation is too large for the clipboard. Use Save JSON to file.</string>
+    <string name="thread_export_account_changed">This conversation is no longer available for export.</string>
+    <string name="thread_export_interrupted">The export was interrupted. Select a destination to try again.</string>
+</resources>

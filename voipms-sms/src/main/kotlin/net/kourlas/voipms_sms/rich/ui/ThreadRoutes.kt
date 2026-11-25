@@ -1,5 +1,9 @@
 package net.kourlas.voipms_sms.rich.ui
 
+import kotlinx.coroutines.flow.catch
+import net.kourlas.voipms_sms.diagnostics.DebugJournal
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
 import android.content.Intent
 import android.net.Uri
 import android.view.View
@@ -97,7 +101,12 @@ internal class ThreadRoutes(
     fun refresh() {
         if (!active()) return
         link = ChatLinks.linked(activity, thread)
-        nearbyId = NearbyStore.peerId(activity, thread.did, thread.contact)
+        nearbyId = try {
+            NearbyStore.peerId(activity, thread.did, thread.contact)
+        } catch (e: Exception) {
+            DebugJournal.record(activity, DiagnosticAction.THREAD_LOAD, DiagnosticStep.UNAVAILABLE, error = e)
+            null
+        }
         val next = when (route) {
             ChatRoute.SMS -> null
             ChatRoute.MATRIX -> currentLink()?.let { ChatLinks.draftKey("matrix",it.owner,it.room,it.peer, generation.toString(),thread.getId()) }
@@ -140,7 +149,8 @@ internal class ThreadRoutes(
                         }
                     }
                 } catch (cancel: CancellationException) { throw cancel }
-                catch (_: Exception) {
+                catch (e: Exception) {
+                    DebugJournal.record(activity, DiagnosticAction.THREAD_LOAD, DiagnosticStep.UNAVAILABLE, error = e)
                     if (active() && currentLink() == room) {
                         roomProblem = true
                         render(ChatRoute.MATRIX, emptyList())
@@ -149,7 +159,15 @@ internal class ThreadRoutes(
                 }
             }
             if (nearbyId != null) launch {
-                NearbyStore.observeThread(activity, thread.did, thread.contact).collect { messages ->
+                NearbyStore.observeThread(activity, thread.did, thread.contact).catch { error ->
+                    if (error !is Exception || error is CancellationException) throw error
+                    DebugJournal.record(activity, DiagnosticAction.THREAD_LOAD, DiagnosticStep.UNAVAILABLE, error = error)
+                    if (active()) {
+                        nearbyId = null
+                        refreshButtons()
+                        emit(emptyList())
+                    }
+                }.collect { messages ->
                     if (active()) render(ChatRoute.NEARBY, messages.map {
                         ThreadChatEvent(it.id, it.timestamp, it.text, !it.incoming, ChatRoute.NEARBY, "",
                             if (it.incoming) "" else activity.getString(if (it.delivered) R.string.chat_delivered else R.string.chat_pending),
@@ -285,6 +303,7 @@ internal class ThreadRoutes(
     fun close() {
         alive = false
         richEdit.removeTextChangedListener(watcher)
+        richEdit.text.clear()
         feed.clear()
         typingJob?.cancel()
     }
