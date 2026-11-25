@@ -24,7 +24,7 @@ def screenshot(name):
         subprocess.run(["adb", "exec-out", "screencap", "-p"], stdout=image, timeout=60, check=True)
 
 
-def element(attribute, value, *, tap=False):
+def element(attribute, value, *, tap=False, hold=False):
     expected = value if isinstance(value, tuple) else (value,)
     visible = []
     deadline = time.monotonic() + 35
@@ -45,9 +45,13 @@ def element(attribute, value, *, tap=False):
             raise AssertionError(f"Unexpected permission prompt: {permission_text}")
         for node in nodes:
             if node.get(attribute) in expected:
-                if tap:
+                if tap or hold:
                     left, top, right, bottom = map(int, re.findall(r"\d+", node.attrib["bounds"]))
-                    adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+                    x, y = str((left + right) // 2), str((top + bottom) // 2)
+                    if hold:
+                        adb("shell", "input", "swipe", x, y, x, y, "750")
+                    else:
+                        adb("shell", "input", "tap", x, y)
                 print(f"{'Tapped' if tap else 'Found'} {value}", flush=True)
                 return
         time.sleep(1)

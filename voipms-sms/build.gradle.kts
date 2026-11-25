@@ -42,8 +42,8 @@ configure<ApplicationExtension> {
         applicationId = "net.kourlas.voipms_sms"
         minSdk = 24
         targetSdk = 36
-        versionCode = 156
-        versionName = "0.7.1"
+        versionCode = 157
+        versionName = "0.7.2"
     }
     flavorDimensions += "version"
     flavorDimensions += "demo"
@@ -157,6 +157,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     // Android support libraries
+    implementation(libs.androidx.activity)
     implementation(libs.androidx.annotation)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.compose.ui)
@@ -184,6 +185,7 @@ dependencies {
     // fdroid-remove-end
 
     // Other third-party libraries
+    implementation(libs.google.phone.geocoder)
     implementation(libs.moshi.adapters)
     implementation(libs.moshi)
     implementation(libs.okhttp)

@@ -315,18 +315,24 @@ class Database private constructor(private val context: Context) {
      * specified DIDs that matches a specified filter constraint. The resulting
      * list is sorted by date, from most recent to least recent.
      */
-    suspend fun getConversationsMessageMostRecentFiltered(
-        dids: Set<String>,
-        filterConstraint: String = "",
-        contactNameCache: MutableMap<String, String>? = null
-    ) =
-        importExportLock.read {
-            getConversationsMessageMostRecentFilteredWithoutLock(
-                dids,
-                filterConstraint,
-                contactNameCache
-            )
+    internal data class InboxPreview(
+        val message: Message, val otherFolder: Boolean?, val latestIncoming: String?, val hasReply: Boolean
+    )
+
+    internal suspend fun inboxPreviews(
+        dids: Set<String>, filter: String, archived: Boolean, names: MutableMap<String, String>
+    ): List<InboxPreview> = importExportLock.read {
+        if (dids.isEmpty()) return@read emptyList()
+        val latest = database.smsDao().latestForDids(dids, "", "").associateBy { ConversationId(it.did, it.contact) }
+        val settings = database.archivedDao().forDids(dids).associateBy { ConversationId(it.did, it.contact) }
+        val replies = database.smsDao().threadsWithReplies(dids).toHashSet()
+        getConversationsMessageMostRecentFilteredWithoutLock(dids, filter, names, latest).mapNotNull { message ->
+            val id = message.conversationId
+            val row = settings[id]
+            if ((row?.archived == 1) != archived) return@mapNotNull null
+            InboxPreview(message, row?.otherFolder, latest[id]?.takeIf { it.incoming == 1L }?.text, id in replies)
         }
+    }
 
     /**
      * Gets all DIDs used in the database.
@@ -595,8 +601,8 @@ class Database private constructor(private val context: Context) {
                         )
                         addedMessages.add(sms.toMessage(newDatabaseId))
 
-                        // Mark the conversation as unarchived.
-                        database.archivedDao().deleteConversation(
+                        // Incoming activity reopens the thread while retaining its inbox folder.
+                        database.archivedDao().clearArchiveFlag(
                             incomingMessage.did, incomingMessage.contact
                         )
                     }
@@ -660,7 +666,7 @@ class Database private constructor(private val context: Context) {
                     Archived(
                         databaseId = existingArchived?.databaseId ?: 0,
                         did = conversationId.did,
-                        contact = conversationId.contact, archived = 1
+                        contact = conversationId.contact, archived = 1, otherFolder = existingArchived?.otherFolder
                     )
                 database.archivedDao().update(newArchived)
             }
@@ -680,11 +686,21 @@ class Database private constructor(private val context: Context) {
                     Archived(
                         databaseId = existingArchived?.databaseId ?: 0,
                         did = conversationId.did,
-                        contact = conversationId.contact, archived = 0
+                        contact = conversationId.contact, archived = 0, otherFolder = existingArchived?.otherFolder
                     )
                 database.archivedDao().update(newArchived)
             }
         }
+
+    suspend fun moveToInboxFolder(ids: List<ConversationId>, other: Boolean) = importExportLock.read {
+        database.withTransaction {
+            val dao = database.archivedDao()
+            for (id in ids) {
+                val old = dao.getConversation(id.did, id.contact)
+                dao.update(Archived(old?.databaseId ?: 0, id.did, id.contact, old?.archived ?: 0, other))
+            }
+        }
+    }
 
     /**
      * Marks the specified conversation as read.
@@ -964,91 +980,28 @@ class Database private constructor(private val context: Context) {
     private suspend fun getConversationsMessageMostRecentFilteredWithoutLock(
         dids: Set<String>,
         filterConstraint: String = "",
-        contactNameCache: MutableMap<String, String>? = null
+        contactNameCache: MutableMap<String, String>? = null,
+        current: Map<ConversationId, Sms>? = null
     ): List<Message> {
-        val numericFilterConstraint = getDigitsOfString(filterConstraint)
-
-        var messages = mutableListOf<Message>()
-        for (conversationId in getConversationIdsWithoutLock(dids)) {
-            // If we are using filters, first check to see if our filter
-            // matches the the DID phone number, contact phone number, and
-            // message text, since we can check those using SQL.
-            if (filterConstraint.isNotEmpty()) {
-                val sms = if (numericFilterConstraint != "") {
-                    database.smsDao()
-                        .getConversationMessageMostRecentFiltered(
-                            conversationId.did,
-                            conversationId.contact,
-                            filterConstraint,
-                            numericFilterConstraint
-                        )
-                } else {
-                    database.smsDao()
-                        .getConversationMessageMostRecentFiltered(
-                            conversationId.did,
-                            conversationId.contact,
-                            filterConstraint
-                        )
+        val latest = current ?: database.smsDao().latestForDids(dids, "", "")
+            .associateBy { ConversationId(it.did, it.contact) }
+        val messages = mutableMapOf<ConversationId, Message>()
+        if (filterConstraint.isEmpty()) {
+            latest.forEach { (id, sms) -> messages[id] = sms.toMessage() }
+        } else {
+            val matches = database.smsDao().latestForDids(dids, filterConstraint, getDigitsOfString(filterConstraint))
+            for (sms in matches) messages[ConversationId(sms.did, sms.contact)] = sms.toMessage()
+            for ((id, sms) in latest) {
+                if (id !in messages && getContactName(context, sms.contact, contactNameCache)
+                        ?.contains(filterConstraint, ignoreCase = true) == true) {
+                    messages[id] = sms.toMessage()
                 }
-
-                if (sms != null) {
-                    messages.add(sms.toMessage())
-                    continue
-                }
-            }
-
-            // Otherwise, simply get the most recent message for the
-            // conversation without using any filters.
-            val sms = database.smsDao()
-                .getConversationMessageMostRecent(
-                    conversationId.did,
-                    conversationId.contact
-                ) ?: continue
-
-            // If no filter constraint was provided, just add the message
-            // to the list.
-            if (filterConstraint.isEmpty()) {
-                messages.add(sms.toMessage())
-                continue
-            }
-
-            // Otherwise, check if the message matches our contact name
-            // filter. We could not check this as part of the first SQL
-            // query, since it requires an external lookup.
-            val contactName = getContactName(
-                context,
-                sms.contact,
-                contactNameCache
-            )
-            val lowercaseContactName = contactName?.lowercase(
-                Locale.getDefault()
-            )
-            if (lowercaseContactName?.contains(filterConstraint) == true) {
-                messages.add(sms.toMessage())
             }
         }
-
-        // Replace messages with any applicable draft messages
-        val draftMessages = getConversationsMessageDraftFiltered(
-            dids, filterConstraint
-        )
-        for (draftMessage in draftMessages) {
-            var added = false
-            messages = messages.map {
-                if (it.conversationId == draftMessage.conversationId) {
-                    added = true
-                    draftMessage
-                } else {
-                    it
-                }
-            }.toMutableList()
-            if (!added && draftMessage.did in dids) {
-                messages.add(0, draftMessage)
-            }
+        for (draft in getConversationsMessageDraftFiltered(dids, filterConstraint)) {
+            messages[draft.conversationId] = draft
         }
-
-        messages.sort()
-        return messages
+        return messages.values.sorted()
     }
 
     /**
@@ -1106,7 +1059,7 @@ class Database private constructor(private val context: Context) {
     companion object {
         private const val DATABASE_NAME = "sms.db"
         private const val IMPORT_FILE_NAME = "import.db"
-        const val DATABASE_VERSION = 12
+        const val DATABASE_VERSION = 13
 
         // The oldest schema version with a migration path to
         // DATABASE_VERSION.

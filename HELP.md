@@ -26,11 +26,18 @@ You can hide messages from the conversations view, block the retrieval of messag
 
 Open a conversation with an unknown sender and choose **Look up number online** from the menu. You can also select a single conversation in the inbox and use its menu. Choose the service for that number:
 
+* **Look up prefix origin** checks the area code and exchange with Local Calling Guide for North American Numbering Plan numbers. It shows the assigned rate centre and region when available. A sender can use that number from anywhere.
 * Wikidata searches for organizations that publicly list the number. During a search and for a directory match, the number appears in blue and the app shows its source. Some organizations and most personal numbers have no listing.
 * The Truecaller option copies the number and opens the official web search so you can paste it. Truecaller may ask you to sign in on its site.
 * ShadyCall checks for US complaint and community reports. Report counts describe what others reported. Anyone can send messages using a spoofed number.
 
-Saved contact names take priority. Opening the inbox does not perform a lookup.
+Saved contacts appear by name. For an unknown geographic number, the app uses bundled numbering data to display an approximate region offline.
+
+## Inbox and verification codes
+
+**Main** contains ordinary conversations. **Other** collects suspected junk using local message patterns. Long-press one or more conversations and use **Move to Main** or **Move to Other** in the overflow menu to remember your choice. The archive remains available separately.
+
+Open a message with a verification code and tap **Copy code** to copy the code, including leading zeros. Android marks the clipboard entry as sensitive.
 
 ## Appearance
 

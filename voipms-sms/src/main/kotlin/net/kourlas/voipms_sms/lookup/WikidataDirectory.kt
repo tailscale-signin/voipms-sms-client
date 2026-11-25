@@ -20,8 +20,11 @@ internal object WikidataDirectory {
     private val nanp = Regex("[2-9][0-9]{2}[2-9][0-9]{6}")
     private val international = Regex("\\+[2-9][0-9]{6,14}")
 
+    private val strippedInternational = Regex("[2-9][0-9]{10,14}")
+    private val separators = Regex("[ ().-]")
+
     fun number(raw: String): String? {
-        val candidate = raw.replace(Regex("[ ().-]"), "")
+        val candidate = raw.replace(separators, "")
         val national = when {
             candidate.startsWith("+1") -> candidate.drop(2)
             candidate.length == 11 && candidate.startsWith("1") -> candidate.drop(1)
@@ -30,6 +33,7 @@ internal object WikidataDirectory {
         return when {
             nanp.matches(national) -> "+1$national"
             international.matches(candidate) -> candidate
+            strippedInternational.matches(candidate) -> "+$candidate"
             else -> null
         }
     }
@@ -78,7 +82,7 @@ internal object WikidataDirectory {
             .addQueryParameter("timeout", "8s")
             .addQueryParameter("query", query(canonical))
             .build()
-        return parse(lookupJson(url, "application/sparql-results+json"))
+        return parse(lookupResponse(url, "application/sparql-results+json"))
     }
 }
 
@@ -89,7 +93,7 @@ private val directoryHttpClient = OkHttpClient.Builder()
     .build()
 
 /** Dedicated unauthenticated client for public directories. No VoIP.ms credentials or cookies are attached. */
-internal suspend fun lookupJson(url: okhttp3.HttpUrl, accept: String): String =
+internal suspend fun lookupResponse(url: okhttp3.HttpUrl, accept: String): String =
     suspendCancellableCoroutine { continuation ->
         val request = Request.Builder().url(url)
             .header("Accept", accept)

@@ -35,7 +35,7 @@ import android.view.View
 import android.view.ViewGroup.MarginLayoutParams
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.activity.OnBackPressedCallback
+import net.kourlas.voipms_sms.ui.MessageBackCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
 import androidx.appcompat.widget.SearchView
@@ -57,6 +57,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.navigation.NavigationView
+import com.google.android.material.tabs.TabLayout
 import com.google.android.material.snackbar.Snackbar
 import it.xabaras.android.recyclerview.swipedecorator.RecyclerViewSwipeDecorator
 import kotlinx.coroutines.CancellationException
@@ -115,8 +116,11 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private lateinit var recyclerView: RecyclerView
     protected lateinit var adapter: ConversationsRecyclerViewAdapter<
         ConversationsActivity>
-    private lateinit var menu: Menu
-    private var actionMode: ActionMode? = null
+    private val messageBack = MessageBackCallback()
+    private var actionMode: ActionMode?
+        get() = messageBack.selection
+        set(value) { messageBack.selection = value }
+    private var showOther = false
 
     // Mapping between items in the navigation menu and their corresponding DIDs
     private lateinit var navViewMenuItemDidMap: HashMap<MenuItem, String>
@@ -195,16 +199,13 @@ open class ConversationsActivity(val archived: Boolean = false) :
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, messageBack)
         setContentView(R.layout.conversations)
-        onNewIntent(intent)
-    }
+        showOther = savedInstanceState?.getBoolean("showOther") == true
 
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-
-        setupBack()
         setupToolbar()
         setupRecyclerViewAndSwipeRefreshLayout()
+        setupInboxTabs()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 OnlineNumberLookup.updates.collect { adapter.refreshLookupLabels() }
@@ -215,33 +216,27 @@ open class ConversationsActivity(val archived: Boolean = false) :
         setupNavigationView()
     }
 
-    /**
-     * Sets up the back button handler.
-     */
-    private fun setupBack() {
-        onBackPressedDispatcher.addCallback(
-            this,
-            object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    // Close action mode if visible
-                    actionMode?.let {
-                        it.finish()
-                        return
-                    }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("showOther", showOther)
+        super.onSaveInstanceState(outState)
+    }
 
-                    // Close the search box if visible
-                    if (::menu.isInitialized) {
-                        val searchItem = menu.findItem(R.id.search_button)
-                        val searchView = searchItem.actionView as SearchView
-                        if (!searchView.isIconified) {
-                            searchItem.collapseActionView()
-                            return
-                        }
-                    }
-
-                    finish()
-                }
-            })
+    private fun setupInboxTabs() {
+        if (archived) return
+        val tabs = findViewById<TabLayout>(R.id.inbox_tabs)
+        tabs.visibility = View.VISIBLE
+        tabs.addTab(tabs.newTab().setText(R.string.inbox_main), !showOther)
+        tabs.addTab(tabs.newTab().setText(R.string.inbox_other), showOther)
+        adapter.showFolder(showOther)
+        tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                actionMode?.finish()
+                showOther = tab.position == 1
+                adapter.showFolder(showOther)
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+            override fun onTabReselected(tab: TabLayout.Tab) = Unit
+        })
     }
 
     /**
@@ -355,14 +350,15 @@ open class ConversationsActivity(val archived: Boolean = false) :
             recyclerView
         )
 
+        val listPadding = recyclerView.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, windowInsets ->
             val systemBarsInsets =
-                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             v.setPadding(
-                v.paddingLeft,
+                systemBarsInsets.left,
                 v.paddingTop,
-                v.paddingRight,
-                systemBarsInsets.bottom
+                systemBarsInsets.right,
+                listPadding + systemBarsInsets.bottom
             )
             WindowInsetsCompat.CONSUMED
         }
@@ -705,7 +701,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
         // Create standard options menu
         val inflater = menuInflater
         inflater.inflate(R.menu.conversations, menu)
-        this.menu = menu
+        menu.findItem(R.id.search_button).setOnActionExpandListener(messageBack)
 
         // Configure the search box to trigger adapter filtering when the
         // text changes
@@ -818,6 +814,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
     override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
         val inflater = mode.menuInflater
         inflater.inflate(R.menu.conversations_secondary, menu)
+        menu.findItem(R.id.move_inbox_folder).apply {
+            isVisible = !archived && !BuildConfig.IS_DEMO
+            setTitle(if (showOther) R.string.inbox_move_main else R.string.inbox_move_other)
+        }
 
         if (archived) {
             // Remove the archive button and replace it with an unarchive button
@@ -838,6 +838,23 @@ open class ConversationsActivity(val archived: Boolean = false) :
         item: MenuItem
     ): Boolean {
         when (item.itemId) {
+            R.id.move_inbox_folder -> {
+                val selected = adapter.filter { it.checked }.map { it.message.conversationId }
+                val destination = !showOther
+                mode.finish()
+                lifecycleScope.launch {
+                    try {
+                        Database.getInstance(applicationContext).moveToInboxFolder(selected, destination)
+                        adapter.refresh()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to move conversations", e)
+                        showSnackbar(this@ConversationsActivity, R.id.coordinator_layout, getString(R.string.conversations_error_refresh))
+                    }
+                }
+                return true
+            }
             R.id.lookup_number -> {
                 val selected = adapter.singleOrNull { it.checked } ?: return false
                 mode.finish()

@@ -215,6 +215,31 @@ class DatabaseImportTest {
     }
 
     @Test
+    fun folderSurvivesSyncSearchDraftArchiveAndExport() = runBlocking {
+        fun incoming(id: Long, text: String) = IncomingMessage(id, Date(id * 1000L), true,
+            conversationId.did, conversationId.contact, text, null, null, null)
+        suspend fun preview(query: String = "", archived: Boolean = false) =
+            database.inboxPreviews(setOf(conversationId.did), query, archived, mutableMapOf()).single()
+        database.insertMessagesVoipMsApi(listOf(incoming(1, "earlier text")), false, null, null)
+        assertNull(preview().otherFolder)
+        database.moveToInboxFolder(listOf(conversationId), true)
+        database.markConversationArchived(conversationId)
+        assertEquals(true, preview(archived = true).otherFolder)
+        database.insertMessagesVoipMsApi(listOf(incoming(2, "latest text")), false, null, null)
+        database.updateConversationDraft(conversationId, "draft")
+        assertTrue(preview().message.isDraft)
+        val result = preview("earlier")
+        assertEquals("earlier text", result.message.text)
+        assertEquals("latest text", result.latestIncoming)
+        assertEquals(true, result.otherFolder)
+        val exported = exportDatabase()
+        database.moveToInboxFolder(listOf(conversationId), false)
+        assertEquals(false, preview().otherFolder)
+        importFile(exported)
+        assertEquals(true, preview().otherFolder)
+    }
+
+    @Test
     fun versionElevenLineAliasesKeepHistoryAndUnsentDrafts() = runBlocking {
         val alias = ConversationId("1" + conversationId.did, conversationId.contact)
         database.insertConversationMessagesDeliveryInProgress(alias, listOf("previous history"))
@@ -222,9 +247,14 @@ class DatabaseImportTest {
         database.updateConversationDraft(alias, "legacy draft")
         database.updateConversationDraft(conversationId, "current draft")
 
-        // These four message tables have the same columns in versions 11 and 12.
+        // Reconstruct the version 11 schema from the export before replaying both migrations.
         val legacy = exportDatabase()
         SQLiteDatabase.openDatabase(legacy.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            it.execSQL("DROP INDEX index_sms_inbox")
+            it.execSQL("ALTER TABLE archived RENAME TO archived_current")
+            it.execSQL("CREATE TABLE archived (DatabaseId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, Did TEXT NOT NULL, Contact TEXT NOT NULL, Archived INTEGER NOT NULL)")
+            it.execSQL("INSERT INTO archived SELECT DatabaseId,Did,Contact,Archived FROM archived_current")
+            it.execSQL("DROP TABLE archived_current")
             it.execSQL("DROP TABLE sync_checkpoint")
             it.execSQL("DROP INDEX index_sms_Did_VoipId")
             it.execSQL("DROP INDEX index_deleted_Did_VoipId")

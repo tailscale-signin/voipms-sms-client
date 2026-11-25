@@ -1,3 +1,10 @@
+### 0.7.2 ###
+
+* Sort conversations into Main and Other, with local junk detection and remembered manual moves.
+* Copy a verification code from a message with a themed button.
+* Show offline numbering regions and look up North American rate centres using only a prefix.
+* Speed up inbox loads and searches with indexed queries and selective row updates. Support Android 16 back navigation and display insets.
+
 ### 0.7.1 ###
 
 * Start live listening from Synchronization settings. The phone checks VoIP.ms directly and shows an ongoing notification with a Stop action. Scheduled recovery remains available when the session ends.

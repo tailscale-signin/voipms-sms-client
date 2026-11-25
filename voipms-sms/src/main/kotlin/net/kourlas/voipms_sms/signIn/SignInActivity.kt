@@ -197,9 +197,9 @@ class SignInActivity : AppCompatActivity() {
         )
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent != null) setIntent(intent)
+        setIntent(intent)
 
         hasDids = runBlocking {
             Database.getInstance(applicationContext).getDids().isNotEmpty()

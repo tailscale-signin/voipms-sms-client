@@ -30,10 +30,11 @@ import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
 internal object OnlineNumberLookup {
     internal sealed interface Label {
         data class Searching(val progressText: Int) : Label
-        data class Match(val name: String) : Label
+        data class Match(val name: String, val format: Int = R.string.lookup_result) : Label
     }
 
     private enum class Service(val title: Int, val notice: Int, val action: Int) {
+        ORIGIN(R.string.lookup_origin, R.string.lookup_origin_consent, R.string.lookup_origin),
         WIKIDATA(R.string.lookup_directory, R.string.lookup_consent, R.string.lookup_directory),
         SHADYCALL(R.string.lookup_reports, R.string.lookup_reports_consent, R.string.lookup_reports),
         TRUECALLER(R.string.lookup_truecaller, R.string.lookup_truecaller_consent, R.string.lookup_copy_open)
@@ -61,14 +62,20 @@ internal object OnlineNumberLookup {
 
     fun description(context: Context, label: Label) = when (label) {
         is Label.Searching -> context.getString(label.progressText)
-        is Label.Match -> context.getString(R.string.lookup_result, label.name)
+        is Label.Match -> context.getString(label.format, label.name)
     }
 
     fun offer(activity: AppCompatActivity, raw: String) {
         val number = WikidataDirectory.number(raw) ?: return
         if (getContactName(activity, raw) != null) return
         val key = Key(currentDirectoryAccountGeneration(activity), number)
-        val choices = Service.entries.filter { it != Service.SHADYCALL || ShadyCallReputation.supports(number) }
+        val choices = Service.entries.filter {
+            when (it) {
+                Service.ORIGIN -> LocalCallingGuide.prefix(number) != null
+                Service.SHADYCALL -> ShadyCallReputation.supports(number)
+                else -> true
+            }
+        }
         AlertDialog.Builder(activity)
             .setTitle(activity.getString(R.string.lookup_number_title, getFormattedPhoneNumber(raw)))
             .setItems(choices.map { activity.getString(it.title) }.toTypedArray()) { _, i ->
@@ -92,14 +99,24 @@ internal object OnlineNumberLookup {
     private fun search(activity: AppCompatActivity, key: Key, service: Service) {
         if (labels[key] is Label.Searching) return
         activity.lifecycleScope.launch {
-            val progress = if (service == Service.WIKIDATA) R.string.lookup_searching else R.string.lookup_reports_searching
+            val progress = when (service) {
+                Service.ORIGIN -> R.string.lookup_origin_searching
+                Service.WIKIDATA -> R.string.lookup_searching
+                else -> R.string.lookup_reports_searching
+            }
             val previous = labels.put(key, Label.Searching(progress))
             revision.value++
             var result = previous
             try {
-                if (service == Service.WIKIDATA) {
+                if (service == Service.ORIGIN) {
+                    val area = LocalCallingGuide.search(key.number)
+                    if (area != null) result = Label.Match(area, R.string.lookup_origin_result)
+                    else if (currentDirectoryAccountGeneration(activity) == key.generation) {
+                        Toast.makeText(activity, R.string.lookup_origin_unknown, Toast.LENGTH_LONG).show()
+                    }
+                } else if (service == Service.WIKIDATA) {
                     val name = WikidataDirectory.search(key.number)
-                    result = name?.let { Label.Match(it) }
+                    if (name != null) result = Label.Match(name)
                     if (name == null && currentDirectoryAccountGeneration(activity) == key.generation) {
                         Toast.makeText(activity, R.string.lookup_no_match, Toast.LENGTH_LONG).show()
                     }
