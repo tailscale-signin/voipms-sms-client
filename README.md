@@ -1,46 +1,33 @@
-# VoIP.ms SMS #
+# VoIP.ms SMS for Android
 
-[![Android CI (primary)](https://github.com/michaelkourlas/voipms-sms-client/actions/workflows/android-primary.yml/badge.svg)](https://github.com/michaelkourlas/voipms-sms-client/actions/workflows/android-primary.yml) [![Android CI (F-Droid)](https://github.com/michaelkourlas/voipms-sms-client/actions/workflows/android-fdroid.yml/badge.svg)](https://github.com/michaelkourlas/voipms-sms-client/actions/workflows/android-fdroid.yml)
+[![Android CI (primary)](https://github.com/tailscale-signin/voipms-sms-client/actions/workflows/android-primary.yml/badge.svg)](https://github.com/tailscale-signin/voipms-sms-client/actions/workflows/android-primary.yml) [![Android CI (F-Droid)](https://github.com/tailscale-signin/voipms-sms-client/actions/workflows/android-fdroid.yml/badge.svg)](https://github.com/tailscale-signin/voipms-sms-client/actions/workflows/android-fdroid.yml)
 
-## Overview ##
+Send and receive SMS from your VoIP.ms numbers, search conversations, and reply from notifications. The default dark theme uses the cyan accents and deep teal surfaces from GPT Mobile. Light and system themes are available under Appearance.
 
-VoIP.ms SMS is an Android messaging app for VoIP.ms that seeks to replicate the aesthetic of [Google's official SMS app](https://play.google.com/store/apps/details?id=com.google.android.apps.messaging).
+## Receiving messages
 
-[<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png"
-    alt="Get it on Google Play"
-    height="50">](https://play.google.com/store/apps/details?id=net.kourlas.voipms_sms)
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
-    alt="Get it on F-Droid"
-    height="50">](https://f-droid.org/packages/net.kourlas.voipms_sms)
+| While using the app | When the app is closed |
+| --- | --- |
+| The conversation list and open threads check for messages every 30 seconds. A configured push can trigger an earlier check. | A push-enabled primary build wakes on a VoIP.ms callback. Both builds also schedule background catch-up, every 15 minutes by default. Android controls when scheduled work runs. |
 
-## Features ##
+1. Enable API access for your VoIP.ms account and SMS on the numbers you want to use.
+2. Sign in with the account email and **API password**, select the numbers to retrieve, and allow Android notifications to see incoming alerts.
+3. Open **Settings → Synchronization → Live delivery** to see how this installation receives messages and check registration for each number.
 
-* Material design
-* Push notifications (if using the Google Play version of the app)
-* Synchronization with device contacts
-* Message search
-* Comprehensive support for synchronization with VoIP.ms
-* Completely free
+The F-Droid flavor uses scheduled synchronization. Primary builds use the same fallback until the operator supplies a Firebase project and a matching relay. See the [setup and troubleshooting guide](HELP.md) and [push relay deployment instructions](relay/README.md).
 
-## Rationale ##
+## Build and install
 
-A number of people use VoIP.ms as a cheaper alternative to subscribing to a voice plan for their mobile devices.
+Use JDK 21 and the Android SDK version declared in `voipms-sms/build.gradle.kts`. Both commands produce a debug-signed APK.
 
-Unfortunately, this can make sending text messages rather difficult, as the [VoIP.ms SMS Message Center](https://voip.ms/m/sms.php) is clearly built as a diagnostic tool for use in desktop browsers, not as an easy way to send and receive messages on a mobile device.
+```sh
+./gradlew assembleFdroidFullDebug
+./gradlew assemblePrimaryFullDebug
+```
 
-VoIP.ms does provide a [mobile version](https://sms.voip.ms/) of this interface with an improved UI, but it still lacks important features that are only possible with a dedicated app.
+You can also download a debug APK from the artifacts in a successful [Android workflow run](https://github.com/tailscale-signin/voipms-sms-client/actions). Android requires the same signing key for in-place updates. Export your message database in Settings before switching between differently signed installations.
 
-## Installation ##
-
-The Google Play version of the app uses closed-source Firebase libraries to
-support push notifications. The F-Droid version of the application is completely
-open source.
-
-The Google Play version of the app can be downloaded from the [Releases section](https://github.com/michaelkourlas/voipms-sms-client/releases) of the GitHub repository.
-
-## Documentation ##
-
-The app's documentation is available in the [HELP.md file](https://github.com/michaelkourlas/voipms-sms-client/blob/master/HELP.md).
+This project builds on [Michael Kourlas’s VoIP.ms SMS client](https://github.com/michaelkourlas/voipms-sms-client).
 
 ## License ##
 

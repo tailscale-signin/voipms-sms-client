@@ -17,7 +17,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") }
+        exclusiveContent {
+            forRepository { maven(url = "https://jitpack.io") }
+            filter { includeModule("com.github.mukeshsolanki", "MarkdownView-Android") }
+        }
     }
 }
 

@@ -1,3 +1,11 @@
+### 0.7.0 ###
+
+* Receive wake-ups for selected numbers with a configured Firebase relay and inspect per-number registration in Synchronization settings.
+* Refresh visible conversations every 30 seconds and recover missed messages with scheduled background checks.
+* Fetch history independently for each number. Avoid automatically repeating a send after a lost response.
+* Use the GPT Mobile dark palette by default and open the VoIP.ms Message Center from the inbox.
+* Update Android build tools and libraries. Both full flavors can build without operator credentials.
+
 ### 0.6.33 ###
 
 * Update dependencies

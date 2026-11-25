@@ -183,6 +183,7 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                 ).markMessageNotSent(
                     message.databaseId
                 )
+                markedAsNotSent = true
                 return
             }
 
@@ -251,14 +252,15 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
         val response: MessageResponse? = getMessageResponse(message)
 
         // Get VoIP.ms ID from response
-        if (response?.status == "") {
+        if (response == null) return null // The request already set the failure reason.
+        if (response.status.isBlank()) {
             error = applicationContext.getString(
                 R.string.send_message_error_api_parse
             )
             return null
         }
-        if (response?.status != "success") {
-            error = when (response?.status) {
+        if (response.status != "success") {
+            error = when (response.status) {
                 "invalid_credentials" -> applicationContext.getString(
                     R.string.send_message_error_api_error_invalid_credentials
                 )
@@ -292,12 +294,12 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
                 )
 
                 else -> applicationContext.getString(
-                    R.string.send_message_error_api_error, response?.status
+                    R.string.send_message_error_api_error, response.status
                 )
             }
             return null
         }
-        if (response.sms == 0L) {
+        if (response.sms == null || response.sms <= 0) {
             error = applicationContext.getString(
                 R.string.send_message_error_api_parse
             )
@@ -308,27 +310,24 @@ class SendMessageWorker(context: Context, params: WorkerParameters) :
 
     private suspend fun getMessageResponse(message: Message): MessageResponse? {
         try {
-            repeat(3) {
-                try {
-                    return httpPostWithMultipartFormData(
-                        applicationContext,
-                        "https://voip.ms/api/v1/rest.php",
-                        mapOf(
-                            "api_username" to getEmail(applicationContext),
-                            "api_password" to getPassword(applicationContext),
-                            "method" to "sendSMS",
-                            "did" to message.did,
-                            "dst" to message.contact,
-                            "message" to message.text
-                        )
-                    )
-                } catch (e: IOException) {
-                    // Try again...
-                }
+            return httpPostWithMultipartFormData<MessageResponse>(
+                applicationContext,
+                "https://voip.ms/api/v1/rest.php",
+                mapOf(
+                    "api_username" to getEmail(applicationContext),
+                    "api_password" to getPassword(applicationContext),
+                    "method" to "sendSMS",
+                    "did" to message.did,
+                    "dst" to message.contact,
+                    "message" to message.text
+                ),
+                allowReplay = false
+            ) ?: run {
+                error = applicationContext.getString(R.string.send_message_error_api_parse)
+                null
             }
-            error = applicationContext.getString(
-                R.string.send_message_error_api_request
-            )
+        } catch (e: IOException) {
+            error = applicationContext.getString(R.string.send_message_error_api_request)
             return null
         } catch (e: JsonDataException) {
             Log.e(TAG, "Failed to parse send message response", e)

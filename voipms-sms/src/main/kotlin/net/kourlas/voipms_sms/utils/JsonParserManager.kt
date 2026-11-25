@@ -2,10 +2,11 @@ package net.kourlas.voipms_sms.utils
 
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapters.Rfc3339DateJsonAdapter
-import java.util.*
+import net.kourlas.voipms_sms.sms.workers.MessageRowsAdapter
+import java.util.Date
 
 class JsonParserManager {
-    val parser: Moshi = Moshi.Builder().add(
+    val parser: Moshi = Moshi.Builder().add(MessageRowsAdapter()).add(
         Date::class.java,
         Rfc3339DateJsonAdapter()
     ).build()

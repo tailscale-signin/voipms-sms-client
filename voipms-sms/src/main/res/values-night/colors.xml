@@ -1,14 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="action_mode_background">#272727</color>
-    <color name="fastscroll_thumb_color">#676767</color>
-    <color name="highlight">#B6B654</color>
-    <color name="message_hint">#AFFFFFFF</color>
-    <color name="message_section">#212121</color>
-    <color name="nav_view_header_gradient_end">#C37C74</color>
-    <color name="primary">#923F3F</color>
-    <color name="primary_variant">#592626</color>
-    <color name="settings_icon">@android:color/white</color>
-
-    <color name="colorPrimaryDark">#141414</color>
+    <color name="fastscroll_thumb_color">#71949A</color>
+    <color name="highlight">#8CDCE8</color>
+    <color name="message_hint">#B8DDE2</color>
+    <color name="message_section">#0A292F</color>
+    <color name="nav_view_header_gradient_end">#300040</color>
+    <color name="primary">#00FFDE</color>
+    <color name="primary_text">#002A31</color>
+    <color name="toolbar_background">#0B2028</color>
+    <color name="surface">#001219</color>
+    <color name="on_surface">#E0F4F7</color>
+    <color name="message_incoming">#12383F</color>
+    <color name="message_incoming_checked">#295861</color>
+    <color name="message_outgoing">@color/primary_variant</color>
+    <color name="message_outgoing_checked">#086575</color>
+    <color name="on_message_outgoing">#B8F4FF</color>
+    <color name="send_error">#FFB4AB</color>
+    <color name="delete_swipe">#93000A</color>
+    <color name="colorPrimaryDark">@color/surface</color>
+    <color name="colorSecondary">#CC00FF</color>
+    <color name="colorOnSecondary">#000000</color>
+    <color name="colorSecondaryVariant">#300040</color>
 </resources>

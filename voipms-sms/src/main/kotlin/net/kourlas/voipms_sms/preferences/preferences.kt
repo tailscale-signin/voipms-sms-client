@@ -31,6 +31,7 @@ import androidx.preference.PreferenceManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import net.kourlas.voipms_sms.R
+import net.kourlas.voipms_sms.sms.workers.SyncWorker
 import net.kourlas.voipms_sms.utils.subscribeToDidTopics
 import java.io.ByteArrayInputStream
 import java.security.KeyStore
@@ -281,14 +282,11 @@ fun getStartDate(context: Context): Date {
     }
 }
 
-fun getSyncInterval(context: Context): Double =
-    getStringPreference(
-        context,
-        context.getString(
-            R.string.preferences_sync_interval_key
-        ),
-        "0"
-    ).toDouble()
+fun getSyncInterval(context: Context): Double {
+    val default = context.getString(R.string.preferences_sync_interval_default_value)
+    return getStringPreference(context, context.getString(R.string.preferences_sync_interval_key), default)
+        .toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: default.toDouble()
+}
 
 fun setFirstRun(context: Context, firstRun: Boolean) {
     setBooleanPreference(
@@ -322,6 +320,7 @@ fun setDids(context: Context, dids: Set<String>) {
     }
 
     subscribeToDidTopics(context)
+    SyncWorker.scheduleBackgroundSync(context)
 }
 
 fun setDidRetrieveMessages(context: Context, did: String, value: Boolean) {
@@ -452,6 +451,7 @@ fun setPassword(context: Context, password: String) {
             R.string.preferences_account_password_key
         ), password
     )
+    SyncWorker.scheduleBackgroundSync(context)
 }
 
 fun setStartDate(context: Context, date: Date) {

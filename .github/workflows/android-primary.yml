@@ -20,12 +20,23 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.10'
-      - name: Create google-services.json
+      - name: Configure Firebase when the project is provisioned
         env:
           google_services_json: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: echo $google_services_json | base64 -d > voipms-sms/src/primary/google-services.json
+          push_callback_url: ${{ vars.VOIPMS_PUSH_CALLBACK_URL }}
+        run: |
+          if [[ -n "$google_services_json" ]]; then
+            printf '%s' "$google_services_json" | base64 --decode > voipms-sms/src/primary/google-services.json
+            printf 'VOIPMS_PUSH_CALLBACK_URL=%s\n' "$push_callback_url" >> "$GITHUB_ENV"
+          fi
       - name: Build with Gradle
-        run: ./gradlew assemblePrimaryFullRelease
+        run: ./gradlew assemblePrimaryFullRelease assemblePrimaryFullDebug
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: voipms-sms-primary-debug
+          path: voipms-sms/build/outputs/apk/primaryFull/debug/*.apk
+          if-no-files-found: error
       - name: Test with Gradle
         run: ./gradlew testPrimaryFullDebugUnitTest
       - name: Lint with Gradle

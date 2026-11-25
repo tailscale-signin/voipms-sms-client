@@ -26,6 +26,7 @@ import net.kourlas.voipms_sms.preferences.getEmail
 import net.kourlas.voipms_sms.preferences.setEmail
 import net.kourlas.voipms_sms.preferences.setPassword
 import net.kourlas.voipms_sms.utils.preferences
+import net.kourlas.voipms_sms.utils.subscribeToDidTopics
 
 /**
  * Fragment used to display the account preferences.
@@ -62,6 +63,7 @@ class AccountPreferencesFragment : PreferenceFragmentCompat(),
                             Preference.OnPreferenceClickListener {
                                 setEmail(activity, "")
                                 setPassword(activity, "")
+                                subscribeToDidTopics(activity)
                                 activity.finish()
                                 true
                             }

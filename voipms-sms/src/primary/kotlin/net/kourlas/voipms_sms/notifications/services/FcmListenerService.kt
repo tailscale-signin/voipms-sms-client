@@ -17,44 +17,36 @@
 
 package net.kourlas.voipms_sms.notifications.services
 
-import android.annotation.SuppressLint
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import net.kourlas.voipms_sms.notifications.Notifications
+import net.kourlas.voipms_sms.notifications.pushTopicForDid
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.sms.workers.SyncWorker
+import net.kourlas.voipms_sms.utils.enablePushNotifications
 
-/**
- * Service that processes FCM messages by showing notifications for new SMS
- * messages.
- */
-@SuppressLint("MissingFirebaseInstanceTokenRefresh")
+/** Treat the relay's data message as a wakeup. Message content comes from VoIP.ms. */
 class FcmListenerService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
-        super.onMessageReceived(message)
-
-        // Called when a FCM message is received; check to see if topic matches
-        // a currently configured DID
-        val dids = getDids(applicationContext, onlyShowNotifications = true)
-        val match = dids.any { message.from == "/topics/did-$it" }
-        if (match) {
-            // If so, and if notifications are enabled, update the message
-            // database and shows notifications for any new messages
-            if (Notifications.getInstance(
-                    application
-                ).getNotificationsEnabled()
-            ) {
-                SyncWorker.performPartialSynchronization(applicationContext)
-            }
-        } else {
-            // Otherwise, unsubscribe from this topic
-            message.from?.let {
-                if (it.startsWith("/topics/")) {
-                    val topic = it.removePrefix("/topics/")
-                    FirebaseMessaging.getInstance().unsubscribeFromTopic(topic)
-                }
-            }
+        val topic = message.from?.takeIf { it.startsWith("/topics/") }
+            ?.removePrefix("/topics/") ?: return
+        val did = getDids(this, onlyRetrieveMessages = true).firstOrNull {
+            pushTopicForDid(it) == topic
         }
+        if (did != null) {
+            SyncWorker.receivePush(this, did)
+        } else if (topic.startsWith("did-") && pushTopicForDid(topic.removePrefix("did-")) == topic) {
+            // Older installations subscribed without recording their memberships.
+            FirebaseMessaging.getInstance().unsubscribeFromTopic(topic)
+        }
+    }
+
+    override fun onDeletedMessages() {
+        // FCM can discard pending messages after an extended disconnection.
+        SyncWorker.receivePush(this)
+    }
+
+    override fun onNewToken(token: String) {
+        enablePushNotifications(applicationContext)
     }
 }

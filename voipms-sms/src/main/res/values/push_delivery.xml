@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="push_delivery_title">Live delivery</string>
+    <string name="push_delivery_retry">Tap to check registration again.</string>
+    <string name="push_no_dids">Select a VoIP.ms number and enable message retrieval to set up live delivery.</string>
+    <string name="push_pending">Waiting for registration</string>
+    <string name="push_ready">Push registered</string>
+    <string name="push_custom_callback">Another callback is configured. Review it in the VoIP.ms portal.</string>
+    <string name="push_sms_disabled">Enable SMS for this number in the VoIP.ms portal.</string>
+    <string name="push_unknown_settings">VoIP.ms did not return the callback settings.</string>
+    <string name="push_provider_rejected">VoIP.ms rejected registration. Check your API access and number settings.</string>
+    <string name="push_retrying">Connection failed. Registration will retry.</string>
+    <string name="push_failed">Registration failed. Tap to try again.</string>
+    <string name="push_unconfigured">This build has no push relay configured. Use the synchronization interval below for background delivery.</string>
+    <string name="push_no_play_services">Google Play services are unavailable. Use the synchronization interval below for background delivery.</string>
+    <string name="push_fdroid">This build receives messages through synchronization. Set the background interval below.</string>
+    <string name="push_did_status">%1$s — %2$s</string>
+</resources>

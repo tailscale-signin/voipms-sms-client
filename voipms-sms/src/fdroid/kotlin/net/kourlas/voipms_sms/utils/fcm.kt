@@ -19,6 +19,7 @@ package net.kourlas.voipms_sms.utils
 
 import android.content.Context
 import androidx.fragment.app.FragmentActivity
+import net.kourlas.voipms_sms.R
 
 /**
  * Stub for F-Droid builds.
@@ -45,3 +46,6 @@ fun enablePushNotifications(
 ) {
     // Do nothing.
 }
+
+@Suppress("UNUSED_PARAMETER")
+fun pushUnavailableMessage(context: Context): Int? = R.string.push_fdroid

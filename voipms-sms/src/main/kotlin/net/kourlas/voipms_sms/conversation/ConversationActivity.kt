@@ -732,6 +732,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
         adapter.refresh()
 
+        (application as CustomApplication).startVisibleRefresh()
         // Track number of activities
         if (!bubble) {
             (application as CustomApplication)
@@ -746,6 +747,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         safeUnregisterReceiver(this, syncCompleteReceiver)
         safeUnregisterReceiver(this, sentMessageReceiver)
 
+        (application as CustomApplication).stopVisibleRefresh()
         // Track number of activities
         if (!bubble) {
             (application as CustomApplication)

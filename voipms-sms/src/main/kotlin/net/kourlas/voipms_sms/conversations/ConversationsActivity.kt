@@ -18,6 +18,7 @@
 package net.kourlas.voipms_sms.conversations
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -40,6 +41,7 @@ import androidx.appcompat.view.ActionMode
 import androidx.appcompat.widget.SearchView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.core.view.GravityCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -495,8 +497,8 @@ open class ConversationsActivity(val archived: Boolean = false) :
         // Refresh and perform limited synchronization
         if (!firstSyncRequired) {
             adapter.refresh()
-            SyncWorker.performPartialSynchronization(applicationContext)
         }
+        (application as CustomApplication).startVisibleRefresh(immediate = !firstSyncRequired)
 
         // Refresh on resume just in case the contacts permission was newly
         // granted and we need to add the contact names and photos
@@ -684,6 +686,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
         )
 
         // Track number of activities
+        (application as CustomApplication).stopVisibleRefresh()
         (application as CustomApplication).conversationsActivityDecrementCount()
     }
 
@@ -741,6 +744,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
 
         if (archived) {
             menu.findItem(R.id.archived_button).isVisible = false
+            menu.findItem(R.id.message_center_button).isVisible = false
             menu.findItem(R.id.preferences_button).isVisible = false
             menu.findItem(R.id.help_button).isVisible = false
         }
@@ -764,6 +768,19 @@ open class ConversationsActivity(val archived: Boolean = false) :
                     ConversationsArchivedActivity::class.java
                 )
                 startActivity(intent)
+                return true
+            }
+
+            R.id.message_center_button -> {
+                try {
+                    val portal = "https://voip.ms/m/sms.php".toUri()
+                    startActivity(Intent(Intent.ACTION_VIEW, portal))
+                } catch (_: ActivityNotFoundException) {
+                    showSnackbar(
+                        this, R.id.coordinator_layout,
+                        getString(R.string.message_center_no_browser)
+                    )
+                }
                 return true
             }
 

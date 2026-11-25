@@ -22,15 +22,16 @@ import android.util.Log
 import androidx.fragment.app.FragmentActivity
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import androidx.preference.PreferenceManager
+import com.google.firebase.FirebaseApp
 import com.google.firebase.installations.FirebaseInstallations
-import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.R
-import net.kourlas.voipms_sms.notifications.Notifications
 import net.kourlas.voipms_sms.notifications.workers.NotificationsRegistrationWorker
-import net.kourlas.voipms_sms.preferences.didsConfigured
+import net.kourlas.voipms_sms.notifications.PushRegistration
+import net.kourlas.voipms_sms.preferences.accountConfigured
 import net.kourlas.voipms_sms.preferences.getDids
 import net.kourlas.voipms_sms.preferences.setSetupCompletedForVersion
 
@@ -50,64 +51,46 @@ suspend fun getInstallationId(): String {
     }
 }
 
-/**
- * Subscribes to FCM topics corresponding to the currently configured DIDs.
- */
-fun subscribeToDidTopics(context: Context) {
-    // Do not subscribe to DID topics if Google Play Services is unavailable
-    if (GoogleApiAvailability.getInstance()
-            .isGooglePlayServicesAvailable(
-                context
-            ) != ConnectionResult.SUCCESS
-    ) {
-        return
-    }
+/** Describes why this installation cannot use its Firebase relay, if applicable. */
+fun pushUnavailableMessage(context: Context): Int? = when {
+    BuildConfig.PUSH_CALLBACK_URL.isEmpty() || FirebaseApp.getApps(context).none {
+        it.name == FirebaseApp.DEFAULT_APP_NAME
+    } -> R.string.push_unconfigured
+    GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) !=
+        ConnectionResult.SUCCESS -> R.string.push_no_play_services
+    else -> null
+}
 
-    // Subscribe to topics for current DIDs
-    for (did in getDids(context, onlyShowNotifications = true)) {
-        FirebaseMessaging.getInstance().subscribeToTopic("did-$did")
+fun subscribeToDidTopics(context: Context) {
+    if (pushUnavailableMessage(context) != null) return
+
+    val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+    val desired = if (accountConfigured(context)) getDids(context, onlyRetrieveMessages = true)
+        else emptySet()
+    val recorded = PushRegistration.read(context).keys
+    if (desired.isEmpty() && recorded.isEmpty() &&
+        prefs.getStringSet(NotificationsRegistrationWorker.TOPICS_KEY, emptySet()).isNullOrEmpty()
+    ) return
+
+    val lastCheck = prefs.getLong(NotificationsRegistrationWorker.LAST_CHECK_KEY, 0L)
+    if (desired != recorded || System.currentTimeMillis() - lastCheck !in 0 until 86_400_000L) {
+        NotificationsRegistrationWorker.enqueue(context)
     }
 }
 
-/**
- * Attempt to enable push notifications, with the option of showing an error
- * using a snackbar on the specified activity if Google Play Services is
- * unavailable.
- */
 fun enablePushNotifications(
     context: Context,
     activityToShowError: FragmentActivity? = null
 ) {
-    // Check if Google Play Services is available
-    if (GoogleApiAvailability.getInstance()
-            .isGooglePlayServicesAvailable(
-                context
-            ) != ConnectionResult.SUCCESS
-    ) {
-        if (activityToShowError != null) {
-            showSnackbar(
-                activityToShowError, R.id.coordinator_layout,
-                activityToShowError.getString(
-                    R.string.push_notifications_fail_google_play
-                )
-            )
+    val unavailable = pushUnavailableMessage(context)
+    if (unavailable != null) {
+        activityToShowError?.let {
+            showSnackbar(it, R.id.coordinator_layout, it.getString(unavailable))
         }
         setSetupCompletedForVersion(context, BuildConfig.VERSION_CODE.toLong())
         return
     }
-
-    // Check if DIDs are configured and that notifications are enabled,
-    // and silently quit if not
-    if (!didsConfigured(context)
-        || !Notifications.getInstance(context).getNotificationsEnabled()
-    ) {
-        setSetupCompletedForVersion(context, BuildConfig.VERSION_CODE.toLong())
-        return
+    if (accountConfigured(context)) {
+        NotificationsRegistrationWorker.enqueue(context, explicit = true)
     }
-
-    // Subscribe to DID topics
-    subscribeToDidTopics(context)
-
-    // Start push notifications registration service
-    NotificationsRegistrationWorker.registerForPushNotifications(context)
 }

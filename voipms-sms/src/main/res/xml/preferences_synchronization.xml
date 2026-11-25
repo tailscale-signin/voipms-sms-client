@@ -16,6 +16,11 @@
   -->
 
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <androidx.preference.Preference
+        android:icon="@android:color/transparent"
+        android:key="push_registration_results"
+        android:persistent="false"
+        android:title="@string/push_delivery_title" />
     <androidx.preference.ListPreference
         android:defaultValue="@string/preferences_sync_interval_default_value"
         android:entries="@array/preferences_sync_interval_entries"

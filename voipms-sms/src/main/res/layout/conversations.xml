@@ -77,7 +77,8 @@
             android:layout_margin="@dimen/margin"
             android:contentDescription="@string/conversations_action_chat"
             android:src="@drawable/ic_chat_toolbar_24dp"
-            app:tint="@null" />
+            app:backgroundTint="@color/primary"
+            app:tint="@color/colorOnPrimary" />
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
     <com.google.android.material.navigation.NavigationView

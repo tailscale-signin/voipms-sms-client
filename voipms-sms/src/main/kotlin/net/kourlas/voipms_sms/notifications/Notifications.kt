@@ -26,7 +26,6 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
@@ -155,7 +154,7 @@ class Notifications private constructor(private val context: Context) {
                 NotificationManager.IMPORTANCE_HIGH
             )
             channel.enableLights(true)
-            channel.lightColor = Color.RED
+            channel.lightColor = context.getColor(R.color.notification_accent)
             channel.enableVibration(true)
             channel.vibrationPattern = longArrayOf(0, 250, 250, 250)
             channel.setShowBadge(true)
@@ -621,11 +620,12 @@ class Notifications private constructor(private val context: Context) {
                 .build()
         )
         notification.setCategory(Notification.CATEGORY_MESSAGE)
-        notification.color = 0xFFAA0000.toInt()
+        val notificationAccent = context.getColor(R.color.notification_accent)
+        notification.color = notificationAccent
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             @Suppress("DEPRECATION")
             notification.priority = Notification.PRIORITY_HIGH
-            notification.setLights(0xFFAA0000.toInt(), 1000, 5000)
+            notification.setLights(notificationAccent, 1000, 5000)
             @Suppress("DEPRECATION")
             val notificationSound = getNotificationSound(context)
             if (notificationSound != "") {

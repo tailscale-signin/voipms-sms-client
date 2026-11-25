@@ -1,5 +1,5 @@
 import com.android.build.api.dsl.ApplicationExtension
-import org.gradle.internal.extensions.stdlib.capitalized
+import java.net.URI
 
 plugins {
     alias(libs.plugins.android.application)
@@ -8,9 +8,29 @@ plugins {
     id("net.kourlas.oss-licenses-plugin")
 
     // fdroid-remove-start
-    alias(libs.plugins.google.gms.googleServices)
+    alias(libs.plugins.google.gms.googleServices) apply false
     // fdroid-remove-end
 }
+
+// fdroid-remove-start
+val pushCallbackUrl = providers.gradleProperty("voipmsPushCallbackUrl")
+    .orElse(providers.environmentVariable("VOIPMS_PUSH_CALLBACK_URL"))
+    .orElse("").get()
+val hasFirebaseConfig = listOf("src/primary/google-services.json", "google-services.json")
+    .any { file(it).isFile }
+if (pushCallbackUrl.isNotEmpty()) {
+    val callback = runCatching { URI(pushCallbackUrl.replace("{TO}", "15555550100")) }.getOrNull()
+    require(callback != null && callback.scheme == "https" && callback.host != null &&
+        callback.userInfo == null && callback.fragment == null && callback.rawQuery == "did=15555550100" &&
+        pushCallbackUrl.endsWith("?did={TO}") && pushCallbackUrl.count { it == '{' } == 1) {
+        "voipmsPushCallbackUrl must be an HTTPS callback ending in ?did={TO}"
+    }
+    require(hasFirebaseConfig) { "The push callback requires a matching primary google-services.json" }
+}
+if (hasFirebaseConfig) {
+    apply(plugin = "com.google.gms.google-services")
+}
+// fdroid-remove-end
 
 configure<ApplicationExtension> {
     compileSdk = 37
@@ -18,8 +38,8 @@ configure<ApplicationExtension> {
         applicationId = "net.kourlas.voipms_sms"
         minSdk = 24
         targetSdk = 36
-        versionCode = 154
-        versionName = "0.6.33"
+        versionCode = 155
+        versionName = "0.7.0"
     }
     flavorDimensions += "version"
     flavorDimensions += "demo"
@@ -28,6 +48,7 @@ configure<ApplicationExtension> {
         create("primary") {
             dimension = "version"
             buildConfigField("boolean", "IS_FDROID", "false")
+            buildConfigField("String", "PUSH_CALLBACK_URL", "\"$pushCallbackUrl\"")
         }
         // fdroid-remove-end
         create("fdroid") {
@@ -152,6 +173,7 @@ dependencies {
     "primaryImplementation"(libs.google.gms.playServicesBase)
     "primaryImplementation"(platform(libs.google.firebase.bom))
     "primaryImplementation"(libs.google.firebase.messaging)
+    "primaryImplementation"(libs.kotlinx.coroutines.playServices)
 
     // fdroid-remove-end
 
@@ -196,7 +218,7 @@ androidComponents {
         val variantName = variant.name
 
         val generatePackageLicenses =
-            tasks.register<Exec>("generatePackageLicenses${variantName.capitalized()}") {
+            tasks.register<Exec>("generatePackageLicenses${variantName.replaceFirstChar { it.uppercaseChar() }}") {
                 commandLine(
                     "python",
                     "../licenses/packageLicenseParser.py",
@@ -210,7 +232,7 @@ androidComponents {
                 generatePackageLicenses.dependsOn(this)
             }
 
-        tasks.matching { it.name == "generate${variant.name.capitalized()}Assets" }
+        tasks.matching { it.name == "generate${variant.name.replaceFirstChar { it.uppercaseChar() }}Assets" }
             .configureEach { this.dependsOn(generatePackageLicenses) }
     }
 }

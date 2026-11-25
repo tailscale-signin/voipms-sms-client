@@ -1,13 +1,6 @@
 # Privacy Policy
 
-This privacy policy is in reference to:
-
-* the app "[VoIP.ms SMS](https://github.com/michaelkourlas/voipms-sms-client)",
-  hosted on the Google Play and F-Droid app stores; and
-* the developer "Michael Kourlas".
-
-The purpose of this policy is to comprehensively disclose how the app accesses,
-collects, uses, and shares user data.
+This document describes how this [VoIP.ms SMS fork](https://github.com/tailscale-signin/voipms-sms-client) handles your data.
 
 ## Data collected to implement core app functionality
 
@@ -34,45 +27,10 @@ section is essential to implement the app's core functionality.
 
 ## Data collected to implement push notifications
 
-This section only applies to the Google Play version of the app, not the
-F-Droid version of the app.
+Primary builds can include a Firebase project and a matching callback relay selected by the build operator. When configured, the app subscribes to wake-ups for numbers selected for message retrieval. It reads SMS callback settings from VoIP.ms and can configure the relay on a selected number. Removing a number from retrieval triggers topic subscription cleanup.
 
-If you enable notifications, the app automatically configures your VoIP.ms
-account to
-ping [a web service hosted by Michael Kourlas](https://voipmssms-notify.kourlas.com)
-(the "Push Notification Service") every time you receive an SMS/MMS message.
+VoIP.ms sends the destination number to the relay in the callback URL. The relay forwards a wake-up to a Firebase topic derived from the number. The topic tells subscribers that the number had activity. Message text, attachments, sender information, and VoIP.ms API credentials are fetched or used directly by the app with VoIP.ms. They are excluded from the relay request and push payload.
 
-The Push Notification Service is implemented as a Cloudflare Worker with source
-code [available here](https://github.com/michaelkourlas/voipms-sms-push-notifications).
-The Push Notification Service also uses Firebase Cloud Messaging, a service
-provided by Google.
+Google processes the topic subscription and associates it with a Firebase installation. Relay infrastructure can process request metadata, including the callback URL. The build operator is responsible for its logging and retention settings. The F-Droid build retrieves messages directly from VoIP.ms using synchronization.
 
-The app registers all configured DIDs with Firebase Cloud Messaging. These DIDs
-are associated with
-an [installation ID](https://firebase.google.com/docs/projects/manage-installations)
-that is unique to every installed instance of the app.
-
-When you receive an SMS/MMS message, the Push Notification Service provides
-your DID to Firebase Cloud Messaging, which uses it to forward the ping to your
-device. This allows the app to request the new message from VoIP.ms and display
-a notification for it.
-
-The callback URL configured by the app only includes your DID and no other
-information, such as the text of your SMS/MMS messages. The ping simply tells
-the app to check for new messages.
-
-The Push Notification Service does not itself store your DID for longer than
-required to forward the DID to Firebase Cloud Messaging.
-
-Firebase Cloud Messaging will maintain the registration of a DID and its
-association with an installation ID indefinitely. To delete this registration
-and the installation ID, collect the installation ID from the "About" section
-of the app and contact Michael Kourlas for assistance.
-
-The collection, usage, storage, and sharing of your DID as described in this
-section is essential to implement the app's support for push notifications.
-
-## Contact information
-
-If you have any questions or concerns about this policy, please contact
-Michael Kourlas at voipmssms@kourlas.com.
+For questions about a fork build, use the [project issue tracker](https://github.com/tailscale-signin/voipms-sms-client/issues). Keep account details and message content private.

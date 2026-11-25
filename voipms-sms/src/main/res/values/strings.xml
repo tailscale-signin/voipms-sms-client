@@ -51,7 +51,7 @@
     <string name="preferences_sync_category_name">Synchronization</string>
     <string name="preferences_sync_interval_key" translatable="false">sync_interval</string>
     <string name="preferences_sync_interval_title">Synchronization interval</string>
-    <string name="preferences_sync_interval_default_value" translatable="false">0</string>
+    <string name="preferences_sync_interval_default_value" translatable="false">0.01041666666</string>
     <string name="preferences_sync_start_date_key" translatable="false">start_date</string>
     <string name="preferences_sync_start_date_title">Synchronization start date</string>
     <string name="preferences_sync_retrieve_only_recent_messages_key" translatable="false">sync_retrieve_only_recent_messages</string>
@@ -83,7 +83,7 @@
     <string name="preferences_appearance_category_name">Appearance</string>
     <string name="preferences_theme_key" translatable="false">theme</string>
     <string name="preferences_theme_title">Theme</string>
-    <string name="preferences_theme_default_value" translatable="false">0</string>
+    <string name="preferences_theme_default_value" translatable="false">2</string>
     <string name="preferences_message_text_box_maximum_size_key" translatable="false">message_text_box_maximum_size</string>
     <string name="preferences_message_text_box_maximum_size_title">Message text box maximum size</string>
     <string name="preferences_message_text_box_maximum_size_default_value" translatable="false">4</string>
@@ -264,7 +264,7 @@
 
     <!-- SignInActivity -->
     <string name="sign_in_name">Sign in to the VoIP.ms API</string>
-    <string name="sign_in_info">&lt;strong&gt;Please read these instructions carefully.&lt;/strong&gt;&lt;br&gt;&lt;br&gt;A VoIP.ms account is required to use this app. Sign up for an account on the &lt;a href="https://www.voip.ms"&gt;VoIP.ms website&lt;/a&gt;. You must use the email address you use to log into the VoIP.ms website to log into this app.&lt;br&gt;&lt;br&gt;VoIP.ms API access is also required to use this app. Use the &lt;a href="https://www.voip.ms/m/api.php"&gt;VoIP.ms API configuration menu&lt;/a&gt; to enable API access, set an API password, and add "0.0.0.0" to the list of IP addresses approved for API access. You must use the API password to log into this app, not your normal account password.</string>
+    <string name="sign_in_info">&lt;strong&gt;Please read these instructions carefully.&lt;/strong&gt;&lt;br&gt;&lt;br&gt;A VoIP.ms account is required to use this app. Sign up for an account on the &lt;a href="https://www.voip.ms"&gt;VoIP.ms website&lt;/a&gt;. You must use the email address you use to log into the VoIP.ms website to log into this app.&lt;br&gt;&lt;br&gt;VoIP.ms API access is also required to use this app. Use the &lt;a href="https://www.voip.ms/m/api.php"&gt;VoIP.ms API configuration menu&lt;/a&gt; to enable API access, set an API password, and allow the public IP addresses your phone uses for API access. You must use the API password to log into this app, not your normal account password.</string>
     <string name="sign_in_email_hint">VoIP.ms account email address</string>
     <string name="sign_in_password_hint">VoIP.ms API password</string>
     <string name="sign_in_button">Sign in</string>
@@ -294,8 +294,8 @@
     <string name="send_message_error_api_error_missing_sms">Not sent: SMS missing</string>
     <string name="send_message_error_api_error_sms_failed">Not sent: contact VoIP.ms for help ("sms_failed")</string>
     <string name="send_message_error_api_error_sms_toolong">Not sent: SMS too long</string>
-    <string name="send_message_error_api_parse">Not sent: corrupt response</string>
-    <string name="send_message_error_api_request">Not sent: VoIP.ms unavailable</string>
+    <string name="send_message_error_api_parse">Delivery unconfirmed. Check the VoIP.ms Message Center before resending.</string>
+    <string name="send_message_error_api_request">VoIP.ms did not confirm delivery. Check the Message Center before resending.</string>
     <string name="send_message_error_network">Not sent: network unavailable</string>
     <string name="send_message_error_unknown">Not sent: unknown error</string>
 
