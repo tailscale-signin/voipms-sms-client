@@ -40,6 +40,7 @@ internal class CompanionFailure(val code: Int) : IOException("Companion HTTP $co
 internal data class CompanionResult(val json: JSONObject, val session: String?)
 
 /** A failed disk write must keep pending privacy changes eligible for retry. KTX edit returns Unit. */
+@android.annotation.SuppressLint("UseKtx")
 internal fun SharedPreferences.commitCompanionChanges(update: SharedPreferences.Editor.() -> Unit): Boolean {
     val editor = edit()
     editor.update()

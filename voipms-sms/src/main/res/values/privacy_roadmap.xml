@@ -58,5 +58,13 @@
         <item>Include saved files and download missing media from VoIP.ms</item>
     </string-array>
     <string name="backup_received_limit">Downloading contacts VoIP.ms and uses network data. Up to 12 MiB per attachment and 512 MiB of received files per backup. Unavailable attachments keep their original links.</string>
-    <string name="backup_received_result">Encrypted backup saved. %1$d received attachments included for offline use. %2$d unavailable and kept as links.</string>
+    <string name="backup_received_result">Encrypted backup saved. %1$s %2$s</string>
+    <plurals name="backup_files_included">
+        <item quantity="one">%d received attachment is available offline.</item>
+        <item quantity="other">%d received attachments are available offline.</item>
+    </plurals>
+    <plurals name="backup_files_unavailable">
+        <item quantity="one">%d unavailable file was kept as a link.</item>
+        <item quantity="other">%d unavailable files were kept as links.</item>
+    </plurals>
 </resources>

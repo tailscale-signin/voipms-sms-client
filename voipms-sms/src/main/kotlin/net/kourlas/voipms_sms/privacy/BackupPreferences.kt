@@ -102,7 +102,9 @@ internal class BackupPreferences(val fragment: PreferenceFragmentCompat) {
                     val report = withContext(Dispatchers.IO) { PortableBackup.export(context, uri, password, mode) }
                     showSummary = report.unavailable > 0
                     if (mode == PortableBackup.ReceivedMode.LINKS) context.getString(R.string.backup_saved)
-                    else context.getString(R.string.backup_received_result, report.included, report.unavailable)
+                    else context.getString(R.string.backup_received_result,
+                        context.resources.getQuantityString(R.plurals.backup_files_included, report.included, report.included),
+                        context.resources.getQuantityString(R.plurals.backup_files_unavailable, report.unavailable, report.unavailable))
                 } else {
                     val parsed = withContext(Dispatchers.IO) { PortableBackup.preview(context, uri, password) }
                     preview = parsed
