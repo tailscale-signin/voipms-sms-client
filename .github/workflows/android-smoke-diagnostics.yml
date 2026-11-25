@@ -49,8 +49,9 @@ jobs:
           target: ${{ matrix.image }}
           disable-animations: true
           script: |
+            if [ "${{ matrix.api }}" = 34 ]; then if [ "${{ steps.synapse.outcome }}" = success ] && adb install -r smoke-apk/*.apk && .github/scripts/matrix-integration.sh test; then echo "Matrix integration passed"; else touch "$RUNNER_TEMP/matrix-failed"; fi; adb uninstall net.kourlas.voipms_sms >/dev/null || true; fi
             python3 .github/scripts/android-smoke.py smoke-apk/*.apk
-            if [ "${{ matrix.api }}" = "34" ]; then test "${{ steps.synapse.outcome }}" = success && .github/scripts/matrix-integration.sh test; fi
+            test ! -e "$RUNNER_TEMP/matrix-failed"
       - name: Upload emulator screenshots
         if: always()
         uses: actions/upload-artifact@v7

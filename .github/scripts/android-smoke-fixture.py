@@ -342,6 +342,7 @@ def run(adb, element, screenshot):
     element("text", ("Sign in", "SIGN IN"), tap=True)
     element("text", "Matrix account")
     element("resource-id", "android:id/button2", tap=True)
+    element("text", "Encrypted rooms")  # Wait for the credential dialog to close before navigating back.
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     element("resource-id", route, expected_text="SMS · VoIP.ms")
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
