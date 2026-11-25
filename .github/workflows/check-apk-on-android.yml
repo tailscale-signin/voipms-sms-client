@@ -1,0 +1,38 @@
+name: Verify SMS 0.7.1 on Android 14
+on:
+  push:
+    branches: [qa/android-14-071]
+jobs:
+  emulator:
+    name: Android 14 app smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: voipms-sms-fdroid-debug
+          run-id: 45542566040
+          github-token: ${{ github.token }}
+          path: smoke-apk
+      - name: Enable emulator acceleration
+        run: sudo chown "$(id -u):$(id -g)" /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          SMS_SMOKE_SCREENSHOTS: ${{ runner.temp }}/voipms-smoke-screenshots
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: python3 .github/scripts/android-smoke.py smoke-apk/*.apk
+      - name: Upload emulator screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-14-smoke-screenshots
+          path: ${{ runner.temp }}/voipms-smoke-screenshots/*.png
+          if-no-files-found: ignore
