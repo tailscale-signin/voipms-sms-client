@@ -24,7 +24,7 @@ internal object ShadyCallReputation {
     suspend fun search(canonical: String): ShadyCallReport? {
         require(supports(canonical))
         val url = "https://shadycall.com/api/v1/number/${canonical.drop(2)}".toHttpUrl()
-        return parse(canonical, lookupJson(url, "application/json"))
+        return parse(canonical, lookupResponse(url, "application/json"))
     }
 
     internal fun parse(canonical: String, json: String): ShadyCallReport? {

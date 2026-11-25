@@ -72,8 +72,9 @@ class NewConversationActivity : AppCompatActivity(), View.OnClickListener {
         onNewIntent(intent)
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
 
         getMessageTextFromIntent()
         setupToolbar()

@@ -17,6 +17,11 @@
 
 package net.kourlas.voipms_sms.conversation
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Build
+import android.os.PersistableBundle
+import android.widget.Toast
 import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.text.SpannableString
@@ -45,6 +50,7 @@ import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.demo.getConversationDemoMessages
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.sms.Message
+import net.kourlas.voipms_sms.sms.VerificationCode
 import net.kourlas.voipms_sms.ui.FastScroller
 import net.kourlas.voipms_sms.utils.applyCircularMask
 import net.kourlas.voipms_sms.utils.applyRoundedCornersMask
@@ -132,6 +138,18 @@ class ConversationRecyclerViewAdapter(
         updateViewHolderViewHeight(holder, position)
         updateViewHolderContactBadge(holder, position)
         updateViewHolderMessageText(holder, position)
+        val code = VerificationCode.extract(messageItems[position].message.text)
+        holder.copyCode.visibility = if (code == null) View.GONE else View.VISIBLE
+        holder.copyCode.setOnClickListener(if (code == null) null else View.OnClickListener {
+            val clip = ClipData.newPlainText(activity.getString(R.string.clipboard_code), code)
+            clip.description.extras = PersistableBundle().apply {
+                putBoolean("android.content.extra.IS_SENSITIVE", true)
+            }
+            activity.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                Toast.makeText(activity, R.string.code_copied, Toast.LENGTH_SHORT).show()
+            }
+        })
         updateViewHolderDateText(holder, position)
         updateViewHolderColours(holder, position)
     }
@@ -226,7 +244,6 @@ class ConversationRecyclerViewAdapter(
             // Highlight text that matches filter
             messageTextBuilder.append(message.text)
             if (currConstraint != "") {
-                messageTextBuilder.append(message.text)
                 val index =
                     message.text.lowercase(Locale.getDefault()).indexOf(
                         currConstraint.lowercase(Locale.getDefault())
@@ -394,7 +411,9 @@ class ConversationRecyclerViewAdapter(
     override fun getSectionTitle(position: Int): String =
         getScrollBarDate(messageItems[position].message.date)
 
-    override fun getFilter(): Filter = object : Filter() {
+    override fun getFilter(): Filter = messageFilter
+
+    private val messageFilter = object : Filter() {
         /**
          * Perform filtering using the specified filter constraint.
          */
@@ -451,6 +470,7 @@ class ConversationRecyclerViewAdapter(
             constraint: CharSequence,
             results: FilterResults?
         ) {
+            if (constraint.toString() != requestedConstraint) return
             if (results?.values == null) {
                 showSnackbar(
                     activity, R.id.coordinator_layout,
@@ -514,7 +534,10 @@ class ConversationRecyclerViewAdapter(
                         // update the underlying message anyways just to be
                         // safe
                         messageItems[newIdx].message = newMessages[newIdx]
-                        messageIndexes.add(newIdx)
+                        if (oldMessages[oldIdx] != newMessages[newIdx] || prevConstraint != currConstraint ||
+                            oldMessages.getOrNull(oldIdx - 1) != newMessages.getOrNull(newIdx - 1)) {
+                            messageIndexes.add(newIdx)
+                        }
 
                         oldIdx += 1
                         newIdx += 1
@@ -575,20 +598,25 @@ class ConversationRecyclerViewAdapter(
     /**
      * Refreshes the adapter using the currently defined filter constraint.
      */
-    fun refresh() = filter.filter(currConstraint)
+    private var requestedConstraint = ""
+
+    fun refresh() = filter.filter(requestedConstraint)
 
     /**
      * Refreshes the adapter using the specified filter constraint.
      */
-    fun refresh(constraint: String) = filter.filter(constraint)
+    fun refresh(constraint: String) {
+        requestedConstraint = constraint
+        refresh()
+    }
 
     /**
      * Loads additional items from the database.
      */
     fun loadMoreItems() {
-        if (currLimit + ADDITIONAL_ITEMS_INCREMENT <= maxLimit) {
+        if (!loadingMoreItems && currLimit < maxLimit) {
             loadingMoreItems = true
-            currLimit += ADDITIONAL_ITEMS_INCREMENT
+            currLimit = minOf(maxLimit, currLimit + ADDITIONAL_ITEMS_INCREMENT)
             refresh()
         }
     }
@@ -686,6 +714,7 @@ class ConversationRecyclerViewAdapter(
             }
         internal val smsContainer: View =
             itemView.findViewById(R.id.sms_container)
+        internal val copyCode: View = itemView.findViewById(R.id.copy_sms_code)
         internal val messageText: TextView =
             itemView.findViewById(R.id.message)
         internal val dateText: TextView =

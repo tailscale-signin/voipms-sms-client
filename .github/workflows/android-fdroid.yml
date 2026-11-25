@@ -48,7 +48,13 @@ jobs:
           path: voipms-sms/build/reports/lint-results-fdroidFullRelease.html
 
   emulator:
-    name: Android 14 app smoke test
+    name: Android ${{ matrix.android }} app smoke test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { android: 14, api: 34, image: default }
+          - { android: 16, api: 36, image: google_apis }
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -66,15 +72,15 @@ jobs:
         env:
           SMS_SMOKE_SCREENSHOTS: ${{ runner.temp }}/voipms-smoke-screenshots
         with:
-          api-level: 34
+          api-level: ${{ matrix.api }}
           arch: x86_64
-          target: default
+          target: ${{ matrix.image }}
           disable-animations: true
           script: python3 .github/scripts/android-smoke.py smoke-apk/*.apk
       - name: Upload emulator screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: android-14-smoke-screenshots
+          name: android-${{ matrix.android }}-smoke-screenshots
           path: ${{ runner.temp }}/voipms-smoke-screenshots/*.png
           if-no-files-found: ignore

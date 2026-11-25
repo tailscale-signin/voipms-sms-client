@@ -82,6 +82,16 @@
                 android:textAppearance="@style/Caption" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/sender_region"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textAppearance="@style/Caption"
+            android:textColor="@color/message_hint"
+            android:visibility="gone" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"

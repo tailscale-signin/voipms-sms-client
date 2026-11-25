@@ -69,6 +69,8 @@
                     android:textAppearance="@style/Body1"
                     android:textColor="@color/on_message_outgoing"
                     android:textColorLink="@color/on_message_outgoing" />
+
+                <include layout="@layout/copy_sms_code" />
             </LinearLayout>
 
             <TextView

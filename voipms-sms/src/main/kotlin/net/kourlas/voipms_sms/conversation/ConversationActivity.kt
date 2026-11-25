@@ -46,7 +46,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.OnBackPressedCallback
+import net.kourlas.voipms_sms.ui.MessageBackCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
 import androidx.appcompat.widget.SearchView
@@ -64,6 +64,7 @@ import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.lifecycleScope
+import net.kourlas.voipms_sms.lookup.NumberOrigin
 import net.kourlas.voipms_sms.lookup.OnlineNumberLookup
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -120,8 +121,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: ConversationRecyclerViewAdapter
     private lateinit var layoutManager: LinearLayoutManager
-    private lateinit var menu: Menu
-    private var actionMode: ActionMode? = null
+    private val messageBack = MessageBackCallback()
+    private var actionMode: ActionMode?
+        get() = messageBack.selection
+        set(value) { messageBack.selection = value }
 
     // The DID and contact associated with this conversation
     private lateinit var did: String
@@ -132,6 +135,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
     // Additional metadata associated with the DID and contact, including the
     // name and photo of the person associated with the DID or contact
     private var contactName: String? = null
+    private var offlineRegion: String? = null
     private lateinit var contactBitmap: Bitmap
 
     // Broadcast receivers
@@ -185,7 +189,12 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
     public override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, messageBack)
         setContentView(R.layout.conversation)
+        val list = findViewById<View>(R.id.list)
+        findViewById<View>(R.id.message_section).addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) ViewCompat.requestApplyInsets(list)
+        }
         onNewIntent(intent)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -196,18 +205,26 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent == null) {
-            abortActivity(this, Exception("No intent was provided"))
-            return
-        }
+        setIntent(intent)
 
         if (!setupDidAndContact(intent)) {
             return
         }
-        setupBack()
+        offlineRegion = null
         setupToolbar()
+        if (contactName == null) {
+            val number = contact
+            val locale = resources.configuration.locales[0]
+            lifecycleScope.launch {
+                val region = withContext(Dispatchers.IO) { NumberOrigin.offline(number, locale) }
+                if (contact == number) {
+                    offlineRegion = region
+                    updateContactHeading()
+                }
+            }
+        }
         setupRecyclerView()
         setupMessageText()
         getMessageTextFromIntent()
@@ -336,35 +353,6 @@ open class ConversationActivity(val bubble: Boolean = false) :
     }
 
     /**
-     * Sets up the back button handler.
-     */
-    private fun setupBack() {
-        onBackPressedDispatcher.addCallback(
-            this,
-            object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    // Close action mode if visible
-                    actionMode?.let {
-                        it.finish()
-                        return
-                    }
-
-                    // Close the search box if visible
-                    if (::menu.isInitialized) {
-                        val searchItem = menu.findItem(R.id.search_button)
-                        val searchView = searchItem.actionView as SearchView
-                        if (!searchView.isIconified) {
-                            searchItem.collapseActionView()
-                            return
-                        }
-                    }
-
-                    finish()
-                }
-            })
-    }
-
-    /**
      * Sets up the activity toolbar.
      */
     open fun setupToolbar() {
@@ -408,7 +396,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
             subtitle = when {
                 contactName != null -> number
                 label != null -> OnlineNumberLookup.description(this@ConversationActivity, label)
-                else -> null
+                else -> offlineRegion?.let { getString(R.string.lookup_offline_region, it) }
             }
         }
     }
@@ -449,14 +437,16 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
         })
 
+        val composer = findViewById<View>(R.id.message_section)
+        val margin = resources.getDimensionPixelSize(R.dimen.margin)
         ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, windowInsets ->
             val insets =
-                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
             v.setPadding(
-                v.paddingLeft,
+                insets.left,
                 v.paddingTop,
-                v.paddingRight,
-                insets.bottom + resources.getDimensionPixelSize(R.dimen.quadruple_margin)
+                insets.right,
+                insets.bottom + composer.height + margin
             )
             WindowInsetsCompat.CONSUMED
         }
@@ -481,10 +471,12 @@ open class ConversationActivity(val bubble: Boolean = false) :
         applyRoundedCornersMask(messageSection)
         ViewCompat.setOnApplyWindowInsetsListener(messageSection) { v, windowInsets ->
             val insets =
-                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+            val margin = resources.getDimensionPixelSize(R.dimen.margin)
             v.updateLayoutParams<MarginLayoutParams> {
-                bottomMargin =
-                    insets.bottom + resources.getDimensionPixelSize(R.dimen.margin)
+                leftMargin = margin + insets.left
+                rightMargin = margin + insets.right
+                bottomMargin = margin + insets.bottom
             }
             WindowInsetsCompat.CONSUMED
         }
@@ -781,7 +773,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         // Create standard options menu
         val inflater = menuInflater
         inflater.inflate(R.menu.conversation, menu)
-        this.menu = menu
+        menu.findItem(R.id.search_button).setOnActionExpandListener(messageBack)
         menu.findItem(R.id.lookup_number).isVisible = !BuildConfig.IS_DEMO && OnlineNumberLookup.available(contact, contactName)
 
         // Replace DID menu item with DID

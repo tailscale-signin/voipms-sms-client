@@ -1,6 +1,7 @@
 [versions]
-agp = "9.5.2"
+agp = "9.5.3"
 androidxTestCore = "1.7.0"
+activity = "1.13.0"
 annotation = "1.11.0"
 appcompat = "1.8.0"
 betterLinkMovementMethod = "2.2.0"
@@ -8,6 +9,7 @@ composeUi = "1.13.0"
 coreKtx = "1.19.1"
 firebaseBom = "35.2.0"
 google-services = "4.6.0"
+phoneGeocoder = "3.44"
 junit = "4.13.2"
 kotlin = "2.4.21"
 kotlinxCoroutinesAndroid = "1.11.0"
@@ -29,6 +31,8 @@ swiperefreshlayout = "1.2.0"
 workRuntimeKtx = "2.12.0"
 
 [libraries]
+google-phone-geocoder = { module = "com.googlecode.libphonenumber:geocoder", version.ref = "phoneGeocoder" }
+androidx-activity = { module = "androidx.activity:activity", version.ref = "activity" }
 androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
 androidx-compose-ui = { module = "androidx.compose.ui:ui", version.ref = "composeUi" }

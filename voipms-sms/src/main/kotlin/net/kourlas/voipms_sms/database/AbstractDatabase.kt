@@ -24,7 +24,8 @@ import net.kourlas.voipms_sms.database.entities.Sms
         SyncCheckpoint::class],
     autoMigrations = [
         AutoMigration(from = 10, to = 11),
-        AutoMigration(from = 11, to = 12, spec = NormalizeDidMigration::class)
+        AutoMigration(from = 11, to = 12, spec = NormalizeDidMigration::class),
+        AutoMigration(from = 12, to = 13)
     ],
     version = DATABASE_VERSION
 )

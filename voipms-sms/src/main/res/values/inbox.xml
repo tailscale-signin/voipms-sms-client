@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="inbox_main">Main</string>
+    <string name="inbox_other">Other</string>
+    <string name="inbox_other_empty">No suspected spam or junk conversations.</string>
+    <string name="inbox_move_other">Move to Other</string>
+    <string name="inbox_move_main">Move to Main</string>
+    <string name="copy_code">Copy code</string>
+    <string name="clipboard_code">SMS verification code</string>
+    <string name="code_copied">Code copied</string>
+</resources>

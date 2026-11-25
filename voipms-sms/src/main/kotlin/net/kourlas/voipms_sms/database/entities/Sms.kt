@@ -26,7 +26,11 @@ import java.util.Date
 
 @Entity(
     tableName = Sms.TABLE_NAME,
-    indices = [Index(value = [Sms.COLUMN_DID, Sms.COLUMN_VOIP_ID])]
+    indices = [
+        Index(value = [Sms.COLUMN_DID, Sms.COLUMN_VOIP_ID]),
+        Index(name = "index_sms_inbox", value = [Sms.COLUMN_DID, Sms.COLUMN_CONTACT,
+            Sms.COLUMN_DELIVERY_IN_PROGRESS, Sms.COLUMN_DATE, Sms.COLUMN_VOIP_ID, Sms.COLUMN_DATABASE_ID])
+    ]
 )
 data class Sms(
     @PrimaryKey(autoGenerate = true)

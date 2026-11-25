@@ -38,6 +38,20 @@
                 android:theme="@style/ToolbarTheme"
                 app:collapseIcon="@drawable/ic_close_toolbar_24dp"
                 app:titleTextColor="@android:color/white" />
+
+            <com.google.android.material.tabs.TabLayout
+                android:id="@+id/inbox_tabs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/inbox_surface"
+                android:visibility="gone"
+                app:tabGravity="fill"
+                app:tabIndicatorColor="@color/primary"
+                app:tabIndicatorFullWidth="false"
+                app:tabMode="fixed"
+                app:tabSelectedTextColor="@color/primary"
+                app:tabTextAppearance="@style/ButtonLabel"
+                app:tabTextColor="@color/on_surface" />
         </com.google.android.material.appbar.AppBarLayout>
 
         <FrameLayout

@@ -22,4 +22,10 @@
     <string name="lookup_reports_attribution">Reports from ShadyCall</string>
     <string name="lookup_truecaller_consent">Copy %1$s and open Truecaller’s search page in your browser. Paste the number there to search. Truecaller may require sign-in.</string>
     <string name="lookup_copy_open">Copy and open</string>
+    <string name="lookup_origin">Look up prefix origin</string>
+    <string name="lookup_origin_consent">Look up the numbering area for %1$s. Only the area code and exchange (the first six national digits) are sent to Local Calling Guide. The result describes the original assignment. A sender can be anywhere.</string>
+    <string name="lookup_origin_result">Local Calling Guide · %1$s</string>
+    <string name="lookup_origin_searching">Checking prefix origin…</string>
+    <string name="lookup_origin_unknown">No unique numbering area was found for this prefix.</string>
+    <string name="lookup_offline_region">Number region · %1$s</string>
 </resources>

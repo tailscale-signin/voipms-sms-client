@@ -44,6 +44,12 @@ interface ArchivedDao {
     )
     suspend fun getConversation(did: String, contact: String): Archived?
 
+    @Query("UPDATE archived SET Archived = 0 WHERE Did = :did AND Contact = :contact AND Archived != 0")
+    suspend fun clearArchiveFlag(did: String, contact: String)
+
+    @Query("SELECT * FROM archived WHERE Did IN (:dids) ORDER BY DatabaseId")
+    suspend fun forDids(dids: Set<String>): List<Archived>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun update(archived: Archived)
 }

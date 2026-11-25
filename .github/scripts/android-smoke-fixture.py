@@ -13,6 +13,8 @@ PACKAGE = "net.kourlas.voipms_sms"
 DID = "4165550100"
 CONTACT = "4165550111"
 LAST_MESSAGE = "Great, see you at the studio!"
+JUNK = "Unpaid tolls: pay at https://example.invalid"
+CODE = "004281"
 
 
 def install_fixture(adb):
@@ -68,6 +70,8 @@ def install_fixture(adb):
             now = int(time.time())
             messages = [
                 (101, now - 320, 1, DID, CONTACT, "Are we still meeting at ten tomorrow?"),
+                (104, now - 200, 1, DID, CONTACT, f"Your verification code is {CODE}."),
+                (105, now - 180, 1, DID, "6475550123", JUNK),
                 (102, now - 150, 0, DID, CONTACT, "Yes, ten works for me."),
                 (103, now - 60, 1, DID, CONTACT, LAST_MESSAGE),
             ]
@@ -87,10 +91,41 @@ def run(adb, element, screenshot):
         "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
         "-n", PACKAGE + "/.conversations.ConversationsActivity")
     element("text", LAST_MESSAGE)
+    element("resource-id", PACKAGE + ":id/sender_region")
     screenshot("sample-inbox")
+    element("text", "Other", tap=True)
+    element("text", JUNK, hold=True)
+    element("content-desc", "More options", tap=True)
+    element("text", "Move to Main", tap=True)
+    element("text", "No suspected spam or junk conversations.")
+    element("text", "Main", tap=True)
+    element("text", JUNK, hold=True)
+    element("content-desc", "More options", tap=True)
+    element("text", "Move to Other", tap=True)
     element("text", LAST_MESSAGE, tap=True)
     element("text", "Yes, ten works for me.")
+    element("resource-id", PACKAGE + ":id/copy_sms_code", tap=True)
+    # Android's clipboard confirmation can cover the composer, including the system Share action.
+    # Allow its standard six-second timeout before sending a coordinate tap to the app.
+    time.sleep(7)
+    deadline = time.monotonic() + 12
+    while re.search(r"Clipboard\s*Overlay", adb("shell", "dumpsys", "window", "visible"), re.I):
+        if time.monotonic() >= deadline:
+            raise AssertionError("System clipboard overlay still covers the composer")
+        time.sleep(0.5)
+    element("resource-id", PACKAGE + ":id/message_edit_text", tap=True)
+    adb("shell", "input", "keycombination", "113", "50")  # Ctrl+V in the foreground composer
+    element("resource-id", PACKAGE + ":id/message_edit_text", expected_text=CODE)
+    print("Verification code pasted unchanged into the SMS composer", flush=True)
+    adb("shell", "input", "keyevent", *(["KEYCODE_DEL"] * len(CODE)))
+    if "mInputShown=true" in adb("shell", "dumpsys", "input_method"):
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
     screenshot("sample-conversation")
+    element("content-desc", "More options", tap=True)
+    element("text", "Look up number online", tap=True)
+    element("text", "Look up prefix origin", tap=True)
+    element("resource-id", "android:id/message")
+    element("resource-id", "android:id/button2", tap=True)
     element("content-desc", "More options", tap=True)
     element("text", "Look up number online", tap=True)
     element("text", "Search Wikidata", tap=True)

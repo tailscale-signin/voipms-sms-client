@@ -39,11 +39,14 @@ When you start a listening session, the app repeatedly contacts VoIP.ms using yo
 
 ## Optional number lookup
 
-Opening the inbox or receiving a message does not send numbers to any lookup provider. When you select a lookup, the selected service receives that phone number and the connection’s network information. SMS content, your address book, and VoIP.ms credentials are excluded from these requests.
+Opening the inbox or receiving a message does not send numbers to any lookup provider. Each online lookup explains what it sends before connecting. The service can receive network information such as your IP address. SMS content, your address book, and VoIP.ms credentials are excluded from these requests.
 
+* Local Calling Guide receives the six-digit North American area code and exchange when you choose to look up prefix origin. Offline region labels use numbering data bundled in the app.
 * Wikidata receives a query for the number in several common formats and may return a public organization name. The app keeps directory results in memory for the current account session. [Wikimedia privacy policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy)
 * Choosing Truecaller copies the selected number to the Android clipboard and opens its official search page. You choose whether to paste and submit it in the browser. [Truecaller privacy policy](https://www.truecaller.com/privacy-policy)
 * Choosing ShadyCall sends the number to its US reputation service. Its reports are shown on request. [ShadyCall privacy policy](https://shadycall.com/privacy)
+
+Spam classification and code detection run on the device. Manual folder choices are stored with your conversations. Tapping **Copy code** places the selected code on the Android clipboard with the sensitive flag.
 
 A selected custom font stays on the device.
 

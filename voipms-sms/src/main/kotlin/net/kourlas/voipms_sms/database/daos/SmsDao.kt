@@ -97,32 +97,20 @@ interface SmsDao {
         contact: String
     ): List<Sms>
 
-    @Query(
-        "SELECT * FROM ${Sms.TABLE_NAME} WHERE ${Sms.COLUMN_DID} = :did AND ${Sms.COLUMN_CONTACT} = :contact ORDER BY ${Sms.COLUMN_DELIVERY_IN_PROGRESS} DESC, ${Sms.COLUMN_DATE} DESC, ${Sms.COLUMN_VOIP_ID} DESC, ${Sms.COLUMN_DATABASE_ID} DESC LIMIT 1"
-    )
-    suspend fun getConversationMessageMostRecent(
-        did: String,
-        contact: String
-    ): Sms?
+    // The covering index provides an ordered seek per thread on every supported SQLite version.
+    @Query("""
+        SELECT sms.* FROM (SELECT DISTINCT Did, Contact FROM sms WHERE Did IN (:dids)) AS threads
+        JOIN sms ON sms.DatabaseId = (
+            SELECT m.DatabaseId FROM sms AS m WHERE m.Did = threads.Did AND m.Contact = threads.Contact
+            AND (:filter = '' OR m.Text LIKE '%' || :filter || '%' OR (:digits != '' AND
+                 (m.Did LIKE '%' || :digits || '%' OR m.Contact LIKE '%' || :digits || '%')))
+            ORDER BY m.DeliveryInProgress DESC, m.Date DESC, m.VoipId DESC, m.DatabaseId DESC LIMIT 1
+        )
+    """)
+    suspend fun latestForDids(dids: Set<String>, filter: String, digits: String): List<Sms>
 
-    @Query(
-        "SELECT * FROM ${Sms.TABLE_NAME} WHERE ${Sms.COLUMN_DID} = :did AND ${Sms.COLUMN_CONTACT} = :contact AND (${Sms.COLUMN_TEXT} LIKE '%' || :filterConstraint || '%' COLLATE NOCASE) ORDER BY ${Sms.COLUMN_DELIVERY_IN_PROGRESS} DESC, ${Sms.COLUMN_DATE} DESC, ${Sms.COLUMN_VOIP_ID} DESC, ${Sms.COLUMN_DATABASE_ID} DESC LIMIT 1"
-    )
-    suspend fun getConversationMessageMostRecentFiltered(
-        did: String,
-        contact: String,
-        filterConstraint: String
-    ): Sms?
-
-    @Query(
-        "SELECT * FROM ${Sms.TABLE_NAME} WHERE ${Sms.COLUMN_DID} = :did AND ${Sms.COLUMN_CONTACT} = :contact AND (${Sms.COLUMN_TEXT} LIKE '%' || :filterConstraint || '%' COLLATE NOCASE OR ${Sms.COLUMN_CONTACT} LIKE '%' || :numericFilterConstraint || '%' OR ${Sms.COLUMN_DID} LIKE '%' || :numericFilterConstraint || '%')  ORDER BY ${Sms.COLUMN_DELIVERY_IN_PROGRESS} DESC, ${Sms.COLUMN_DATE} DESC, ${Sms.COLUMN_VOIP_ID} DESC, ${Sms.COLUMN_DATABASE_ID} DESC LIMIT 1"
-    )
-    suspend fun getConversationMessageMostRecentFiltered(
-        did: String,
-        contact: String,
-        filterConstraint: String,
-        numericFilterConstraint: String
-    ): Sms?
+    @Query("SELECT DISTINCT Did, Contact FROM sms WHERE Did IN (:dids) AND Type = 0")
+    suspend fun threadsWithReplies(dids: Set<String>): List<ConversationId>
 
     @Query(
         "SELECT COALESCE(MAX(${Sms.COLUMN_DATE}), 0) AS ${Sms.COLUMN_DATE} FROM ${Sms.TABLE_NAME} WHERE ${Sms.COLUMN_DID} = :did AND ${Sms.COLUMN_CONTACT} = :contact AND ${Sms.COLUMN_INCOMING} = 0"
