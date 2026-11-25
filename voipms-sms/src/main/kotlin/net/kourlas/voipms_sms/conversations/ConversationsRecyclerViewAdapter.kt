@@ -89,6 +89,7 @@ class ConversationsRecyclerViewAdapter<T>(
         // There is only one item view type
         val itemView = LayoutInflater.from(parent.context)
             .inflate(R.layout.conversations_item, parent, false)
+        itemView.clipToOutline = true
         return ConversationViewHolder(itemView)
     }
 

@@ -6,6 +6,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -54,8 +55,11 @@ class LiveDeliveryService : Service() {
         if (listener?.isActive == true) return START_NOT_STICKY
         try {
             Notifications.getInstance(this).createSyncNotificationChannel()
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            } else 0
             ServiceCompat.startForeground(this, Notifications.MESSAGE_NOTIFICATION_ID + 1,
-                listeningNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                listeningNotification(), type)
         } catch (_: IllegalStateException) {
             finishListening(getString(R.string.live_start_declined))
             return START_NOT_STICKY
@@ -90,7 +94,9 @@ class LiveDeliveryService : Service() {
                 current.value = if (sync.error == null) {
                     LiveDeliveryState(running = true, lastSuccess = System.currentTimeMillis())
                 } else {
-                    current.value.copy(message = getString(R.string.live_retry, sync.error, interval / 1000))
+                    val seconds = (interval / 1000).toInt()
+                    current.value.copy(message = resources.getQuantityString(R.plurals.live_retry,
+                        seconds, sync.error, seconds))
                 }
                 delay(interval)
             }

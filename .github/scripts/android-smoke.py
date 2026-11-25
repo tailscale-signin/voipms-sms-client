@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import re
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -79,6 +80,8 @@ def main():
     screenshot("direct-listening")
     element("text", "Start live listening", tap=True)
     element("resource-id", PACKAGE + ":id/sign_in_button")
+    fixture = runpy.run_path(Path(__file__).with_name("android-smoke-fixture.py"))
+    fixture["run"](adb, element, screenshot)
     if not adb("shell", "pidof", PACKAGE):
         raise AssertionError("SMS process exited")
     crashes = adb("logcat", "-b", "crash", "-d")

@@ -24,7 +24,6 @@
     android:layout_marginEnd="12dp"
     android:layout_marginBottom="3dp"
     android:background="@drawable/inbox_row_surface"
-    android:clipToOutline="true"
     android:foreground="?attr/selectableItemBackground"
     android:descendantFocusability="blocksDescendants"
     android:orientation="horizontal"

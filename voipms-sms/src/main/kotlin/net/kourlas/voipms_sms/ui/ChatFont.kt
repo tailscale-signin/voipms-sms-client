@@ -121,7 +121,7 @@ object ChatFont : Application.ActivityLifecycleCallbacks {
     private fun style(view: View, font: Typeface) {
         if (view is TextView) {
             val old = view.typeface ?: Typeface.DEFAULT
-            val wanted = if (Build.VERSION.SDK_INT >= 28) Typeface.create(font, old.weight, old.isItalic)
+            val wanted = if (Build.VERSION.SDK_INT >= 28) Typeface.create(font, old.weight.coerceIn(1, 1000), old.isItalic)
                          else Typeface.create(font, old.style)
             if (old != wanted) view.typeface = wanted
         }

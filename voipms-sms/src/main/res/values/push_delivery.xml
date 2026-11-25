@@ -19,7 +19,10 @@
     <string name="live_idle">Check VoIP.ms directly about every 15 seconds, even with the inbox closed. Uses more battery. You or Android can end the session.</string>
     <string name="live_active">Checking VoIP.ms for new messages…</string>
     <string name="live_last_check">Listening. Last successful check at %1$s.</string>
-    <string name="live_retry">%1$s Retrying in %2$d seconds.</string>
+    <plurals name="live_retry">
+        <item quantity="one">%1$s Retrying in %2$d second.</item>
+        <item quantity="other">%1$s Retrying in %2$d seconds.</item>
+    </plurals>
     <string name="live_timeout">Android ended the listening session. Tap to listen again.</string>
     <string name="live_start_declined">Android could not start listening. Reopen the app and try again.</string>
     <string name="live_sign_in">Sign in to VoIP.ms to start a listening session.</string>
