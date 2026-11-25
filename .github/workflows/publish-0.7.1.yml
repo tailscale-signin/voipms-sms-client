@@ -1,0 +1,109 @@
+name: Publish VoIPms SMS 0.7.1
+on:
+  push:
+    branches: [release/publish-0.7.1]
+
+permissions: {}
+concurrency:
+  group: publish-voipms-sms-0.7.1
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'tailscale-signin/voipms-sms-client'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REV: '08914f9c6294d1a2576d6c28117add6d9f3916a2'
+      SHA256: '2d08d85438ea6d528bb9e206ec53b583187c2003b2f838e92a4fddc0335ae9da'
+      CERT: '023103fb5ca64728235d8786f2404f47050f2fb3fe7e8b1aab50e924d07bf43a'
+      PART_COUNT: '19'
+      TAG: v0.7.1
+      APK: VoIPms-SMS-0.7.1-release.apk
+    steps:
+      - name: Verify signed APK and publish GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::Release stopped at script line $LINENO"' ERR
+          cd "$RUNNER_TEMP"
+          api="repos/$GH_REPO"
+          [[ "$REV" =~ ^[a-f0-9]{40}$ && "$SHA256" =~ ^[a-f0-9]{64}$ && "$PART_COUNT" =~ ^[1-9][0-9]{0,2}$ ]]
+          tag_revision() {
+            local object
+            object=$(gh api "$api/git/matching-refs/tags/$TAG" --jq '.[] | select(.ref == "refs/tags/v0.7.1") | .object')
+            if [[ -z "$object" ]]; then return 0; fi
+            while [[ "$(jq -r .type <<<"$object")" == tag ]]; do
+              object=$(gh api "$api/git/tags/$(jq -er .sha <<<"$object")" --jq .object)
+            done
+            jq -er 'select(.type == "commit") | .sha' <<<"$object"
+          }
+          check_target() {
+            local tagged
+            [[ "$(gh api "$api/git/ref/heads/master" --jq .object.sha)" == "$REV" ]]
+            tagged=$(tag_revision)
+            [[ -z "$tagged" || "$tagged" == "$REV" ]]
+          }
+          check_target
+          gh api "$api/contents/release-staging/apk-blobs.txt?ref=$GITHUB_SHA" --jq .content | base64 --decode > blobs.txt
+          mapfile -t parts < blobs.txt
+          [[ "${#parts[@]}" == "$PART_COUNT" ]]
+          : > "$APK"
+          for part in "${parts[@]}"; do
+            [[ "$part" =~ ^[a-f0-9]{40}$ ]]
+            gh api "$api/git/blobs/$part" --jq .content | base64 --decode >> "$APK"
+          done
+          printf '%s  %s\n' "$SHA256" "$APK" | sha256sum --check
+          unzip -tqq "$APK"
+          unzip -p "$APK" META-INF/version-control-info.textproto | grep -Fx "  revision: \"$REV\""
+          tools="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/36.0.0"
+          "$tools/zipalign" -c -P 16 4 "$APK"
+          "$tools/aapt2" dump badging "$APK" > package-info.txt
+          grep -F "package: name='net.kourlas.voipms_sms' versionCode='156' versionName='0.7.1'" package-info.txt
+          "$tools/apksigner" verify --verbose --print-certs "$APK" | tee signer.txt
+          grep -Fx "Number of signers: 1" signer.txt
+          grep -Ei "certificate SHA-256 digest: *$CERT[[:space:]]*$" signer.txt
+          
+          # The creation response carries the draft ID even before it is visible in a release list.
+          release=$(gh api --paginate "$api/releases?per_page=100" --jq '.[] | select(.tag_name == "v0.7.1")')
+          if [[ -z "$release" ]]; then
+            cat > release-notes.md <<'NOTES'
+          Signed Android APK, version **0.7.1 (build 156)**, for the VoIP.ms SMS fork.
+          
+          * **Live listening.** Open Settings → Synchronization → Start live listening to check selected numbers directly through VoIP.ms. The app checks about 15 seconds after the previous check completes. An ongoing notification shows the session and lets you stop it. Android can delay or end sessions and imposes a background data-sync budget on Android 15 and newer. Scheduled catch-up continues after the session ends. Firebase delivery remains available in separately provisioned builds.
+          * **Unknown senders.** Choose Look up number online from a conversation to search Wikidata’s public listings, check US complaints and community reports from ShadyCall, or open Truecaller’s manual web search. You choose which service receives the number. Blue numbers and source labels identify online lookup information. Coverage varies, and complaint counts do not verify the sender’s identity.
+          * **Appearance.** The inbox, message bubbles and composer use the updated GPT Mobile–inspired theme. Proxima Nova is bundled as the default font to match GPT Mobile Improved. You can select a different local TTF or OTF in Settings → Appearance → Chat font.
+          NOTES
+            release=$(gh api --method POST "$api/releases" -f tag_name="$TAG" -f target_commitish="$REV" -f name='VoIPms SMS 0.7.1' -F draft=true -F prerelease=false -F body=@release-notes.md)
+          fi
+          id=$(jq -er --arg tag "$TAG" --arg rev "$REV" 'select(.tag_name == $tag and .target_commitish == $rev and .prerelease == false) | .id' <<<"$release")
+          [[ "$id" =~ ^[1-9][0-9]*$ ]]
+          asset_digest() {
+            gh api --paginate "$api/releases/$id/assets?per_page=100" --jq '.[] | select(.name == "VoIPms-SMS-0.7.1-release.apk") | (.digest // "missing")'
+          }
+          digest=$(asset_digest)
+          if [[ "$(jq -r .draft <<<"$release")" == true ]]; then
+            if [[ -z "$digest" ]]; then
+              curl --fail-with-body --silent --show-error --request POST \
+                --header "Authorization: Bearer $GH_TOKEN" --header 'Content-Type: application/vnd.android.package-archive' \
+                --data-binary "@$APK" "https://uploads.github.com/$api/releases/$id/assets?name=$APK" > upload.json
+              digest=$(jq -er --arg name "$APK" 'select(.state == "uploaded" and .name == $name) | .digest' upload.json)
+            fi
+            [[ "$digest" == "sha256:$SHA256" ]]
+            check_target
+            gh api --method PATCH "$api/releases/$id" -F draft=false -f make_latest=true --jq .html_url
+          else
+            [[ "$digest" == "sha256:$SHA256" && "$(tag_revision)" == "$REV" ]]
+          fi
+          for attempt in {1..15}; do
+            if [[ "$(tag_revision)" == "$REV" && "$(asset_digest)" == "sha256:$SHA256" ]] &&
+               gh api "$api/releases/$id" | jq -er 'select(.draft == false and .prerelease == false) | .html_url'; then
+              exit 0
+            fi
+            sleep 3
+          done
+          exit 1
