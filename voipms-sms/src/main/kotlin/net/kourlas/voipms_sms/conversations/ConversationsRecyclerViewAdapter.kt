@@ -157,10 +157,8 @@ class ConversationsRecyclerViewAdapter<T>(
         val label = OnlineNumberLookup.label(activity, message.contact, conversationItem.contactName)
         if (label != null) {
             contactTextBuilder.append(OnlineNumberLookup.blueNumber(activity, message.contact))
-            contactTextBuilder.append(" · ").append(OnlineNumberLookup.description(activity, label))
         } else {
             contactTextBuilder.append(conversationItem.contactName ?: getFormattedPhoneNumber(message.contact))
-            conversationItem.row.region?.let { contactTextBuilder.append(" · ").append(it) }
         }
 
         // Highlight text that matches filter
@@ -192,6 +190,10 @@ class ConversationsRecyclerViewAdapter<T>(
         }
 
         holder.contactTextView.text = contactTextBuilder
+        val detail = label?.let { OnlineNumberLookup.description(activity, it) }
+            ?: conversationItem.row.region?.let { activity.getString(R.string.lookup_offline_region, it) }
+        holder.senderRegion.text = detail
+        holder.senderRegion.visibility = if (detail == null) View.GONE else View.VISIBLE
 
         // Mark text as bold if unread
         ChatFont.setInboxWeight(holder.contactTextView, message.isUnread)
@@ -529,6 +531,7 @@ class ConversationsRecyclerViewAdapter<T>(
             itemView.findViewById(R.id.photo)
         internal val contactTextView: TextView =
             itemView.findViewById(R.id.contact)
+        internal val senderRegion: TextView = itemView.findViewById(R.id.sender_region)
         internal val messageTextView: TextView =
             itemView.findViewById(R.id.message)
         internal val dateTextView: TextView =

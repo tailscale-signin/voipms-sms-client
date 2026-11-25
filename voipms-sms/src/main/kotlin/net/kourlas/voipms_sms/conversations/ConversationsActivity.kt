@@ -398,12 +398,12 @@ open class ConversationsActivity(val archived: Boolean = false) :
                 }
                 ViewCompat.setOnApplyWindowInsetsListener(it) { v, windowInsets ->
                     val insets =
-                        windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+                        windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+                    val margin = resources.getDimensionPixelSize(R.dimen.margin)
                     v.updateLayoutParams<MarginLayoutParams> {
-                        bottomMargin =
-                            insets.bottom + resources.getDimensionPixelSize(
-                                R.dimen.margin
-                            )
+                        leftMargin = margin + insets.left
+                        rightMargin = margin + insets.right
+                        bottomMargin = margin + insets.bottom
                     }
                     WindowInsetsCompat.CONSUMED
                 }

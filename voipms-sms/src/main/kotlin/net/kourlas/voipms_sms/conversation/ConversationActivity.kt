@@ -191,6 +191,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, messageBack)
         setContentView(R.layout.conversation)
+        val list = findViewById<View>(R.id.list)
+        findViewById<View>(R.id.message_section).addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) ViewCompat.requestApplyInsets(list)
+        }
         onNewIntent(intent)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -433,14 +437,16 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
         })
 
+        val composer = findViewById<View>(R.id.message_section)
+        val margin = resources.getDimensionPixelSize(R.dimen.margin)
         ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, windowInsets ->
             val insets =
-                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
             v.setPadding(
-                v.paddingLeft,
+                insets.left,
                 v.paddingTop,
-                v.paddingRight,
-                insets.bottom + resources.getDimensionPixelSize(R.dimen.quadruple_margin)
+                insets.right,
+                insets.bottom + composer.height + margin
             )
             WindowInsetsCompat.CONSUMED
         }
@@ -465,10 +471,12 @@ open class ConversationActivity(val bubble: Boolean = false) :
         applyRoundedCornersMask(messageSection)
         ViewCompat.setOnApplyWindowInsetsListener(messageSection) { v, windowInsets ->
             val insets =
-                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+            val margin = resources.getDimensionPixelSize(R.dimen.margin)
             v.updateLayoutParams<MarginLayoutParams> {
-                bottomMargin =
-                    insets.bottom + resources.getDimensionPixelSize(R.dimen.margin)
+                leftMargin = margin + insets.left
+                rightMargin = margin + insets.right
+                bottomMargin = margin + insets.bottom
             }
             WindowInsetsCompat.CONSUMED
         }

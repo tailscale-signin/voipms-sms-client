@@ -91,6 +91,7 @@ def run(adb, element, screenshot):
         "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
         "-n", PACKAGE + "/.conversations.ConversationsActivity")
     element("text", LAST_MESSAGE)
+    element("resource-id", PACKAGE + ":id/sender_region")
     screenshot("sample-inbox")
     element("text", "Other", tap=True)
     element("text", JUNK, hold=True)
