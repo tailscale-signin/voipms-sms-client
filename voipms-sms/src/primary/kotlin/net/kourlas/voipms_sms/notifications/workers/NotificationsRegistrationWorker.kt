@@ -42,7 +42,6 @@ import net.kourlas.voipms_sms.notifications.PushRegistration
 import net.kourlas.voipms_sms.notifications.pushTopicForDid
 import net.kourlas.voipms_sms.preferences.accountConfigured
 import net.kourlas.voipms_sms.preferences.getDids
-import net.kourlas.voipms_sms.preferences.getEmail
 import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.utils.httpPostWithMultipartFormData
 import net.kourlas.voipms_sms.utils.pushUnavailableMessage
@@ -82,18 +81,20 @@ class NotificationsRegistrationWorker(context: Context, params: WorkerParameters
                 outcomes[did] = PushRegistration.UNKNOWN_SETTINGS
                 continue
             }
-            if (!changeTopic(did, subscribe = true)) {
-                outcomes[did] = retryStatus
-                continue
+            // Only a VoIP.ms number returned for this authenticated account may subscribe.
+            outcomes[did] = checkCallback(auth, did, topic, credentials.generation) {
+                if (!changeTopic(did, subscribe = true)) {
+                    false
+                } else {
+                    topics.add(did)
+                    prefs.edit { putStringSet(TOPICS_KEY, topics.toSet()) }
+                    true
+                }
             }
-            topics.add(did)
-            prefs.edit { putStringSet(TOPICS_KEY, topics.toSet()) }
-            if (getEmail(context) != email || did !in getDids(context, onlyRetrieveMessages = true)) {
-                return Result.retry()
-            }
-            outcomes[did] = checkCallback(auth, did, topic)
         }
 
+        val current = readAccountCredentials(context) ?: return Result.retry()
+        if (current.generation != credentials.generation) return Result.retry()
         prefs.edit {
             putStringSet(PushRegistration.KEY, outcomes.map { (did, state) -> "$did|${state.name}" }.toSet())
             putLong(LAST_CHECK_KEY, System.currentTimeMillis())
@@ -128,7 +129,9 @@ class NotificationsRegistrationWorker(context: Context, params: WorkerParameters
     private suspend fun checkCallback(
         auth: Map<String, String>,
         did: String,
-        topic: String
+        topic: String,
+        generation: Long,
+        subscribe: suspend () -> Boolean
     ): PushRegistration {
         return try {
             // Read this number immediately before any write. Omitted callback fields
@@ -140,14 +143,19 @@ class NotificationsRegistrationWorker(context: Context, params: WorkerParameters
             val settings = info.dids?.singleOrNull { pushTopicForDid(it.did) == topic }
                 ?: return PushRegistration.UNKNOWN_SETTINGS
             settings.registrationBlock(BuildConfig.PUSH_CALLBACK_URL)?.let { return it }
-            if (settings.callbackEnabled == "1") return PushRegistration.READY
-            val response = httpPostWithMultipartFormData<RegisterResponse>(
-                applicationContext, API, auth + mapOf(
-                    "method" to "setSMS", "did" to settings.did, "enable" to "1",
-                    "url_callback_enable" to "1", "url_callback" to BuildConfig.PUSH_CALLBACK_URL
+            if (did !in getDids(applicationContext, onlyRetrieveMessages = true)) return retryStatus
+            if (readAccountCredentials(applicationContext)?.generation != generation) return retryStatus
+            if (settings.callbackEnabled != "1") {
+                val response = httpPostWithMultipartFormData<RegisterResponse>(
+                    applicationContext, API, auth + mapOf(
+                        "method" to "setSMS", "did" to settings.did, "enable" to "1",
+                        "url_callback_enable" to "1", "url_callback" to BuildConfig.PUSH_CALLBACK_URL
+                    )
                 )
-            )
-            if (response?.status == "success") PushRegistration.READY else providerFailure(response?.status)
+                if (response?.status != "success") return providerFailure(response?.status)
+            }
+            if (readAccountCredentials(applicationContext)?.generation != generation) return retryStatus
+            if (subscribe()) PushRegistration.READY else retryStatus
         } catch (e: IOException) {
             retryStatus
         } catch (e: JsonDataException) {

@@ -47,6 +47,8 @@ import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.entities.SyncCheckpoint
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.notifications.Notifications
+import net.kourlas.voipms_sms.preferences.AccountCredentials
+import net.kourlas.voipms_sms.preferences.withCurrentAccount
 import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.preferences.didsConfigured
 import net.kourlas.voipms_sms.preferences.getDids
@@ -184,9 +186,8 @@ class SyncWorker(context: Context, params: WorkerParameters) :
 
             // Process retrieval requests separately
             val email = credentials.email
-            val password = credentials.password
             val retrievalRequests = createRetrievalRequests(retrieveOnlyRecentMessages, accountKey(email))
-            processRequests(retrievalRequests, retrieveDeletedMessages, email, password)
+            processRequests(retrievalRequests, retrieveDeletedMessages, credentials)
         } catch (e: CancellationException) {
             // We need to propagate the exception from processRequests
             error = applicationContext.getString(R.string.sync_error_cancelled)
@@ -225,8 +226,7 @@ class SyncWorker(context: Context, params: WorkerParameters) :
     private suspend fun processRequests(
         retrievalRequests: List<RetrievalRequest>,
         retrieveDeletedMessages: Boolean,
-        email: String,
-        password: String
+        credentials: AccountCredentials
     ) = coroutineScope {
         val rejectedDids = mutableSetOf<String>()
         val incompleteDids = mutableSetOf<String>()
@@ -241,7 +241,7 @@ class SyncWorker(context: Context, params: WorkerParameters) :
                     // VoIP.ms uses -5 to return its unshifted Eastern wall clock,
                     // including summer dates. Parse those timestamps in America/New_York.
                     mapOf(
-                        "api_username" to email, "api_password" to password,
+                        "api_username" to credentials.email, "api_password" to credentials.password,
                         "method" to "getMMS", "did" to request.did, "all_messages" to "1",
                         "from" to request.window.from, "to" to request.window.to,
                         "limit" to "1000000", "timezone" to "-5"
@@ -288,20 +288,26 @@ class SyncWorker(context: Context, params: WorkerParameters) :
             if (messages.isNotEmpty() || complete) {
                 // Commit each inclusive window before starting another network request.
                 // A later failure leaves earlier messages both visible and notified.
-                val conversations = try {
-                    database.insertMessagesVoipMsApi(
-                        messages, retrieveDeletedMessages, request.checkpoint.takeIf { request.did !in incompleteDids },
-                        request.previousThrough
-                    )
+                try {
+                    val applied = withCurrentAccount(applicationContext, credentials.generation) {
+                        val conversations = database.insertMessagesVoipMsApi(
+                            messages, retrieveDeletedMessages, request.checkpoint.takeIf { request.did !in incompleteDids },
+                            request.previousThrough
+                        )
+                        if (conversations.isNotEmpty()) {
+                            Notifications.getInstance(applicationContext).showNotifications(conversations)
+                        }
+                        true
+                    }
+                    if (applied != true) return@coroutineScope
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: IOException) {
+                    throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to insert synchronized messages", e)
+                    Log.e(TAG, "Failed to apply synchronized messages", e)
                     error = applicationContext.getString(R.string.sync_error_database)
                     return@coroutineScope
-                }
-                if (conversations.isNotEmpty()) {
-                    Notifications.getInstance(applicationContext).showNotifications(conversations)
                 }
             }
 

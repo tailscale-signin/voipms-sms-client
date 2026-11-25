@@ -30,6 +30,12 @@ import androidx.core.content.edit
 import androidx.preference.PreferenceManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import net.kourlas.voipms_sms.notifications.Notifications
+import net.kourlas.voipms_sms.notifications.PushRegistration
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.sms.workers.SyncWorker
 import net.kourlas.voipms_sms.utils.subscribeToDidTopics
@@ -48,7 +54,10 @@ private val securePreferencesLock = Any()
 private var encryptedPreferences: SharedPreferences? = null
 private var legacyPreferencesMigrated = false
 
-internal class AccountCredentials(val email: String, val password: String) {
+private const val ACCOUNT_GENERATION = "account_session_generation"
+private val accountChanges = Mutex()
+
+internal class AccountCredentials(val email: String, val password: String, val generation: Long) {
     val configured get() = email.isNotEmpty() && password.isNotEmpty()
 }
 
@@ -59,9 +68,12 @@ internal fun readAccountCredentials(context: Context): AccountCredentials? =
             migrateLegacySecurePreferences(context.applicationContext, encrypted)
             legacyPreferencesMigrated = true
         }
+        val generation = encrypted.getLong(ACCOUNT_GENERATION, 0)
+        reconcileAccountSelection(context, generation)
         AccountCredentials(
             encrypted.getString(context.getString(R.string.preferences_account_email_key), null).orEmpty(),
-            encrypted.getString(context.getString(R.string.preferences_account_password_key), null).orEmpty()
+            encrypted.getString(context.getString(R.string.preferences_account_password_key), null).orEmpty(),
+            generation
         )
     }
 
@@ -499,18 +511,52 @@ fun setRawSyncInterval(context: Context, string: String) {
     )
 }
 
-/** Commit both values together before changing any background work or UI state. */
-fun saveAccountCredentials(context: Context, email: String, password: String): Boolean {
-    val saved = withSecurePreferences(context) { encrypted ->
-        val emailKey = context.getString(R.string.preferences_account_email_key)
-        val passwordKey = context.getString(R.string.preferences_account_password_key)
-        val committed = encrypted.edit().putString(emailKey, email).putString(passwordKey, password).commit()
-        committed && encrypted.getString(emailKey, null) == email &&
-            encrypted.getString(passwordKey, null) == password
-    } == true
-    if (saved) SyncWorker.scheduleBackgroundSync(context)
-    return saved
+/** An interrupted switch is reconciled before any new account work reads its DIDs. */
+internal fun reconcileAccountSelection(context: Context, generation: Long) {
+    val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+    if (prefs.getLong(ACCOUNT_GENERATION, 0L) == generation) return
+    val saved = prefs.edit()
+        .putLong(ACCOUNT_GENERATION, generation)
+        .putStringSet(context.getString(R.string.preferences_dids_key), emptySet())
+        .remove(context.getString(R.string.preferences_dids_did_key))
+        .remove(context.getString(R.string.preferences_dids_active_did_key))
+        .remove(PushRegistration.KEY)
+        .commit()
+    if (!saved) throw IOException("Could not reset the previous account's number selection")
 }
+
+/** Keep credential changes mutually exclusive with applying a completed network response. */
+internal suspend fun <T> withCurrentAccount(context: Context, generation: Long, action: suspend () -> T): T? =
+    accountChanges.withLock {
+        val current = readAccountCredentials(context) ?: throw IOException("Account storage unavailable")
+        if (current.generation == generation && current.configured) action() else null
+    }
+
+suspend fun saveAccountCredentials(context: Context, email: String, password: String): Boolean =
+    withContext(Dispatchers.IO) {
+        accountChanges.withLock {
+            val previous = readAccountCredentials(context) ?: return@withLock false
+            val changed = !previous.email.equals(email, ignoreCase = true) ||
+                previous.configured != (email.isNotEmpty() && password.isNotEmpty())
+            val generation = if (changed) previous.generation + 1 else previous.generation
+            val saved = withSecurePreferences(context) { encrypted ->
+                val emailKey = context.getString(R.string.preferences_account_email_key)
+                val passwordKey = context.getString(R.string.preferences_account_password_key)
+                val committed = encrypted.edit().putString(emailKey, email).putString(passwordKey, password)
+                    .putLong(ACCOUNT_GENERATION, generation).commit()
+                if (!committed || encrypted.getString(emailKey, null) != email ||
+                    encrypted.getString(passwordKey, null) != password) return@withSecurePreferences false
+                reconcileAccountSelection(context, generation)
+                true
+            } == true
+            if (saved) {
+                if (changed) Notifications.getInstance(context.applicationContext).cancelMessageNotifications()
+                SyncWorker.scheduleBackgroundSync(context)
+                subscribeToDidTopics(context)
+            }
+            saved
+        }
+    }
 
 private inline fun <T> withSecurePreferences(
     context: Context, block: (SharedPreferences) -> T

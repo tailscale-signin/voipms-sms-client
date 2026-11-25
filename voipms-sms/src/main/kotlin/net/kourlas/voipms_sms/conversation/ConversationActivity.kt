@@ -720,11 +720,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 conversationId
             )
         } else {
-            // If this is a bubble, still clear the notification state.
-            Notifications.getInstance(applicationContext)
-                .clearNotificationState(
-                    conversationId
-                )
+            Notifications.getInstance(applicationContext).validateGroupNotification()
         }
         CustomApplication.getApplication().applicationScope.launch(Dispatchers.Default) {
             Database.getInstance(applicationContext).markConversationRead(

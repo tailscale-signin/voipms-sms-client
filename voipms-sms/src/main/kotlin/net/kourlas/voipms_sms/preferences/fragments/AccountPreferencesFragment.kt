@@ -20,13 +20,14 @@ package net.kourlas.voipms_sms.preferences.fragments
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.preferences.getEmail
 import net.kourlas.voipms_sms.preferences.saveAccountCredentials
 import net.kourlas.voipms_sms.utils.preferences
-import net.kourlas.voipms_sms.utils.subscribeToDidTopics
 
 /**
  * Fragment used to display the account preferences.
@@ -61,11 +62,12 @@ class AccountPreferencesFragment : PreferenceFragmentCompat(),
                     activity?.let { activity ->
                         preference.onPreferenceClickListener =
                             Preference.OnPreferenceClickListener {
-                                if (saveAccountCredentials(activity, "", "")) {
-                                    subscribeToDidTopics(activity)
-                                    activity.finish()
-                                } else {
-                                    Toast.makeText(activity, R.string.credentials_storage_unavailable, Toast.LENGTH_LONG).show()
+                                lifecycleScope.launch {
+                                    if (saveAccountCredentials(activity, "", "")) {
+                                        activity.finish()
+                                    } else {
+                                        Toast.makeText(activity, R.string.credentials_storage_unavailable, Toast.LENGTH_LONG).show()
+                                    }
                                 }
                                 true
                             }
