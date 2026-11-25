@@ -21,6 +21,7 @@ licenseMap = {
 }
 
 licenseGroupMap = {
+    ('LGPL-2.1-or-later', 'net.java.dev.jna', 'jna', '5.18.1'): 'LGPL-2.1.txt',
     ('The MIT License', 'org.checkerframework', 'checker-qual', '3.12.0'): 'checker-qual.txt',
     ('MIT License', 'com.github.mukeshsolanki', 'MarkdownView-Android', '2.0.0'): 'MarkdownView-Android.txt'
 }

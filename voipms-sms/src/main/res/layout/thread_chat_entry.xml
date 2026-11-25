@@ -1,0 +1,10 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+    android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingTop="6dp" android:paddingBottom="4dp">
+    <TextView android:id="@+id/chat_event_body" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="8dp" android:paddingBottom="8dp" android:textAppearance="@style/Body1" />
+    <TextView android:id="@+id/chat_event_warning" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:textAppearance="@style/Caption" android:textColor="@color/send_error" android:visibility="gone" />
+    <TextView android:id="@+id/chat_event_meta" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:paddingTop="3dp" android:textAppearance="@style/Caption" android:textColor="@color/message_hint" />
+</LinearLayout>

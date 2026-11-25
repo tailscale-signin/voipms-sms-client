@@ -43,6 +43,7 @@ configure<ApplicationExtension> {
     defaultConfig {
         applicationId = "net.kourlas.voipms_sms"
         minSdk = 24
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
         versionCode = 158
         versionName = "0.8.0"
@@ -96,6 +97,7 @@ configure<ApplicationExtension> {
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility(JavaVersion.VERSION_17)
         targetCompatibility(JavaVersion.VERSION_17)
     }
@@ -155,6 +157,8 @@ ksp {
 }
 
 dependencies {
+    implementation(libs.matrix.rust)
+    coreLibraryDesugaring(libs.android.desugar)
     // Kotlin libraries
     implementation(libs.kotlinx.coroutines.android)
 
@@ -203,6 +207,9 @@ dependencies {
     implementation(libs.xabaras.recyclerViewSwipeDecorator)
     implementation(libs.saket.betterLinkMovementMethod)
     ksp(libs.moshi.kotlin.codegen)
+
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.junit)
 
     // Test libraries
     testImplementation(libs.androidx.test.core)

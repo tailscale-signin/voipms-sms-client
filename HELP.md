@@ -23,6 +23,14 @@ This app can send and receive messages from multiple phone numbers in your accou
 
 You can hide messages from the conversations view, block the retrieval of messages, and block notifications on a per-phone number basis.
 
+## Wi-Fi and carrier RCS
+
+Enable SMS/MMS and API access for your VoIP.ms number to send and receive ordinary texts using an internet-connected Wi-Fi network. The handset can use this route without cellular service. During an internet outage, your SMS outbox keeps unsent messages until connectivity returns. VoIP.ms documents SMS and MMS for its messaging API. [VoIP.ms API overview](https://wiki.voip.ms/article/API_Overview)
+
+For a carrier conversation, choose **Open carrier Messages…** in the conversation’s delivery options. Confirm the recipient and the external app. In that app, check the sending line and whether the composer shows RCS or SMS before you press Send. The carrier app manages its own history, delivery and read receipts. Attach any photos again there. The original draft remains available in VoIP.ms SMS.
+
+Carrier RCS requires a line activated with a compatible RCS provider and a compatible recipient. An SMS-enabled VoIP.ms number would need separate RCS provisioning from an operator that supports it. Android reserves its native single-registration messaging APIs for a preinstalled privileged app selected as the default messenger. [Android IMS requirements](https://source.android.com/docs/core/connect/ims-single-registration) · [Google Messages RCS setup](https://support.google.com/messages/answer/7189714)
+
 ## Unknown numbers
 
 Open an unknown sender’s conversation, or select one conversation in Messages, then choose **Look up number online → Check multiple sources**. Pick the sources and confirm the disclosure. The caller card fills in as each source answers. Close it to stop outstanding requests. **View recent caller card** reopens the results without another request.
@@ -70,7 +78,11 @@ Two other services reviewed have access or usage constraints. tellows documents 
 
 ## Inbox and verification codes
 
-**Home** opens the call timeline. **Messages** shows your conversations. **Other** collects suspected junk using local message patterns. Long-press a conversation and choose **Move to Messages** or **Move to Other** to remember your choice. Archived conversations are available in the inbox menu.
+**Home** opens the call timeline. **Messages** shows your conversations. **Other** collects suspected junk using local message patterns. Long-press a conversation and choose **Move to Messages** or **Move to Other** to remember your choice. In Other, the return icon also restores one thread with a single tap. Archived conversations are available in the inbox menu.
+
+The app checks incoming messages locally for English, French and Portuguese requests, including attempts to obtain a sign-in code, misleading links and urgent payment demands. A warning appears on the individual message even for a saved sender. Ordinary verification texts keep the copy button. Established conversations stay in Messages unless you choose Other. Suspicious previews in Android notifications show a review prompt, and automatically filed junk stays quiet.
+
+Folder choices apply to the sending number on the selected receiving line. Correcting a message with a recurring link campaign also helps recognize similar messages on that line. The app remembers a bounded set of fingerprints. Private threads and verification codes do not train those campaign rules.
 
 To hide one conversation from Android sharing suggestions, open it and turn off **Suggest in Direct Share** in its menu. Other conversations with the same contact on a different line keep their own settings.
 
@@ -149,6 +161,8 @@ This option exports the database to a specified file. This allows you to make ba
 ### Encrypted portable backup
 
 Choose **Encrypted portable backup** and enter the same passphrase twice. Keep the passphrase to unlock the file on another phone. **Restore portable backup** checks the whole file and shows message counts before you choose which threads to merge. Private threads and unsent jobs stay on this device. Local outgoing attachments travel inside the file. For received MMS, keep links only, include downloaded files, or explicitly fetch missing attachments from VoIP.ms. The result reports unavailable files. Restoring a selected conversation makes its included attachments playable offline, even if the conversation has already synced.
+
+Encrypted portable backups include your app address book by default, including names you saved for private conversations. Clear **Include all saved app contacts** to export messages without the address book. Android device contacts are separate. During restore, choose **App contacts only** to recover selected names without importing messages, or choose both, then review each list. When a number already has an app contact, its existing name is preserved. Older backups remain readable.
 
 ### Clean up database
 

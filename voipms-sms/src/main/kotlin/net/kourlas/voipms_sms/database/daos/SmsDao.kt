@@ -112,6 +112,9 @@ interface SmsDao {
     """)
     suspend fun latestForDids(dids: Set<String>, filter: String, digits: String): List<Sms>
 
+    @Query("SELECT * FROM sms WHERE Did = :did AND Contact = :contact ORDER BY DeliveryInProgress DESC, Date DESC, VoipId DESC, DatabaseId DESC LIMIT 1")
+    suspend fun latestInThread(did: String, contact: String): Sms?
+
     @Query("SELECT DISTINCT Did, Contact FROM sms WHERE Did IN (:dids) AND Type = 0")
     suspend fun threadsWithReplies(dids: Set<String>): List<ConversationId>
 

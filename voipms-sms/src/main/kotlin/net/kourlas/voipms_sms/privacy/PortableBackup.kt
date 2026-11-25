@@ -5,6 +5,7 @@ import android.net.Uri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import net.kourlas.voipms_sms.contacts.LocalContacts
 import net.kourlas.voipms_sms.media.MmsMedia
 import net.kourlas.voipms_sms.database.Database
 import net.kourlas.voipms_sms.database.entities.Sms
@@ -23,8 +24,11 @@ internal object PortableBackup {
     private val media = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(?:jpg|gif|png|mp3|wav|mid|mp4|3gp)")
     private const val MAX_RECORD = 1024 * 1024
     enum class ReceivedMode { LINKS, CACHED, FETCH }
-    data class ExportResult(val included: Int, val unavailable: Int)
-    data class Preview(val zip: File, val counts: Map<ConversationId, Int>, val received: Map<String, String>)
+    data class ExportResult(val included: Int, val unavailable: Int, val contacts: Int? = null)
+    data class Preview(val zip: File, val counts: Map<ConversationId, Int>, val received: Map<String, String>,
+                       val contacts: Map<String, String> = emptyMap())
+    data class Selection(val threads: Set<ConversationId>, val contacts: Set<String>)
+    data class RestoreResult(val messages: Int, val contacts: Int, val contactsFailed: Boolean = false)
 
     private fun staging(context: Context) = File(context.cacheDir, "portable-messages-stage").apply {
         check(isDirectory || mkdirs())
@@ -64,7 +68,8 @@ internal object PortableBackup {
         zip.getInputStream(requireNotNull(zip.getEntry("threads/" + id.getId()))).use { yieldAll(records(it, id)) }
     }
 
-    suspend fun export(context: Context, uri: Uri, password: CharArray, mode: ReceivedMode = ReceivedMode.LINKS): ExportResult {
+    suspend fun export(context: Context, uri: Uri, password: CharArray, mode: ReceivedMode = ReceivedMode.LINKS,
+                       includeContacts: Boolean = false): ExportResult {
         val job = currentCoroutineContext()
         val received = mutableSetOf<String>()
         var included = 0
@@ -72,10 +77,16 @@ internal object PortableBackup {
         val temp = File.createTempFile("portable-", ".zip", staging(context))
         try {
             val files = mutableSetOf<String>()
+            val contacts = if (includeContacts) LocalContacts.snapshot(context) else null
             ZipOutputStream(temp.outputStream().buffered()).use { zip ->
                 zip.putNextEntry(ZipEntry("version"))
-                zip.write('2'.code)
+                zip.write(if (contacts == null) '2'.code else '3'.code)
                 zip.closeEntry()
+                if (contacts != null) {
+                    zip.putNextEntry(ZipEntry(BackupContacts.ENTRY))
+                    BackupContacts.write(zip, contacts, password) { job.ensureActive() }
+                    zip.closeEntry()
+                }
                 Database.getInstance(context).readPortableThreads { id, rows ->
                     zip.putNextEntry(ZipEntry("threads/" + id.getId()))
                     val data = DataOutputStream(zip)
@@ -139,7 +150,7 @@ internal object PortableBackup {
             requireNotNull(context.contentResolver.openOutputStream(uri, "wt")).use { dest ->
                 temp.inputStream().buffered().use { BackupEnvelope.write(it, dest, password) { job.ensureActive() } }
             }
-            return ExportResult(included, unavailable)
+            return ExportResult(included, unavailable, contacts?.size)
         } finally { temp.delete() }
     }
 
@@ -153,13 +164,15 @@ internal object PortableBackup {
             val referenced = mutableSetOf<String>()
             val receivedHashes = mutableSetOf<String>()
             val receivedEntries = mutableMapOf<String, String>()
+            var contacts: Map<String, String> = emptyMap()
             ZipFile(temp).use { zip ->
                 val entries = zip.entries().asSequence().toList()
                 require(entries.size in 1..100_000 && entries.map { it.name }.distinct().size == entries.size)
                 val version = requireNotNull(zip.getEntry("version"))
                 require(version.size == 1L)
                 val versionCode = zip.getInputStream(version).use { it.read() }
-                require(versionCode == '1'.code || versionCode == '2'.code)
+                require(versionCode in '1'.code..'3'.code)
+                require((versionCode == '3'.code) == (zip.getEntry(BackupContacts.ENTRY) != null))
                 var total = 0L
                 for (e in entries) {
                     require(e.size in 0..BackupEnvelope.MAX_BYTES)
@@ -168,6 +181,10 @@ internal object PortableBackup {
                     val match = thread.matchEntire(e.name)
                     when {
                         e.name == "version" -> Unit
+                        e.name == BackupContacts.ENTRY -> {
+                            require(e.size in 1..BackupContacts.MAX_SEALED_BYTES.toLong())
+                            contacts = zip.getInputStream(e).use { BackupContacts.read(it, password) }
+                        }
                         match != null -> {
                             val id = ConversationId(match.groupValues[1], match.groupValues[2])
                             var count = 0
@@ -179,7 +196,7 @@ internal object PortableBackup {
                             }
                             counts[id] = count
                         }
-                        versionCode == '2'.code && e.name.startsWith("received/") && MmsMedia.receivedFilename.matches(e.name.removePrefix("received/")) -> {
+                        versionCode >= '2'.code && e.name.startsWith("received/") && MmsMedia.receivedFilename.matches(e.name.removePrefix("received/")) -> {
                             val name = e.name.removePrefix("received/")
                             require(e.size in 1..MmsMedia.MAX_RECEIVED_BYTES.toLong())
                             val bytes = zip.getInputStream(e).use { input -> with(MmsMedia) { input.readBounded(MAX_RECEIVED_BYTES) } }
@@ -208,8 +225,24 @@ internal object PortableBackup {
                 }
                 require(referenced.all { zip.getEntry(it) != null } && receivedHashes.containsAll(receivedEntries.keys))
             }
-            return Preview(temp, counts, receivedEntries)
+            return Preview(temp, counts, receivedEntries, contacts)
         } catch (e: Throwable) { temp.delete(); throw e }
+    }
+
+    suspend fun restore(context: Context, preview: Preview, selection: Selection): RestoreResult {
+        require(preview.counts.keys.containsAll(selection.threads) && preview.contacts.keys.containsAll(selection.contacts))
+        val messages = if (selection.threads.isEmpty()) 0 else
+            Database.getInstance(context).restorePortableThreads(preview, selection.threads)
+        if (selection.contacts.isEmpty()) return RestoreResult(messages, 0)
+        val selectedNames = preview.contacts.filterKeys { it in selection.contacts }
+        return try {
+            RestoreResult(messages, LocalContacts.mergeMissing(context, selectedNames))
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            if (selection.threads.isEmpty()) throw e
+            // Message transactions and the encrypted address book commit independently. Both merges are idempotent.
+            RestoreResult(messages, 0, contactsFailed = true)
+        }
     }
 
     fun installMedia(context: Context, zip: ZipFile, name: String, received: Boolean = false): File? {

@@ -121,13 +121,14 @@ internal object MessageSearch {
             val db = Database.getInstance(host)
             val names = mutableMapOf<String, String>()
             val contactMatches = mutableMapOf<String, Boolean>()
-            val phrases = net.kourlas.voipms_sms.privacy.SpamReview.phrases(host)
+            val profiles = net.kourlas.voipms_sms.privacy.JunkProfiles(host)
             val (rows, next) = try { withContext(Dispatchers.IO) {
                 val matched = mutableListOf<Sms>()
                 var offset = initialOffset
                 val folders = if (filters.folder > 0) db.inboxPreviews(filters.dids.toSet(), "", filters.folder == 3, names).associate {
                     val msg = it.message
-                    val other = it.otherFolder ?: (InboxRules.reason(it.latestIncoming, it.hasReply, getContactName(host, msg.contact, names) != null, phrases) != null)
+                    val other = it.otherFolder ?: InboxRules.assess(it.latestIncoming, profiles.line(msg.did)).shouldQuarantine(it.hasReply, getContactName(host, msg.contact, names) != null ||
+                        net.kourlas.voipms_sms.contacts.LocalContacts.find(host, msg.contact) != null)
                     msg.conversationId to other
                 } else emptyMap()
                 var more = true

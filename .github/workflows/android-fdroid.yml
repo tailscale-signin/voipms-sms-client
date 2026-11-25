@@ -28,12 +28,18 @@ jobs:
       - name: Prepare source for F-Droid build
         run: sed -i "/fdroid-remove-start/,/fdroid-remove-end/d" build.gradle.kts voipms-sms/build.gradle.kts
       - name: Build with Gradle (F-Droid)
-        run: ./gradlew assembleFdroidFullRelease assembleFdroidFullDebug
+        run: ./gradlew assembleFdroidFullRelease assembleFdroidFullDebug assembleFdroidFullDebugAndroidTest
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v7
         with:
           name: voipms-sms-fdroid-debug
           path: voipms-sms/build/outputs/apk/fdroidFull/debug/*.apk
+          if-no-files-found: error
+      - name: Upload Matrix integration APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: matrix-instrumentation
+          path: voipms-sms/build/outputs/apk/androidTest/fdroidFull/debug/*.apk
           if-no-files-found: error
       - name: Test with Gradle (F-Droid)
         run: ./gradlew testFdroidFullDebugUnitTest
@@ -57,7 +63,7 @@ jobs:
           - { android: 16, api: 36, image: google_apis }
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -66,6 +72,14 @@ jobs:
         with:
           name: voipms-sms-fdroid-debug
           path: smoke-apk
+      - uses: actions/download-artifact@v7
+        if: matrix.api == 34
+        with:
+          name: matrix-instrumentation
+          path: matrix-test-apk
+      - name: Start disposable Matrix homeserver
+        if: matrix.api == 34
+        run: .github/scripts/matrix-integration.sh setup
       - name: Enable emulator acceleration
         run: sudo chown "$(id -u):$(id -g)" /dev/kvm
       - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -76,7 +90,9 @@ jobs:
           arch: x86_64
           target: ${{ matrix.image }}
           disable-animations: true
-          script: python3 .github/scripts/android-smoke.py smoke-apk/*.apk
+          script: |
+            python3 .github/scripts/android-smoke.py smoke-apk/*.apk
+            if [ "${{ matrix.api }}" = "34" ]; then .github/scripts/matrix-integration.sh test; fi
       - name: Upload emulator screenshots
         if: always()
         uses: actions/upload-artifact@v7

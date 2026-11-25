@@ -1,6 +1,7 @@
 """Exercise real Android live-listening controls on an isolated, offline debug emulator."""
 
 from datetime import datetime, timedelta, timezone
+import base64
 import json
 import hashlib
 from pathlib import Path
@@ -424,3 +425,25 @@ def run(adb, element, screenshot):
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     element("text", "Messages", tap=True)
     element("text", LAST_MESSAGE)
+    # A saved app contact must survive a cold start, including while the test phone is offline.
+    alias = "Studio Fixture"
+    element("resource-id", PACKAGE + ":id/contact", expected_text="(416) 555-0111", tap=True)
+    element("resource-id", PACKAGE + ":id/local_contact_name_input", tap=True)
+    adb("shell", "input", "text", "Studio%sFixture")
+    element("resource-id", "android:id/button1", tap=True)
+    element("resource-id", PACKAGE + ":id/contact", expected_text=alias)
+    sealed = base64.b64decode(adb("shell", "run-as", PACKAGE, "base64", "no_backup/local_contacts.v1"))
+    if alias.encode() in sealed or CONTACT.encode() in sealed or len(sealed) < 32:
+        raise AssertionError("App contact file must contain sealed records")
+    if "android.permission.WRITE_CONTACTS" in adb("shell", "dumpsys", "package", PACKAGE):
+        raise AssertionError("App-local naming requested writable system contacts")
+    adb("shell", "am", "force-stop", PACKAGE)
+    launch_home(adb)
+    element("text", alias)
+    element("text", "Messages", tap=True)
+    element("resource-id", PACKAGE + ":id/contact", expected_text=alias)
+    element("text", LAST_MESSAGE, tap=True)
+    element("text", alias, tap=True)
+    element("resource-id", PACKAGE + ":id/local_contact_name_input", expected_text=alias)
+    element("resource-id", "android:id/button2", tap=True)
+    print("App-local contact encrypted, reopened, and edited with no Android Contacts writes", flush=True)

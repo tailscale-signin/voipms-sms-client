@@ -61,7 +61,7 @@ internal object BackupEnvelope {
         stream.flush()
     }
 
-    fun read(source: InputStream, dest: OutputStream, password: CharArray) {
+    fun read(source: InputStream, dest: OutputStream, password: CharArray, maxBytes: Long = MAX_BYTES) {
         val stream = DataInputStream(source)
         fun take(size: Int) = ByteArray(size).also(stream::readFully)
         require(take(magic.size).contentEquals(magic)) { "Unknown backup format" }
@@ -75,8 +75,10 @@ internal object BackupEnvelope {
             val plain = cipher(Cipher.DECRYPT_MODE, key, prefix, sequence++).doFinal(take(size))
             if (plain.isEmpty()) break
             total += plain.size
-            require(total <= MAX_BYTES)
-            dest.write(plain)
+            try {
+                require(total <= maxBytes)
+                dest.write(plain)
+            } finally { plain.fill(0) }
         }
         require(stream.read() == -1) { "Trailing backup data" }
     }

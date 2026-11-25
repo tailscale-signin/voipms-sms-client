@@ -17,6 +17,8 @@
 
 package net.kourlas.voipms_sms.newConversation
 
+import net.kourlas.voipms_sms.contacts.LocalContacts
+import net.kourlas.voipms_sms.contacts.ContactNameDialog
 import android.graphics.Bitmap
 import android.provider.ContactsContract
 import android.util.Log
@@ -77,10 +79,11 @@ class NewConversationRecyclerViewAdapter(
     // using filtering for this number if not null
     var typedInPhoneNumber: String = ""
 
-    init {
-        // When the recycler view adapter is created, load all contacts from
-        // the Android contacts provider
-        loadAllContactItems()
+    private val reloadDirectory = java.util.concurrent.atomic.AtomicBoolean(true)
+
+    fun reload() {
+        reloadDirectory.set(true)
+        refresh()
     }
 
     override fun onCreateViewHolder(
@@ -154,9 +157,8 @@ class NewConversationRecyclerViewAdapter(
         val contactItem = contactItems[position]
 
         // Set contact photo
-        holder.contactBadge.assignContactFromPhone(
-            contactItem.primaryPhoneNumber, true
-        )
+        holder.contactBadge.setOnClickListener(holder.contactBadge)
+        holder.contactBadge.assignContactFromPhone(contactItem.primaryPhoneNumber, true)
         if (contactItem is TypedInContactItem) {
             // Show dialpad for typed in phone number
             holder.contactBadge.scaleType = ImageView.ScaleType.CENTER
@@ -167,7 +169,13 @@ class NewConversationRecyclerViewAdapter(
         } else if (contactItem is ContactItem) {
             holder.contactBadge.scaleType = ImageView.ScaleType.CENTER_CROP
             holder.contactBadge.setBackgroundResource(0)
-            holder.contactBadge.setImageBitmap(contactItem.bitmap)
+            holder.contactBadge.setImageBitmap(contactItem.bitmap ?: getGenericContactPhotoBitmap(
+                activity, contactItem.name, contactItem.primaryPhoneNumber, activity.resources.getDimensionPixelSize(R.dimen.contact_badge)))
+            if (contactItem.id < 0) {
+                holder.contactBadge.setOnClickListener {
+                    ContactNameDialog.show(activity, contactItem.primaryPhoneNumber) { reload() }
+                }
+            }
         }
     }
 
@@ -209,6 +217,13 @@ class NewConversationRecyclerViewAdapter(
             }
             holder.phoneNumberText.text = text
             holder.phoneNumberText.visibility = View.VISIBLE
+            val editable = !BuildConfig.IS_DEMO && contactItem is ContactItem && contactItem.phoneNumbersAndTypes.size == 1
+            if (editable) holder.phoneNumberText.setOnClickListener {
+                ContactNameDialog.show(activity, contactItem.primaryPhoneNumber) { reload() }
+            } else {
+                holder.phoneNumberText.setOnClickListener(null)
+                holder.phoneNumberText.isClickable = false
+            }
         }
 
 
@@ -242,7 +257,9 @@ class NewConversationRecyclerViewAdapter(
         }
     }
 
-    override fun getFilter(): Filter = object : Filter() {
+    override fun getFilter(): Filter = contactFilter
+
+    private val contactFilter = object : Filter() {
         /**
          * Perform filtering using the specified filter constraint.
          *
@@ -293,6 +310,10 @@ class NewConversationRecyclerViewAdapter(
         override fun performFiltering(
             constraint: CharSequence
         ): FilterResults = try {
+            if (reloadDirectory.getAndSet(false)) {
+                allContactItems.clear()
+                loadAllContactItems()
+            }
             val filteredContactItems = doFiltering(constraint)
 
             // Return the filtered results
@@ -451,6 +472,14 @@ class NewConversationRecyclerViewAdapter(
             return
         }
 
+        val local = try {
+            LocalContacts.snapshot(activity)
+        } catch (_: Exception) {
+            activity.runOnUiThread {
+                showSnackbar(activity, R.id.coordinator_layout, activity.getString(R.string.local_contact_error))
+            }
+            emptyMap()
+        }
         try {
             val cursor = activity.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
@@ -483,9 +512,8 @@ class NewConversationRecyclerViewAdapter(
                         if (index < 0) {
                             continue
                         }
-                        val phoneNumber = cursor.getString(
-                            index
-                        ) ?: continue
+                        val phoneNumber = cursor.getString(index) ?: continue
+                        if (LocalContacts.number(phoneNumber) in local) continue
 
                         index = cursor.getColumnIndex(
                             ContactsContract.Contacts.DISPLAY_NAME
@@ -588,6 +616,10 @@ class NewConversationRecyclerViewAdapter(
             // Do nothing.
         }
 
+        local.entries.forEachIndexed { i, (number, name) ->
+            val numberAndType = PhoneNumberAndType(number, activity.getString(R.string.local_contact_source))
+            allContactItems.add(ContactItem(-1L - i, name, mutableListOf(numberAndType), null))
+        }
         // Sort contact items
         allContactItems.sortBy {
             it.getSortingName()
@@ -655,7 +687,7 @@ class NewConversationRecyclerViewAdapter(
         val id: Long,
         val name: String,
         val phoneNumbersAndTypes: MutableList<PhoneNumberAndType>,
-        val bitmap: Bitmap
+        val bitmap: Bitmap?
     ) :
         BaseContactItem(phoneNumbersAndTypes[0].phoneNumber) {
         /**

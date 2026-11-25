@@ -38,6 +38,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" />
+
     <!-- Sync scheduling -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -54,7 +60,13 @@
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+    </queries>
     <application
         android:name=".CustomApplication"
         android:allowBackup="true"
@@ -74,6 +86,9 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/message_media_paths" />
         </provider>
+
+        <activity android:name=".nearby.NearbyActivity" android:exported="false" android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize" android:label="@string/nearby_title" />
 
         <!-- METADATA -->
 
@@ -102,6 +117,9 @@
             android:name=".conversations.ConversationsArchivedActivity"
             android:exported="false"
             android:parentActivityName=".conversations.ConversationsActivity" />
+        <activity android:name=".rich.ui.EncryptedRoomsActivity" android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".conversation.ConversationActivity"
             android:exported="true"

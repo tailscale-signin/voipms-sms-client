@@ -41,12 +41,14 @@ internal object SpamReview {
 
     private fun preview(activity: AppCompatActivity, phrase: String, refresh: () -> Unit) = activity.lifecycleScope.launch {
         val matches = withContext(Dispatchers.IO) {
+            val profiles = JunkProfiles(activity)
             Database.getInstance(activity).inboxPreviews(getDids(activity, onlyShowInConversationsView = true), "", false, mutableMapOf())
                 .filter { row ->
                     row.otherFolder == null && !PrivateThreads.isPrivate(activity, row.message.conversationId) &&
                         !row.hasReply && row.latestIncoming?.contains(phrase, ignoreCase = true) == true &&
                         getContactName(activity, row.message.contact) == null &&
-                        InboxRules.reason(row.latestIncoming, false, false, phrases(activity)) == null
+                        net.kourlas.voipms_sms.contacts.LocalContacts.find(activity, row.message.contact) == null &&
+                        !InboxRules.assess(row.latestIncoming, profiles.line(row.message.did)).shouldQuarantine(false, false)
                 }
         }
         val list = matches.take(12).joinToString("\n") { getFormattedPhoneNumber(it.message.contact) }

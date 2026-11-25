@@ -17,6 +17,8 @@
 
 package net.kourlas.voipms_sms.conversations
 
+import net.kourlas.voipms_sms.contacts.LocalContacts
+import net.kourlas.voipms_sms.contacts.ContactNameDialog
 import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.text.SpannableString
@@ -136,6 +138,28 @@ class ConversationsRecyclerViewAdapter<T>(
         updateViewHolderContactText(holder, position)
         updateViewHolderMessageText(holder, position)
         updateViewHolderDateText(holder, position)
+        val item = conversationItems[position]
+        val restore = holder.restoreThread
+        restore.visibility = if (showOther && !privateView && !BuildConfig.IS_DEMO) View.VISIBLE else View.GONE
+        restore.setOnClickListener(if (restore.visibility != View.VISIBLE) null else View.OnClickListener {
+            if (conversationItems.any { it.checked }) {
+                holder.itemView.performClick()
+                return@OnClickListener
+            }
+            activity.lifecycleScope.launch {
+                try {
+                    val database = Database.getInstance(activity)
+                    database.moveToInboxFolder(listOf(item.message.conversationId), false)
+                    refresh()
+                    database.updateShortcuts()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    android.widget.Toast.makeText(activity, R.string.conversations_error_refresh,
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
     }
 
     /**
@@ -237,6 +261,21 @@ class ConversationsRecyclerViewAdapter<T>(
         }
 
         holder.contactTextView.text = contactTextBuilder
+        if (!BuildConfig.IS_DEMO && LocalContacts.number(message.contact) != null) {
+            val editName = View.OnClickListener {
+                if (conversationItems.any { it.checked }) holder.itemView.performClick()
+                else ContactNameDialog.show(activity, message.contact) { refresh() }
+            }
+            holder.contactTextView.setOnClickListener(editName)
+            holder.contactBadge.setOnClickListener(editName)
+            holder.contactTextView.setOnLongClickListener { holder.itemView.performLongClick() }
+        } else {
+            holder.contactTextView.setOnClickListener(null)
+            holder.contactTextView.isClickable = false
+            holder.contactTextView.setOnLongClickListener(null)
+            holder.contactTextView.isLongClickable = false
+            holder.contactBadge.setOnClickListener { holder.itemView.performClick() }
+        }
         val detail = label?.let { OnlineNumberLookup.description(activity, it) }
             ?: conversationItem.row.region?.let { activity.getString(R.string.lookup_offline_region, it) }
         val line = net.kourlas.voipms_sms.tools.LineProfiles.name(activity, message.did)
@@ -495,7 +534,7 @@ class ConversationsRecyclerViewAdapter<T>(
             else regular
         }
         val locale = activity.resources.configuration.locales[0]
-        val phrases = net.kourlas.voipms_sms.privacy.SpamReview.phrases(activity)
+        val profiles = net.kourlas.voipms_sms.privacy.JunkProfiles(activity)
         return previews.filterNot {
             net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(activity, it.message.conversationId) != vault ||
                 (!vault && net.kourlas.voipms_sms.tools.ThreadReminders.hidden(activity, it.message.conversationId))
@@ -503,13 +542,14 @@ class ConversationsRecyclerViewAdapter<T>(
             val message = preview.message
             val contact = message.contact
             val name = if (BuildConfig.IS_DEMO) net.kourlas.voipms_sms.demo.getContactName(contact)
-                       else getContactName(activity, contact, contactNameCache)
+                       else LocalContacts.find(activity, contact) ?: getContactName(activity, contact, contactNameCache)
+            val assessment = InboxRules.assess(preview.latestIncoming, profiles.line(message.did))
+            val other = preview.otherFolder ?: assessment.shouldQuarantine(preview.hasReply, name != null)
             val reason = when (preview.otherFolder) {
                 true -> activity.getString(R.string.spam_manual)
                 false -> null
-                null -> InboxRules.reason(preview.latestIncoming, preview.hasReply, name != null, phrases)
+                null -> assessment.description
             }
-            val other = reason != null
             val region = if (name == null) NumberOrigin.offline(contact, locale) else null
             InboxRow(message, name, region, other, reason)
         }
@@ -596,6 +636,7 @@ class ConversationsRecyclerViewAdapter<T>(
      */
     inner class ConversationViewHolder internal constructor(itemView: View) :
         RecyclerView.ViewHolder(itemView) {
+        val restoreThread: View = itemView.findViewById(R.id.restore_inbox_thread)
         internal val unreadDot: View = itemView.findViewById(R.id.unread_dot)
         internal var avatarJob: Job? = null
         internal var avatarKey: Pair<String, String?>? = null

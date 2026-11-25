@@ -1,5 +1,9 @@
-### 0.8.0 (development) ###
+### 0.8.0 ###
 
+* Tap a phone number to save a name in the encrypted app address book. Reuse that name in conversations, call history and the new-message picker. Encrypted portable backups can restore individual contacts.
+* Send VoIP.ms SMS over Wi-Fi and queue messages through a loss of connectivity. Link a Matrix account for encrypted direct or group chat, attachments, typing indicators and receipts. Use Nearby to exchange messages over Wi-Fi Direct after confirming both devices.
+* Open a draft in the phone’s carrier messaging app when you want to use your mobile line. That app handles RCS availability.
+* Review suspicious messages using on-device English, French and Portuguese detection. Open Other to see why a conversation was flagged and correct its placement.
 * Check an unknown sender with multiple caller ID sources in one card. See attributed names, conflicting listings, Canadian exchange assignments, carriers and reputation reports. Connect additional lookup accounts for the session.
 
 * Home shows missed calls and voicemail by receipt time. Listen from Home or the matching conversation with play, pause and stop.

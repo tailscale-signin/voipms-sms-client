@@ -150,6 +150,101 @@ class DatabaseImportTest {
     }
 
     @Test
+    fun originalVersionOnePortableArchiveRestoresWithoutAnAddressBook(): Unit = runBlocking {
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        val zip = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(zip).use { out ->
+            out.putNextEntry(java.util.zip.ZipEntry("version"))
+            out.write('1'.code)
+            out.closeEntry()
+            out.putNextEntry(java.util.zip.ZipEntry("threads/" + conversationId.getId()))
+            val record = """{"time":10000,"provider":21,"in":1,"text":"original archive","unread":1,"sent":1,"media":[]}""".toByteArray()
+            val data = java.io.DataOutputStream(out)
+            data.writeInt(record.size)
+            data.write(record)
+            data.writeInt(0)
+            out.closeEntry()
+        }
+        val file = File(context.cacheDir, "original-portable.vsms")
+        val password = "version one passphrase".toCharArray()
+        try {
+            file.outputStream().use { dest ->
+                net.kourlas.voipms_sms.privacy.BackupEnvelope.write(zip.toByteArray().inputStream(), dest, password)
+            }
+            val parsed = archive.preview(context, android.net.Uri.fromFile(file), password)
+            try {
+                assertTrue(parsed.contacts.isEmpty())
+                val restored = archive.restore(context, parsed, net.kourlas.voipms_sms.privacy.PortableBackup.Selection(
+                    setOf(conversationId), emptySet()))
+                assertEquals(1, restored.messages)
+                assertEquals(0, restored.contacts)
+                assertEquals("original archive", database.getConversationMessagesUnsorted(conversationId).single().text)
+            } finally { parsed.zip.delete() }
+        } finally { password.fill('\u0000'); file.delete() }
+    }
+
+    @Test
+    fun encryptedContactBookIsOptionalAndCanRestoreSelectedNamesWithoutAnyHistory(): Unit = runBlocking {
+        val contacts = net.kourlas.voipms_sms.contacts.LocalContacts
+        val archive = net.kourlas.voipms_sms.privacy.PortableBackup
+        val target = File(context.noBackupFilesDir, "local_contacts.v1")
+        val instance = contacts.javaClass.getDeclaredField("instance").apply { isAccessible = true }
+        val key = javax.crypto.KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+        val monday = "5145550177"
+        val conflict = "5145550188"
+        val ignored = "5145550192"
+        fun attachEmptyBook() {
+            if (target.exists()) assertTrue(target.delete())
+            instance.set(contacts, net.kourlas.voipms_sms.contacts.ContactFile(target) { key })
+        }
+        attachEmptyBook()
+        val document = File(context.cacheDir, "contacts-test.vsms")
+        val uri = android.net.Uri.fromFile(document)
+        val password = "local contacts passphrase".toCharArray()
+        try {
+            contacts.save(context, monday, "Équipe du lundi")
+            contacts.save(context, conflict, "Backup name")
+            contacts.save(context, ignored, "Unselected person")
+            insertMessages(1)
+            assertNull(archive.export(context, uri, password).contacts)
+            val messagesOnly = archive.preview(context, uri, password)
+            try {
+                assertTrue(messagesOnly.contacts.isEmpty())
+                java.util.zip.ZipFile(messagesOnly.zip).use { assertNull(it.getEntry(net.kourlas.voipms_sms.privacy.BackupContacts.ENTRY)) }
+            } finally { messagesOnly.zip.delete() }
+            assertEquals(3, archive.export(context, uri, password, includeContacts = true).contacts)
+            val preview = archive.preview(context, uri, password)
+            try {
+                assertEquals(3, preview.contacts.size)
+                java.util.zip.ZipFile(preview.zip).use { zip ->
+                    val encrypted = zip.getInputStream(zip.getEntry(net.kourlas.voipms_sms.privacy.BackupContacts.ENTRY)).use { it.readBytes() }
+                    assertFalse(String(encrypted, Charsets.ISO_8859_1).contains(monday))
+                    assertFalse(String(encrypted, Charsets.ISO_8859_1).contains("Backup name"))
+                    assertThrows(Exception::class.java) {
+                        net.kourlas.voipms_sms.privacy.BackupContacts.read(encrypted.inputStream(), "wrong".toCharArray())
+                    }
+                }
+                attachEmptyBook()
+                contacts.save(context, conflict, "Current name")
+                database.deleteTablesContents()
+                val selection = net.kourlas.voipms_sms.privacy.PortableBackup.Selection(emptySet(), setOf(monday, conflict))
+                val result = archive.restore(context, preview, selection)
+                assertEquals(0, result.messages)
+                assertEquals(1, result.contacts)
+                assertFalse(result.contactsFailed)
+                assertEquals(mapOf(monday to "Équipe du lundi", conflict to "Current name"), contacts.snapshot(context))
+                assertEquals(0, archive.restore(context, preview, selection).contacts)
+                assertEquals(0, messageCount())
+            } finally { preview.zip.delete() }
+        } finally {
+            instance.set(contacts, null)
+            target.delete()
+            document.delete()
+            password.fill('\u0000')
+        }
+    }
+
+    @Test
     fun importValidExportReplacesMessages() = runBlocking {
         insertMessages(3)
         val exportFile = exportDatabase()

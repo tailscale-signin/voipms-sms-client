@@ -80,7 +80,25 @@
             android:layout_gravity="bottom"
             android:layout_margin="@dimen/margin"
             android:background="@drawable/composer_surface"
-            android:orientation="horizontal">
+            android:orientation="vertical">
+
+            <Button
+                android:id="@+id/chat_route"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:layout_marginStart="4dp"
+                android:text="@string/chat_sms"
+                android:textAllCaps="false"
+                android:textColor="@color/primary"
+                android:textAppearance="@style/Caption" />
+
+            <LinearLayout
+                android:id="@+id/sms_composer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
 
             <Button
                 android:id="@+id/attach_mms"
@@ -144,6 +162,8 @@
                     app:srcCompat="@drawable/ic_send_toolbar_24dp"
                     app:tint="@color/send_icon" />
             </LinearLayout>
+            </LinearLayout>
+            <include layout="@layout/rich_composer" />
         </LinearLayout>
     </FrameLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

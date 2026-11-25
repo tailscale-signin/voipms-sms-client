@@ -215,6 +215,7 @@ class NewConversationActivity : AppCompatActivity(), View.OnClickListener {
 
     override fun onResume() {
         super.onResume()
+        adapter.reload()
 
         // Perform account and DID check
         performAccountDidCheck()

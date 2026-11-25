@@ -17,6 +17,7 @@
 
 package net.kourlas.voipms_sms.database
 
+import net.kourlas.voipms_sms.contacts.LocalContacts
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -847,14 +848,27 @@ class Database private constructor(private val context: Context) {
             }
         }
 
+    internal suspend fun inboxState(id: ConversationId): InboxPreview? = importExportLock.read {
+        val dao = database.smsDao()
+        val latest = dao.latestInThread(id.did, id.contact)?.toMessage() ?: return@read null
+        val folder = database.archivedDao().getConversation(id.did, id.contact)?.otherFolder
+        val replied = (dao.getConversationMessageDateMostRecentOutgoing(id.did, id.contact) ?: 0L) > 0L
+        InboxPreview(latest, folder, latest.text.takeIf { latest.isIncoming }, replied)
+    }
+
     suspend fun moveToInboxFolder(ids: List<ConversationId>, other: Boolean) = importExportLock.read {
-        database.withTransaction {
+        val corrections = database.withTransaction {
             val dao = database.archivedDao()
-            for (id in ids) {
+            ids.mapNotNull { id ->
                 val old = dao.getConversation(id.did, id.contact)
                 dao.update(Archived(old?.databaseId ?: 0, id.did, id.contact, old?.archived ?: 0, other))
+                val latest = database.smsDao().latestInThread(id.did, id.contact)
+                if (latest?.incoming != 1L || PrivateThreads.isPrivate(context, id)) null
+                else InboxRules.campaignKey(latest.text)?.let { id.did to it }
             }
         }
+        val profiles = net.kourlas.voipms_sms.privacy.JunkProfiles(context)
+        corrections.forEach { (did, key) -> profiles.remember(did, key, other) }
     }
 
     /**
@@ -947,7 +961,7 @@ class Database private constructor(private val context: Context) {
             val rows = if (BuildConfig.IS_DEMO) {
                 listOf(InboxPreview(getDemoNotification(), false, null, true))
             } else inboxPreviews(dids, "", false, names)
-            val phrases = net.kourlas.voipms_sms.privacy.SpamReview.phrases(context)
+            val profiles = net.kourlas.voipms_sms.privacy.JunkProfiles(context)
             val eligible = rows.filter { row ->
                 val id = row.message.conversationId
                 if (!ShareSuggestions.enabled(context, id) || PrivateThreads.isPrivate(context, id) ||
@@ -955,7 +969,7 @@ class Database private constructor(private val context: Context) {
                     return@filter false
                 }
                 // Query Contacts only if the text and lack of replies would classify this thread as junk.
-                row.otherFolder == false || InboxRules.reason(row.latestIncoming, row.hasReply, false, phrases) == null ||
+                row.otherFolder == false || !InboxRules.assess(row.latestIncoming, profiles.line(id.did)).shouldQuarantine(row.hasReply, false) ||
                     getContactName(context, id.contact, names) != null
             }.map { it.message }
             val eligibleIds = eligible.mapTo(hashSetOf()) { it.conversationId.getId() }
@@ -1097,7 +1111,7 @@ class Database private constructor(private val context: Context) {
             val matches = database.smsDao().latestForDids(dids, filterConstraint, getDigitsOfString(filterConstraint))
             for (sms in matches) messages[ConversationId(sms.did, sms.contact)] = sms.toMessage()
             for ((id, sms) in latest) {
-                if (id !in messages && getContactName(context, sms.contact, contactNameCache)
+                if (id !in messages && (LocalContacts.find(context, sms.contact) ?: getContactName(context, sms.contact, contactNameCache))
                         ?.contains(filterConstraint, ignoreCase = true) == true) {
                     messages[id] = sms.toMessage()
                 }

@@ -52,6 +52,13 @@ jobs:
       - name: Lint with Gradle
         id: lint
         run: ./gradlew lintPrimaryFullRelease
+      - name: Preserve the verified master release APK for signing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v7
+        with:
+          name: voipms-sms-primary-release-unsigned
+          path: voipms-sms/build/outputs/apk/primaryFull/release/*-unsigned.apk
+          if-no-files-found: error
       - name: Upload lint report
         if: failure() && steps.lint.outcome == 'failure'
         uses: actions/upload-artifact@v7

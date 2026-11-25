@@ -16,6 +16,7 @@
     </plurals>
     <string name="spam_apply">Apply rule</string>
     <string name="spam_remove">Remove this phrase?</string>
+    <string name="risky_message_notification">This message may be suspicious. Open the conversation to review it.</string>
     <string name="spam_manual">Moved to Other manually</string>
     <string name="spam_trust">Trust sender and move to Main</string>
     <string name="spam_trusted">This sender will stay in Main for this line.</string>
@@ -32,9 +33,9 @@
     <string name="code_retention">Remove local verification messages</string>
     <string-array name="code_retention_labels"><item>Keep indefinitely</item><item>After 1 day on this device</item><item>After 7 days on this device</item><item>After 30 days on this device</item></string-array>
     <string name="backup_export">Encrypted portable backup</string>
-    <string name="backup_scope">Export non-private messages and outgoing files. Choose whether to include received attachments. Credentials, unsent schedules, privacy settings and drafts stay on this device.</string>
+    <string name="backup_scope">Export non-private messages and outgoing files. Choose whether to include received attachments or app contacts. Credentials, unsent schedules, privacy settings and drafts stay on this device.</string>
     <string name="backup_restore">Restore portable backup</string>
-    <string name="backup_restore_scope">Review threads and message counts before merging. Restored messages are never queued for sending.</string>
+    <string name="backup_restore_scope">Select conversations or app contacts to merge. Existing contact names are kept.</string>
     <string name="backup_password">Passphrase</string>
     <string name="backup_repeat">Repeat passphrase</string>
     <string name="backup_mismatch">Use a matching passphrase with at least 10 characters.</string>
@@ -64,5 +65,24 @@
     <plurals name="backup_files_unavailable">
         <item quantity="one">%d unavailable file was kept as a link.</item>
         <item quantity="other">%d unavailable files were kept as links.</item>
+    </plurals>
+    <string name="backup_include_contacts">Include all saved app contacts, including names associated with private threads</string>
+    <string name="backup_restore_contents">Choose what to restore</string>
+    <string-array name="backup_restore_options">
+        <item>Conversations and app contacts</item>
+        <item>Conversations only</item>
+        <item>App contacts only</item>
+    </string-array>
+    <string name="backup_pick_contacts">Select app contacts to restore</string>
+    <string name="backup_clear_selection">Clear all</string>
+    <string name="backup_select_all">Select all</string>
+    <string name="backup_contacts_failed">%s The app contact book could not be restored. You can retry with App contacts only.</string>
+    <plurals name="backup_contacts_included">
+        <item quantity="one">The backup includes %d app contact.</item>
+        <item quantity="other">The backup includes %d app contacts.</item>
+    </plurals>
+    <plurals name="backup_contacts_restored">
+        <item quantity="one">%d new app contact was added.</item>
+        <item quantity="other">%d new app contacts were added.</item>
     </plurals>
 </resources>

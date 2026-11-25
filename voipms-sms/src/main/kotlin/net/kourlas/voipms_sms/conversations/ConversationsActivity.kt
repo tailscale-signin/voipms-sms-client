@@ -873,6 +873,12 @@ open class ConversationsActivity(val archived: Boolean = false) :
         inflater.inflate(R.menu.conversations, menu)
 
         if (!BuildConfig.IS_DEMO) {
+            menu.add(R.string.chat_rooms).setOnMenuItemClickListener {
+                startActivity(Intent(this, net.kourlas.voipms_sms.rich.ui.EncryptedRoomsActivity::class.java)); true
+            }
+            menu.add(R.string.chat_nearby).setOnMenuItemClickListener {
+                startActivity(net.kourlas.voipms_sms.nearby.NearbyActivity.intent(this)); true
+            }
             menu.add(R.string.tools_search).setOnMenuItemClickListener { net.kourlas.voipms_sms.tools.MessageSearch.open(this); true }
             menu.add(R.string.tools_snoozed).setOnMenuItemClickListener { net.kourlas.voipms_sms.tools.ThreadReminders.showSnoozed(this); true }
         }

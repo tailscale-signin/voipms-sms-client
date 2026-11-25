@@ -17,6 +17,8 @@
 
 package net.kourlas.voipms_sms.conversation
 
+import net.kourlas.voipms_sms.contacts.LocalContacts
+import net.kourlas.voipms_sms.contacts.ContactNameDialog
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
@@ -78,6 +80,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.kourlas.voipms_sms.rich.ui.ChatRoute
+import net.kourlas.voipms_sms.rich.ui.ThreadRoutes
+import net.kourlas.voipms_sms.rich.ui.RoomLink
+import net.kourlas.voipms_sms.rich.ui.ThreadChatEvent
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.CustomApplication
 import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
@@ -147,7 +153,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         privateDictationPending = false
         if (::did.isInitialized && ::contact.isInitialized && result.resultCode == RESULT_OK &&
             data != null && data.getStringExtra("thread") == conversationId.getId()) {
-            val editor = findViewById<EditText>(R.id.message_edit_text)
+            val editor = routes?.editor ?: findViewById<EditText>(R.id.message_edit_text)
             val text = data.getStringExtra(ConversationSpeech.RESULT).orEmpty()
             if (text.isNotBlank()) {
                 keepReviewedDraft = true
@@ -212,6 +218,46 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
     }
 
+    private var routes: ThreadRoutes? = null
+    private var fileRoom: RoomLink? = null
+    private var selectedFile: android.net.Uri? = null
+    private var fileThread: String? = null
+    private var fileGeneration: Long? = null
+    private fun clearRichFile() {
+        fileRoom = null; selectedFile = null; fileThread = null; fileGeneration = null
+    }
+    private fun finishRichFile() {
+        val uri = selectedFile
+        val target = fileRoom
+        val valid = target != null && fileThread == conversationId.getId() &&
+            fileGeneration == readAccountCredentials(this)?.generation && target == routes?.bindingForMedia()
+        clearRichFile()
+        if (privateSession && !valid) { finish(); return }
+        findViewById<View>(android.R.id.content).visibility = View.VISIBLE
+        if (valid && uri != null && target != null) routes?.attach(uri, target)
+    }
+    private val richFileGate = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
+        if (::did.isInitialized && ::contact.isInitialized && it.resultCode == RESULT_OK && fileRoom != null) finishRichFile()
+        else { clearRichFile(); finish() }
+    }
+    private val richFilePicker = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (fileRoom == null || !::did.isInitialized || !::contact.isInitialized) return@registerForActivityResult
+        selectedFile = uri
+        if (privateSession) {
+            @Suppress("DEPRECATION")
+            val proof = getSystemService(android.app.KeyguardManager::class.java)
+                .createConfirmDeviceCredentialIntent(getString(R.string.private_threads), null)
+            if (proof == null || uri == null) { clearRichFile(); finish() } else richFileGate.launch(proof)
+        } else finishRichFile()
+    }
+    private fun pickRichFile() {
+        fileRoom = routes?.bindingForMedia() ?: return
+        fileThread = conversationId.getId()
+        fileGeneration = readAccountCredentials(this)?.generation
+        richFilePicker.launch(arrayOf("*/*"))
+    }
+    internal fun openRichMedia(event: ThreadChatEvent) { routes?.open(event) }
+
     private var privateSession = false
     private var resumedConversation = false
 
@@ -225,6 +271,15 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
         mmsPickerDraft = savedInstanceState?.getString("mms_picker_draft")
         onNewIntent(intent)
+        if (!privateSession && savedInstanceState != null && ::contact.isInitialized &&
+            savedInstanceState.getString("rich_picker_thread") == conversationId.getId()) {
+            val binding = routes?.bindingForMedia()
+            if (binding != null && binding.owner == savedInstanceState.getString("rich_picker_owner") &&
+                binding.room == savedInstanceState.getString("rich_picker_room") && binding.peer == savedInstanceState.getString("rich_picker_peer")) {
+                fileRoom = binding; fileThread = conversationId.getId()
+                fileGeneration = savedInstanceState.getLong("rich_picker_generation")
+            }
+        }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 OnlineNumberLookup.updates.collect {
@@ -236,6 +291,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        clearRichFile()
         setIntent(intent)
         if (intent.hasExtra(net.kourlas.voipms_sms.delivery.CallAlerts.GENERATION) &&
             intent.getLongExtra(net.kourlas.voipms_sms.delivery.CallAlerts.GENERATION, -1) != readAccountCredentials(this)?.generation) {
@@ -273,6 +329,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
             mmsComposer.addUris(sharedMedia)
         }
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) loadContactPresentation()
+        findViewById<View>(R.id.chat_route).visibility = if (BuildConfig.IS_DEMO) View.GONE else View.VISIBLE
+        routes?.close()
+        routes = if (BuildConfig.IS_DEMO) null else ThreadRoutes(this, conversationId, ::pickRichFile,
+            { mmsComposer.attachments.isNotEmpty() }, adapter::updateChat)
         setupDemo()
 
         if (ShareSuggestions.enabled(this, conversationId) && !PrivateThreads.isPrivate(this, conversationId)) {
@@ -382,7 +442,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
         contactJob = lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 val name = if (BuildConfig.IS_DEMO) net.kourlas.voipms_sms.demo.getContactName(target.contact)
-                           else getContactName(applicationContext, target.contact)
+                           else LocalContacts.find(applicationContext, target.contact) ?: getContactName(applicationContext, target.contact)
                 val region = if (name == null) NumberOrigin.offline(target.contact, locale) else null
                 ContactPresentation(name, getContactPhotoBitmap(applicationContext, name, target.contact, size), region)
             }
@@ -409,6 +469,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
         updateContactHeading()
         invalidateOptionsMenu()
 
+        if (!BuildConfig.IS_DEMO) {
+            findViewById<Toolbar>(R.id.toolbar).setOnClickListener { editLocalContact() }
+        }
+
         // Allow contact phone number to be copied by long clicking the toolbar
         findViewById<Toolbar>(R.id.toolbar).setOnLongClickListener {
             val clipboard = getSystemService(
@@ -429,6 +493,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
 
         actionMode = null
+    }
+
+    internal fun editLocalContact() {
+        ContactNameDialog.show(this, contact) { loadContactPresentation() }
     }
 
     private fun updateContactHeading() {
@@ -639,6 +707,11 @@ open class ConversationActivity(val bubble: Boolean = false) :
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString("mms_picker_draft", mmsPickerDraft)
+        if (!privateSession) fileRoom?.let {
+            outState.putString("rich_picker_owner", it.owner); outState.putString("rich_picker_room", it.room)
+            outState.putString("rich_picker_peer", it.peer); outState.putString("rich_picker_thread", fileThread)
+            fileGeneration?.let { generation -> outState.putLong("rich_picker_generation", generation) }
+        }
     }
     private val mmsPicker = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
@@ -683,7 +756,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
     }
 
     private fun sendMessage(scheduled: Long? = null, preview: Boolean = false, asMms: Boolean = false) {
-        if (enqueueInProgress) return
+        if (enqueueInProgress || routes?.route?.let { it != ChatRoute.SMS } == true) return
         val editor = findViewById<EditText>(R.id.message_edit_text)
         val text = editor.text.toString()
         val media = mmsComposer.attachments.toList()
@@ -783,6 +856,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
         if (isFinishing || !::adapter.isInitialized) return
         resumedConversation = true
+        routes?.refresh()
         // Register all dynamic receivers for this activity
         registerNonExportedReceiver(
             this,
@@ -870,7 +944,13 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
     override fun onStop() {
         super.onStop()
-        if (privateSession && !privateDictationPending && !isChangingConfigurations) finish()
+        if (privateSession && fileRoom != null) findViewById<View>(android.R.id.content).visibility = View.INVISIBLE
+        else if (privateSession && !privateDictationPending && !isChangingConfigurations) finish()
+    }
+
+    override fun onDestroy() {
+        routes?.close()
+        super.onDestroy()
     }
 
     @SuppressLint("DiscouragedPrivateApi")
@@ -880,9 +960,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
         if (isFinishing || !::adapter.isInitialized) return false
         inflater.inflate(R.menu.conversation, menu)
 
-        val editor = findViewById<EditText>(R.id.message_edit_text)
+        val editor = routes?.editor ?: findViewById<EditText>(R.id.message_edit_text)
+        val smsRoute = routes?.route?.let { it == ChatRoute.SMS } ?: true
         val composeTools = menu.addSubMenu(R.string.tools_composer)
-        if (!BuildConfig.IS_DEMO && !PrivateThreads.isPrivate(this, conversationId)) {
+        if (smsRoute && !BuildConfig.IS_DEMO && !PrivateThreads.isPrivate(this, conversationId)) {
             composeTools.add(R.string.handoff_title).setOnMenuItemClickListener {
                 net.kourlas.voipms_sms.companion.CompanionDraftHandoff(this, editor, conversationId).show()
                 true
@@ -908,7 +989,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 adapter.refresh(""); invalidateOptionsMenu(); true
             }
         }
-        if (!BuildConfig.IS_DEMO) {
+        if (!BuildConfig.IS_DEMO && smsRoute) {
             menu.add(R.string.outbox_schedule_action).setOnMenuItemClickListener { scheduleComposer(); true }
             menu.add(R.string.outbox_details).setOnMenuItemClickListener { sendMessage(preview = true); true }
             menu.add(R.string.outbox_title).setOnMenuItemClickListener {

@@ -477,7 +477,13 @@ class Notifications private constructor(private val context: Context) {
             return
         }
 
+        val profiles = net.kourlas.voipms_sms.privacy.JunkProfiles(context)
+        val db = Database.getInstance(context)
         for (conversationId in conversationIds) {
+            if (net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, conversationId)) {
+                cancelNotification(conversationId)
+                continue
+            }
             // Do not show notifications when notifications are disabled.
             if (!bubbleOnly && (net.kourlas.voipms_sms.tools.LineProfiles.quiet(context, conversationId.did) ||
                     net.kourlas.voipms_sms.tools.ThreadReminders.hidden(context, conversationId))) continue
@@ -494,15 +500,23 @@ class Notifications private constructor(private val context: Context) {
                 continue
             }
 
+            val profile = profiles.line(conversationId.did)
+            val state = db.inboxState(conversationId)
+            if (state != null && !bubbleOnly) {
+                val assessment = net.kourlas.voipms_sms.sms.InboxRules.assess(state.latestIncoming, profile)
+                val other = state.otherFolder ?: (assessment.shouldQuarantine(state.hasReply, false) &&
+                    getContactName(context, conversationId.contact) == null &&
+                    net.kourlas.voipms_sms.contacts.LocalContacts.find(context, conversationId.contact) == null)
+                if (other) {
+                    cancelNotification(conversationId)
+                    continue
+                }
+            }
             showNotification(
                 conversationId,
-                if (bubbleOnly || inlineReplyMessages.isNotEmpty())
-                    emptyList()
-                else Database.getInstance(context)
-                    .getConversationMessagesUnread(conversationId),
-                inlineReplyMessages,
-                bubbleOnly,
-                autoLaunchBubble
+                if (bubbleOnly || inlineReplyMessages.isNotEmpty()) emptyList()
+                else db.getConversationMessagesUnread(conversationId),
+                inlineReplyMessages, bubbleOnly, autoLaunchBubble, profile
             )
         }
     }
@@ -556,7 +570,8 @@ class Notifications private constructor(private val context: Context) {
         messages: List<Message>,
         inlineReplyMessages: List<Message>,
         bubbleOnly: Boolean,
-        autoLaunchBubble: Boolean
+        autoLaunchBubble: Boolean,
+        profile: net.kourlas.voipms_sms.sms.InboxRules.Profile = net.kourlas.voipms_sms.sms.InboxRules.Profile()
     ) {
         if (net.kourlas.voipms_sms.privacy.PrivateThreads.isPrivate(context, conversationId)) {
             cancelNotification(conversationId)
@@ -698,7 +713,9 @@ class Notifications private constructor(private val context: Context) {
         } else if (messages.isNotEmpty()) {
             val notificationMessages = messages.map {
                 NotificationCompat.MessagingStyle.Message(
-                    net.kourlas.voipms_sms.privacy.CodePrivacy.notificationText(context, it),
+                    if (it.isIncoming && net.kourlas.voipms_sms.sms.InboxRules.assess(it.text, profile).description != null)
+                        context.getString(R.string.risky_message_notification)
+                    else net.kourlas.voipms_sms.privacy.CodePrivacy.notificationText(context, it),
                     it.date.time,
                     if (it.isIncoming)
                         Person.Builder()

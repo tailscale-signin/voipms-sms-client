@@ -1,5 +1,7 @@
 package net.kourlas.voipms_sms.delivery
 
+import net.kourlas.voipms_sms.contacts.LocalContacts
+import net.kourlas.voipms_sms.contacts.ContactNameDialog
 import android.content.Intent
 import android.graphics.Typeface
 import android.view.Gravity
@@ -83,7 +85,7 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                             !PrivateThreads.isPrivate(activity,ConversationId(line,item.peer)) }
                     }.map { item ->
                         item to if(item.peer.isEmpty()) activity.getString(R.string.calls_unknown)
-                        else getContactName(activity,item.peer,names) ?: getFormattedPhoneNumber(item.peer)
+                        else LocalContacts.find(activity, item.peer) ?: getContactName(activity,item.peer,names) ?: getFormattedPhoneNumber(item.peer)
                     }
                 }
                 if (readAccountCredentials(activity)?.generation != account.generation) return@collect
@@ -106,7 +108,14 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                         val row=LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL }
                         row.addView(ImageView(activity).apply { setImageResource(if(event.voicemail) R.drawable.ic_vm_mail else R.drawable.ic_vm_missed); importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO }, activity.dp(28), activity.dp(28))
                         val label=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(activity.dp(10),0,activity.dp(6),0) }
-                        label.addView(TextView(activity).apply { text=name; textSize=16f; setTypeface(typeface,Typeface.BOLD) })
+                        label.addView(TextView(activity).apply {
+                            text = name
+                            textSize = 16f
+                            setTypeface(typeface, Typeface.BOLD)
+                            if (LocalContacts.number(event.peer) != null) setOnClickListener {
+                                ContactNameDialog.show(activity, event.peer) { show() }
+                            }
+                        })
                         val line=if(event.did.isEmpty()) activity.getString(R.string.calls_shared) else LineProfiles.label(activity,event.did)
                         label.addView(TextView(activity).apply { text=activity.getString(R.string.calls_row_detail,activity.getString(if(event.voicemail) R.string.calls_voicemail else R.string.calls_missed),line);textSize=13f })
                         row.addView(label,LinearLayout.LayoutParams(0,-2,1f))

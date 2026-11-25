@@ -1,0 +1,7 @@
+<resources>
+    <item name="local_contact_name_input" type="id" />
+    <string name="local_contact_title">Contact name</string>
+    <string name="local_contact_invalid">Enter a name of up to 120 characters.</string>
+    <string name="local_contact_error">Could not open or save your encrypted contacts.</string>
+    <string name="local_contact_source">App contact</string>
+</resources>

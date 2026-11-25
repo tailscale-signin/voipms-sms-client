@@ -47,6 +47,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.runBlocking
 import me.saket.bettermovementmethod.BetterLinkMovementMethod
+import net.kourlas.voipms_sms.rich.ui.ChatRoute
+import net.kourlas.voipms_sms.rich.ui.ChatHolder
+import net.kourlas.voipms_sms.rich.ui.ThreadChatEvent
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.Database
@@ -104,6 +107,20 @@ class ConversationRecyclerViewAdapter(
         override val key = "call/" + event.id
         override val timestamp = event.receivedAt
     }
+    private val junkProfile by lazy {
+        net.kourlas.voipms_sms.privacy.JunkProfiles(activity).line(conversationId.did)
+    }
+    private data class ChatRow(val event: ThreadChatEvent) : Row {
+        override val key = "chat/" + event.route.name + "/" + event.key
+        override val timestamp = event.time
+    }
+    private val chat = mutableMapOf<ChatRoute, List<ThreadChatEvent>>()
+
+    internal fun updateChat(route: ChatRoute, events: List<ThreadChatEvent>) {
+        if (events == chat[route] || events.isEmpty() && chat[route].isNullOrEmpty()) return
+        chat[route] = events
+        renderTimeline()
+    }
     private var timeline: List<Row> = emptyList()
     private var calls = emptyList<CallFeedItem>()
     private var visibleCallLimit = ADDITIONAL_ITEMS_INCREMENT.toInt()
@@ -124,7 +141,10 @@ class ConversationRecyclerViewAdapter(
         val visibleCalls = if (currConstraint.isEmpty()) calls.asSequence()
             .filter { it.receivedAt in oldest..newest }
             .take(visibleCallLimit).map { CallRow(it) }.toList() else emptyList()
-        val current = (messageItems.map { TextRow(it) } + visibleCalls)
+        val visibleChat = chat.values.asSequence().flatten()
+            .filter { it.time in oldest..newest && it.body.contains(currConstraint, ignoreCase = true) }
+            .sortedByDescending { it.time }.take(visibleCallLimit).map(::ChatRow).toList()
+        val current = (messageItems.map { TextRow(it) } + visibleCalls + visibleChat)
             .sortedWith(compareBy<Row> { it.timestamp }.thenBy { if (it is TextRow) 0 else 1 }
                 .thenBy { (it as? TextRow)?.item?.message?.databaseId ?: 0L }.thenBy { it.key })
         val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
@@ -176,6 +196,8 @@ class ConversationRecyclerViewAdapter(
         parent: ViewGroup,
         viewType: Int
     ): RecyclerView.ViewHolder {
+        if (viewType == R.layout.thread_chat_entry) return ChatHolder(
+            LayoutInflater.from(parent.context).inflate(viewType, parent, false))
         if (viewType == R.layout.thread_call_entry) return CallHolder(
             LayoutInflater.from(parent.context).inflate(viewType, parent, false))
         // Inflate the appropriate view, given the view type
@@ -206,6 +228,10 @@ class ConversationRecyclerViewAdapter(
         position: Int
     ) {
         val row = timeline[position]
+        if (row is ChatRow && holder is ChatHolder) {
+            holder.bind(row.event, activity::openRichMedia)
+            return
+        }
         if (row is CallRow && holder is CallHolder) {
             val event = row.event
             holder.name.setText(if (event.voicemail) R.string.thread_voicemail_event else R.string.thread_missed_event)
@@ -220,6 +246,11 @@ class ConversationRecyclerViewAdapter(
         updateViewHolderViewHeight(holder, position)
         updateViewHolderContactBadge(holder, position)
         updateViewHolderMessageText(holder, position)
+        holder.warning?.let { warning ->
+            val assessment = net.kourlas.voipms_sms.sms.InboxRules.assess(row.item.message.text, junkProfile)
+            warning.text = assessment.description
+            warning.visibility = if (assessment.description != null) View.VISIBLE else View.GONE
+        }
         val code = VerificationCode.extract(row.item.message.text)
         holder.copyCode.visibility = if (code == null) View.GONE else View.VISIBLE
         holder.copyCode.setOnClickListener(if (code == null) null else View.OnClickListener {
@@ -291,6 +322,7 @@ class ConversationRecyclerViewAdapter(
             ) {
                 holder.contactBadge.visibility = View.VISIBLE
                 contactBadge.assignContactFromPhone(message.contact, true)
+                if (!BuildConfig.IS_DEMO) contactBadge.setOnClickListener { activity.editLocalContact() }
                 val photo = contactPhoto
                 if (photo != null) contactBadge.setImageBitmap(photo)
                 else contactBadge.setImageResource(R.drawable.ic_account_box_settings_24dp)
@@ -488,6 +520,7 @@ class ConversationRecyclerViewAdapter(
     }
 
     override fun getItemViewType(position: Int): Int = when (val row = timeline[position]) {
+        is ChatRow -> R.layout.thread_chat_entry
         is CallRow -> R.layout.thread_call_entry
         is TextRow -> if (row.item.message.isIncoming) R.layout.conversation_item_incoming else R.layout.conversation_item_outgoing
     }
@@ -728,6 +761,7 @@ class ConversationRecyclerViewAdapter(
             }
         internal val smsContainer: View =
             itemView.findViewById(R.id.sms_container)
+        internal val warning: TextView? = itemView.findViewById(R.id.message_risk_warning)
         internal val copyCode: View = itemView.findViewById(R.id.copy_sms_code)
         internal val messageText: TextView =
             itemView.findViewById(R.id.message)
