@@ -124,8 +124,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
     private var actionMode: ActionMode?
         get() = messageBack.selection
         set(value) { messageBack.selection = value }
-    private enum class InboxTab(val label: Int) {
-        HOME(R.string.inbox_home), MESSAGES(R.string.inbox_main), OTHER(R.string.inbox_other)
+    private enum class InboxTab(val label: Int, val icon: Int) {
+        HOME(R.string.inbox_home, R.drawable.ic_tab_home),
+        MESSAGES(R.string.inbox_main, R.drawable.ic_tab_messages),
+        OTHER(R.string.inbox_other, R.drawable.ic_tab_other)
     }
     private var selectedTab = InboxTab.HOME
     private val showOther get() = selectedTab == InboxTab.OTHER
@@ -336,6 +338,29 @@ open class ConversationsActivity(val archived: Boolean = false) :
         tabs.visibility = View.VISIBLE
         InboxTab.entries.forEach { tab ->
             tabs.addTab(tabs.newTab().setText(tab.label), selectedTab == tab)
+        }
+        val labelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = androidx.core.content.res.ResourcesCompat.getFont(this@ConversationsActivity, R.font.proxima_nova_medium)
+            textSize = resources.getDimension(R.dimen.inbox_tab_text_size)
+        }
+        val widestLabel = InboxTab.entries.maxOf { labelPaint.measureText(getString(it.label)) }
+        tabs.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            val width = right - left
+            if (width <= 0 || width == oldRight - oldLeft) return@addOnLayoutChangeListener
+            val density = resources.displayMetrics.density
+            val slot = width.toFloat() / InboxTab.entries.size
+            val labelsFit = widestLabel + 12 * density <= slot
+            val iconsFit = widestLabel + 44 * density <= slot && resources.configuration.fontScale <= 1.2f
+            val mode = if (labelsFit) TabLayout.MODE_FIXED else TabLayout.MODE_SCROLLABLE
+            if (tabs.tabMode != mode) {
+                tabs.tabMode = mode
+                tabs.tabGravity = if (labelsFit) TabLayout.GRAVITY_FILL else TabLayout.GRAVITY_START
+            }
+            for (entry in InboxTab.entries) {
+                val tab = tabs.getTabAt(entry.ordinal) ?: continue
+                if (iconsFit && tab.icon == null) tab.setIcon(entry.icon)
+                else if (!iconsFit && tab.icon != null) tab.setIcon(null)
+            }
         }
         tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {

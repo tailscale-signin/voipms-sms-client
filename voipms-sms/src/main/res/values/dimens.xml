@@ -21,6 +21,7 @@
     <dimen name="double_margin">32dp</dimen>
     <dimen name="quadruple_margin">64dp</dimen>
     <dimen name="sms_container_padding">12dp</dimen>
+    <dimen name="inbox_tab_text_size">14sp</dimen>
     <dimen name="inbox_gutter">12dp</dimen>
     <dimen name="thread_gutter">12dp</dimen>
     <dimen name="settings_gutter">0dp</dimen>
