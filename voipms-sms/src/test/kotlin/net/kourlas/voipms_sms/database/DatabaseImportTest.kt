@@ -32,6 +32,9 @@ import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.database.entities.SyncCheckpoint
 import net.kourlas.voipms_sms.sms.workers.IncomingMessage
 import net.kourlas.voipms_sms.sms.ConversationId
+import net.kourlas.voipms_sms.diagnostics.DiagnosticAction
+import net.kourlas.voipms_sms.diagnostics.DiagnosticStep
+import net.kourlas.voipms_sms.diagnostics.JournalStore
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -157,8 +160,20 @@ class DatabaseImportTest {
         try {
             insertMessages(257)
             val uri = android.net.Uri.fromFile(file)
-            val report = archive.export(context, uri, password, includeContacts = false)
+            val journal = JournalStore(File(context.cacheDir, "portable-journal")) { it.run() }
+            journal.setEnabled(true)
+            val trace = journal.begin(DiagnosticAction.PORTABLE_EXPORT)
+            val report = archive.export(context, uri, password, includeContacts = false, trace = trace)
             assertTrue(report.verified)
+            val log = journal.exportBytes(trace).toString(Charsets.UTF_8)
+            val events = log.lineSequence().filter(String::isNotBlank).map { org.json.JSONObject(it) }
+                .filter { it.optString("action") == DiagnosticAction.PORTABLE_EXPORT.name }.toList()
+            assertTrue(events.all { it.optString("operation") == trace.id })
+            assertTrue(events.any { it.optString("stage") == DiagnosticStep.MESSAGES.name && it.optInt("count") == 257 })
+            assertTrue(events.any { it.optString("stage") == DiagnosticStep.WRITING.name })
+            assertTrue(events.any { it.optString("stage") == DiagnosticStep.VERIFYING.name })
+            assertTrue(listOf(conversationId.contact, conversationId.did, file.name, "Message 256",
+                "paged backup test").none(log::contains))
             assertTrue(file.length() < 128 * 1024)
             val preview = archive.preview(context, uri, password)
             try {

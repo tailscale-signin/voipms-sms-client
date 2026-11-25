@@ -733,6 +733,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
                 R.id.swipe_refresh_layout
             )
             swipeRefreshLayout.isRefreshing = false
+            adapter.initialSync(false)
         }
     }
 

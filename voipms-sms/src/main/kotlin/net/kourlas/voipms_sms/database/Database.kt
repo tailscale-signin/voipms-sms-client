@@ -414,6 +414,27 @@ class Database private constructor(private val context: Context) {
         }
     }
 
+    /** The visitor writes only to a bounded clipboard buffer or a local snapshot, never a document provider. */
+    internal suspend fun readThreadExportPages(
+        id: ConversationId, checkActive: () -> Unit, visit: (List<Message>) -> Unit
+    ) = importExportLock.read {
+        database.withTransaction {
+            var afterDate = Long.MIN_VALUE
+            var afterId = Long.MIN_VALUE
+            var first = true
+            val limit = 128
+            do {
+                checkActive()
+                val page = database.smsDao().threadExportPage(id.did, id.contact, afterDate, afterId, first, limit)
+                if (page.isEmpty()) break
+                visit(page.map { it.toMessage() })
+                afterDate = page.last().date
+                afterId = page.last().databaseId
+                first = false
+            } while (page.size == limit)
+        }
+    }
+
     /** Stream regular threads in bounded pages within a consistent database snapshot. */
     internal suspend fun readPortableThreads(visit: suspend (ConversationId, Flow<Sms>) -> Unit) =
         importExportLock.read {

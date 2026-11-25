@@ -109,6 +109,15 @@ interface SmsDao {
     """)
     suspend fun portablePage(did: String, contact: String, first: Long, limit: Int): List<Sms>
 
+    @Query("""
+        SELECT * FROM sms WHERE Did = :did AND Contact = :contact AND Date >= :afterDate
+        AND (:first OR Date > :afterDate OR DatabaseId > :afterId)
+        ORDER BY Date, DatabaseId LIMIT :limit
+    """)
+    suspend fun threadExportPage(
+        did: String, contact: String, afterDate: Long, afterId: Long, first: Boolean, limit: Int
+    ): List<Sms>
+
     // The covering index provides an ordered seek per thread on every supported SQLite version.
     @Query("""
         SELECT sms.* FROM (SELECT DISTINCT Did, Contact FROM sms WHERE Did IN (:dids)) AS threads

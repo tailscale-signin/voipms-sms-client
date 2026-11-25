@@ -104,7 +104,7 @@ internal class ThreadRoutes(
         nearbyId = try {
             NearbyStore.peerId(activity, thread.did, thread.contact)
         } catch (e: Exception) {
-            DebugJournal.record(activity, DiagnosticAction.THREAD_LOAD, DiagnosticStep.UNAVAILABLE, error = e)
+            DebugJournal.record(activity, DiagnosticAction.THREAD_NEARBY, DiagnosticStep.UNAVAILABLE, error = e)
             null
         }
         val next = when (route) {
@@ -150,7 +150,7 @@ internal class ThreadRoutes(
                     }
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (e: Exception) {
-                    DebugJournal.record(activity, DiagnosticAction.THREAD_LOAD, DiagnosticStep.UNAVAILABLE, error = e)
+                    DebugJournal.record(activity, DiagnosticAction.THREAD_MATRIX, DiagnosticStep.UNAVAILABLE, error = e)
                     if (active() && currentLink() == room) {
                         roomProblem = true
                         render(ChatRoute.MATRIX, emptyList())
@@ -161,7 +161,7 @@ internal class ThreadRoutes(
             if (nearbyId != null) launch {
                 NearbyStore.observeThread(activity, thread.did, thread.contact).catch { error ->
                     if (error !is Exception || error is CancellationException) throw error
-                    DebugJournal.record(activity, DiagnosticAction.THREAD_LOAD, DiagnosticStep.UNAVAILABLE, error = error)
+                    DebugJournal.record(activity, DiagnosticAction.THREAD_NEARBY, DiagnosticStep.UNAVAILABLE, error = error)
                     if (active()) {
                         nearbyId = null
                         refreshButtons()

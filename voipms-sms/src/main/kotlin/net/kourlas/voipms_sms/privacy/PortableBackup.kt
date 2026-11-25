@@ -187,16 +187,16 @@ internal object PortableBackup {
                 require(zip.size() <= 100_000 && zip.entries().asSequence().sumOf { it.size } <= BackupEnvelope.MAX_BYTES)
             }
             job.ensureActive()
+            trace?.step(DiagnosticStep.ENCRYPTING)
+            val writer = BackupEnvelope.prepare(password)
+            job.ensureActive()
             trace?.step(DiagnosticStep.OPENING_STREAM)
             val verified = DocumentOutput.write(
                 openOutput = { mode -> context.contentResolver.openOutputStream(uri, mode) },
                 openInput = { context.contentResolver.openInputStream(uri) },
                 writeContent = { dest ->
-                    trace?.step(DiagnosticStep.ENCRYPTING)
-                    temp.inputStream().buffered().use { source ->
-                        BackupEnvelope.write(source, dest, password, checkActive = { job.ensureActive() },
-                            onWriting = { trace?.step(DiagnosticStep.WRITING) })
-                    }
+                    trace?.step(DiagnosticStep.WRITING)
+                    temp.inputStream().buffered().use { source -> writer.write(source, dest) { job.ensureActive() } }
                 },
                 verifying = { trace?.step(DiagnosticStep.VERIFYING) },
                 checkActive = { job.ensureActive() }

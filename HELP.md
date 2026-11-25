@@ -174,6 +174,10 @@ Choose **Encrypted portable backup** and enter the same passphrase twice. Keep t
 
 Encrypted portable backups include your app address book by default, including names you saved for private conversations. Clear **Include all saved app contacts** to export messages without the address book. Android device contacts are separate. During restore, choose **App contacts only** to recover selected names without importing messages, or choose both, then review each list. When a number already has an app contact, its existing name is preserved. Older backups remain readable.
 
+### Save one conversation
+
+Open the conversation, tap **More options → Export → Save JSON to file**, and choose a destination. The file includes that thread’s SMS and MMS records in chronological order, even when a search or an older page is on screen. It includes attachment references. For a short thread, **Copy JSON** puts the same records on the clipboard. Private threads require screen-lock confirmation. Both options produce readable text.
+
 ### Diagnose a Messages crash or file export
 
 1. Open **Settings → Database → Debug mode** and turn it on.

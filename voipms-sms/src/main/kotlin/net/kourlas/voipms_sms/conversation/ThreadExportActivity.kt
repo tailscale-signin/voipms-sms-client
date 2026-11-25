@@ -46,6 +46,10 @@ import net.kourlas.voipms_sms.sms.Message
 import net.kourlas.voipms_sms.utils.DocumentOutput
 import okio.buffer
 import okio.sink
+import java.io.File
+import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.channels.Channels
 
 /** Keeps picker grants and private authorization separate from switching threads or message-list filters. */
 class ThreadExportActivity : AppCompatActivity() {
@@ -216,11 +220,11 @@ class ThreadExportActivity : AppCompatActivity() {
         }
     }
 
-    override fun onSaveInstanceState(state: Bundle) {
-        super.onSaveInstanceState(state)
-        state.putString("phase", phase.name)
-        state.putParcelable("destination", destination)
-        if (::trace.isInitialized) state.putString("operation", trace.id)
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("phase", phase.name)
+        outState.putParcelable("destination", destination)
+        if (::trace.isInitialized) outState.putString("operation", trace.id)
     }
 
     override fun onDestroy() {
@@ -263,36 +267,62 @@ internal class ThreadExportWork : ViewModel() {
                 scope.ensureActive()
                 if (!permitted(context, target, generation, privateAuthorized)) throw SecurityException()
             }
+            suspend fun readPages(visit: (List<Message>) -> Unit) {
+                trace.step(DiagnosticStep.QUERYING)
+                if (BuildConfig.IS_DEMO) {
+                    visit(getConversationDemoMessages(false).sortedWith(compareBy<Message> { it.date }.thenBy { it.databaseId }))
+                } else {
+                    withCurrentAccount(context, generation) {
+                        Database.getInstance(context).readThreadExportPages(target, ::checkPermission, visit)
+                    } ?: throw SecurityException()
+                }
+            }
             suspend fun transfer(): ThreadExportResult {
                 trace.step(DiagnosticStep.VALIDATING)
                 checkPermission()
-                trace.step(DiagnosticStep.QUERYING)
-                val messages = (if (BuildConfig.IS_DEMO) getConversationDemoMessages(false)
-                    else Database.getInstance(context).getConversationMessagesUnsorted(target))
-                    .sortedWith(compareBy<Message> { it.date.time }.thenBy { it.databaseId })
-                trace.step(DiagnosticStep.SNAPSHOT, count = messages.size.toLong())
-                checkPermission()
                 if (uri == null) {
-                    val text = ThreadJsonExport.clipboard(messages) { scope.ensureActive() }
-                    return ThreadExportResult.Clipboard(text, messages.size.toLong(), privateAuthorized)
+                    val content = ThreadJsonExport.clipboard({ scope.ensureActive() }, ::readPages)
+                    return ThreadExportResult.Clipboard(content.text, content.count, privateAuthorized)
                 }
-                trace.step(DiagnosticStep.OPENING_STREAM)
-                val verified = DocumentOutput.write(
-                    openOutput = { mode -> context.contentResolver.openOutputStream(uri, mode) },
-                    openInput = { context.contentResolver.openInputStream(uri) },
-                    writeContent = { output ->
-                        trace.step(DiagnosticStep.WRITING)
-                        ThreadJsonExport.write(output.sink().buffer(), messages) { scope.ensureActive() }
-                    },
-                    verifying = { trace.step(DiagnosticStep.VERIFYING) },
-                    checkActive = ::checkPermission
-                )
-                trace.step(if (verified) DiagnosticStep.COMPLETED else DiagnosticStep.PARTIAL, count = messages.size.toLong())
-                return ThreadExportResult.Saved(verified)
+                // Unlink before writing any content. Linux reclaims the snapshot when this descriptor
+                // closes, including process death. The external provider never holds a Room transaction.
+                val temp = File.createTempFile("sms-export-", ".tmp", context.cacheDir)
+                var linked = true
+                try {
+                    RandomAccessFile(temp, "rw").use { snapshot ->
+                        if (!temp.delete()) throw IOException("Cannot unlink export staging file")
+                        linked = false
+                        val sink = Channels.newOutputStream(snapshot.channel).sink().buffer()
+                        val count = ThreadJsonExport.write(sink, { scope.ensureActive() }, ::readPages)
+                        trace.step(DiagnosticStep.SNAPSHOT, count = count)
+                        checkPermission()
+                        snapshot.seek(0)
+                        trace.step(DiagnosticStep.OPENING_STREAM)
+                        val verified = DocumentOutput.write(
+                            openOutput = { mode -> context.contentResolver.openOutputStream(uri, mode) },
+                            openInput = { context.contentResolver.openInputStream(uri) },
+                            writeContent = { output ->
+                                trace.step(DiagnosticStep.WRITING)
+                                val buffer = ByteArray(64 * 1024)
+                                while (true) {
+                                    checkPermission()
+                                    val n = snapshot.read(buffer)
+                                    if (n < 0) break
+                                    output.write(buffer, 0, n)
+                                }
+                            },
+                            verifying = { trace.step(DiagnosticStep.VERIFYING) },
+                            checkActive = ::checkPermission
+                        )
+                        trace.step(if (verified) DiagnosticStep.COMPLETED else DiagnosticStep.PARTIAL, count = count)
+                        return ThreadExportResult.Saved(verified)
+                    }
+                } finally {
+                    if (linked) temp.delete()
+                }
             }
             try {
-                result.value = if (BuildConfig.IS_DEMO) transfer() else
-                    withCurrentAccount(context, generation) { transfer() } ?: throw SecurityException()
+                result.value = transfer()
             } catch (e: CancellationException) {
                 trace.step(DiagnosticStep.CANCELLED)
                 throw e
@@ -311,6 +341,7 @@ internal class ThreadExportWork : ViewModel() {
         fun permitted(context: Context, target: ConversationId, generation: Long, privateAuthorized: Boolean): Boolean =
             (BuildConfig.IS_DEMO || (generation == currentDirectoryAccountGeneration(context) &&
                 target.did in getDids(context, onlyShowInConversationsView = true))) &&
-                (!PrivateThreads.isPrivate(context, target) || privateAuthorized)
+                (!PrivateThreads.isPrivate(context, target) ||
+                    (privateAuthorized && !context.getSystemService(KeyguardManager::class.java).isDeviceLocked))
     }
 }

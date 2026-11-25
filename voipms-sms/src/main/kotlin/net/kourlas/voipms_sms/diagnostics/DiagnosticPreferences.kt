@@ -67,7 +67,7 @@ internal class DiagnosticPreferences(private val fragment: PreferenceFragmentCom
         clear = Preference(context).apply {
             setTitle(R.string.debug_clear)
             setOnPreferenceClickListener {
-                AlertDialog.Builder(fragment.requireContext()).setTitle(R.string.debug_clear)
+                AlertDialog.Builder(this@DiagnosticPreferences.fragment.requireContext()).setTitle(R.string.debug_clear)
                     .setMessage(R.string.debug_clear_confirm)
                     .setPositiveButton(R.string.debug_clear) { _, _ -> updateRecording(DebugJournal::clear) }
                     .setNegativeButton(android.R.string.cancel, null).show()

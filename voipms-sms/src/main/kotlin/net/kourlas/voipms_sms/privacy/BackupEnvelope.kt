@@ -34,35 +34,49 @@ internal object BackupEnvelope {
         }
     }
 
-    fun write(source: InputStream, dest: OutputStream, password: CharArray, checkActive: () -> Unit = {},
-              onWriting: () -> Unit = {}) {
-        val random = SecureRandom()
-        val salt = ByteArray(16).also(random::nextBytes)
-        val prefix = ByteArray(8).also(random::nextBytes)
-        checkActive()
-        val key = derive(password, salt)
-        checkActive()
-        onWriting()
-        val stream = DataOutputStream(dest)
-        stream.write(magic)
-        stream.write(salt)
-        stream.write(prefix)
-        val block = ByteArray(CHUNK)
-        var sequence = 0
-        var total = 0L
-        while (true) {
+    fun prepare(password: CharArray): Writer {
+        val salt = ByteArray(16).also(SecureRandom()::nextBytes)
+        return Writer(salt, derive(password, salt))
+    }
+
+    /** One archive per derived key and salt. Key setup can finish before truncating a user's document. */
+    class Writer internal constructor(private val salt: ByteArray, private val key: SecretKeySpec) {
+        private var used = false
+
+        @Synchronized
+        fun write(source: InputStream, dest: OutputStream, checkActive: () -> Unit = {}) {
+            check(!used)
+            used = true
             checkActive()
-            val read = source.read(block)
-            if (read == 0) continue
-            val size = read.coerceAtLeast(0)
-            total += size
-            require(total <= MAX_BYTES)
-            val encrypted = cipher(Cipher.ENCRYPT_MODE, key, prefix, sequence++).doFinal(block, 0, size)
-            stream.writeInt(encrypted.size)
-            stream.write(encrypted)
-            if (read < 0) break
+            val prefix = ByteArray(8).also(SecureRandom()::nextBytes)
+            val stream = DataOutputStream(dest)
+            stream.write(magic)
+            stream.write(salt)
+            stream.write(prefix)
+            val block = ByteArray(CHUNK)
+            try {
+                var sequence = 0
+                var total = 0L
+                while (true) {
+                    checkActive()
+                    val read = source.read(block)
+                    if (read == 0) continue
+                    val size = read.coerceAtLeast(0)
+                    total += size
+                    require(total <= MAX_BYTES)
+                    val encrypted = cipher(Cipher.ENCRYPT_MODE, key, prefix, sequence++).doFinal(block, 0, size)
+                    stream.writeInt(encrypted.size)
+                    stream.write(encrypted)
+                    if (read < 0) break
+                }
+                stream.flush()
+            } finally { block.fill(0) }
         }
-        stream.flush()
+    }
+
+    fun write(source: InputStream, dest: OutputStream, password: CharArray, checkActive: () -> Unit = {}) {
+        checkActive()
+        prepare(password).write(source, dest, checkActive)
     }
 
     fun read(source: InputStream, dest: OutputStream, password: CharArray, maxBytes: Long = MAX_BYTES,

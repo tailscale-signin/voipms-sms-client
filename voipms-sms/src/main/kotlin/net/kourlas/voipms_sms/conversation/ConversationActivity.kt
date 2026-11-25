@@ -570,7 +570,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 net.kourlas.voipms_sms.delivery.CallFeedStore.observe(applicationContext, target)
                     .catch { error ->
                         if (error !is Exception || error is CancellationException) throw error
-                        threadReadFailure(error)
+                        threadReadFailure(DiagnosticAction.THREAD_CALLS, error)
                     }
                     .collect { if (adapter === targetAdapter) targetAdapter.updateCalls(it) }
             }
@@ -733,7 +733,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
             try {
                 Database.getInstance(applicationContext).updateConversationDraft(target, newText)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { threadReadFailure(e) }
+            catch (e: Exception) { threadReadFailure(DiagnosticAction.THREAD_DRAFT, e) }
         }
     }
 
@@ -937,7 +937,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                     messageText.setSelection(messageText.text.length)
                 }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { threadReadFailure(e) }
+            catch (e: Exception) { threadReadFailure(DiagnosticAction.THREAD_DRAFT, e) }
         }
 
         // Set max lines
@@ -957,7 +957,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
             try {
                 Database.getInstance(applicationContext).markConversationRead(target)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { threadReadFailure(e) }
+            catch (e: Exception) { threadReadFailure(DiagnosticAction.THREAD_READ_STATE, e) }
         }
         adapter.refresh()
 
@@ -969,8 +969,8 @@ open class ConversationActivity(val bubble: Boolean = false) :
         }
     }
 
-    private fun threadReadFailure(error: Exception) {
-        DebugJournal.begin(applicationContext, DiagnosticAction.THREAD_LOAD).step(DiagnosticStep.FAILED, error = error)
+    private fun threadReadFailure(source: DiagnosticAction, error: Exception) {
+        DebugJournal.record(applicationContext, source, DiagnosticStep.FAILED, error = error)
     }
 
     override fun onPause() {

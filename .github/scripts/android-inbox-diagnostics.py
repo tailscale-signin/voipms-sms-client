@@ -42,6 +42,16 @@ def debug_toggle_state(tree):
     raise AssertionError("Debug mode has no accessible switch")
 
 
+def toggle_debug(adb, element, fixture, enabled):
+    reveal_setting(adb, fixture, "Debug mode")
+    element("text", "Debug mode", tap=True)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if debug_toggle_state(fixture["read_tree"](adb)) == enabled:
+            return
+    raise AssertionError("Debug recording did not change to the requested state")
+
+
 def rapid_tab_switch(adb, fixture):
     tree = fixture["read_tree"](adb)
     positions = {}
@@ -105,7 +115,8 @@ def check_export(contents, fixture):
         raise AssertionError("Missing navigation or document-writing diagnostics")
     secrets = [fixture[k] for k in ("FIXTURE_EMAIL", "DID", "CONTACT", "PRIVATE_PEER",
                                      "LAST_MESSAGE", "JUNK", "PRIVATE_TEXT")]
-    secrets += ["offline-fixture", "Studio Fixture", "example.invalid", "(416) 555-0111"]
+    secrets += ["offline-fixture", "Studio Fixture", "example.invalid", "(416) 555-0111",
+                "ThreadDraftCanary", "4165550191", "4165550192"]
     if any(s in contents for s in secrets) or re.search(r"(?<![0-9a-f])" + fixture["CODE"] + r"(?![0-9a-f])", contents, re.I):
         raise AssertionError("The exported report contains private fixture data")
 
@@ -123,9 +134,7 @@ def run(adb, element, fixture):
     if debug_toggle_state(reveal_setting(adb, fixture, "Debug mode")):
         raise AssertionError("Debug recording started before opt-in")
     assert_journal_cleared(adb, fixture["PACKAGE"])
-    element("text", "Debug mode", tap=True)
-    if not debug_toggle_state(reveal_setting(adb, fixture, "Debug mode")):
-        raise AssertionError("Debug recording could not be enabled")
+    toggle_debug(adb, element, fixture, True)
     fixture["launch_home"](adb)
     element("text", "Call activity")
     rapid_tab_switch(adb, fixture)
@@ -158,9 +167,6 @@ def run(adb, element, fixture):
     else:
         raise AssertionError("The system document picker did not save the debug report")
 
-    reveal_setting(adb, fixture, "Debug mode")
-    element("text", "Debug mode", tap=True)
-    if debug_toggle_state(reveal_setting(adb, fixture, "Debug mode")):
-        raise AssertionError("Debug recording stayed enabled")
+    toggle_debug(adb, element, fixture, False)
     assert_journal_cleared(adb, fixture["PACKAGE"])
     print("Rapid tab switching, thread return and redacted diagnostics export passed", flush=True)
