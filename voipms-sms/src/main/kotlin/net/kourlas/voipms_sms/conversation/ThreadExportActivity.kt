@@ -176,7 +176,10 @@ class ThreadExportActivity : AppCompatActivity() {
                     getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
                     trace.step(DiagnosticStep.COMPLETED, count = result.count)
                     done(R.string.conversation_copied_conversation_toast_message)
-                } catch (e: Exception) { fail(e) }
+                } catch (e: Exception) {
+                    trace.step(DiagnosticStep.FAILED, error = e)
+                    restartChoice(R.string.conversation_copied_conversation_fail_toast_message)
+                }
             }
             is ThreadExportResult.Saved -> done(if (result.verified) R.string.thread_export_verified else R.string.thread_export_written)
             is ThreadExportResult.Problem -> {
