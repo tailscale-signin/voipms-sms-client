@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.matrix.rustcomponents.sdk.CreateRoomParameters
 import org.matrix.rustcomponents.sdk.Membership
+import org.matrix.rustcomponents.sdk.MembershipState
 import org.matrix.rustcomponents.sdk.ReceiptType
 import org.matrix.rustcomponents.sdk.Room
 import org.matrix.rustcomponents.sdk.RoomPreset
@@ -39,11 +40,25 @@ internal object MatrixChat {
     }
 
     private suspend fun peer(room: Room): String? {
-        if (room.membership() != Membership.JOINED || !room.isDirect() || room.activeMembersCount() != 2uL) return null
-        // Include invited members and service users so a room with an additional recipient is never bound as 1:1.
+        if (room.membership() != Membership.JOINED || !room.isDirect()) return null
+        // /sync may omit the numeric summary (e.g. in named rooms). Use actual member state
+        // including invitations, and refuse to bind any room with a service or third recipient.
         val own = room.ownUserId()
-        val members = room.activeHumanMemberIds().distinct()
-        return if (members.size == 2 && own in members) members.single { it != own } else null
+        var foundSelf = false
+        var peerId: String? = null
+        room.members().use { members ->
+            while (true) {
+                val chunk = members.nextChunk(32u) ?: break
+                for (member in chunk) {
+                    if (member.membership != MembershipState.Join && member.membership != MembershipState.Invite) continue
+                    if (member.isServiceMember) return null
+                    if (member.userId == own) foundSelf = true
+                    else if (peerId == null) peerId = member.userId
+                    else return null
+                }
+            }
+        }
+        return peerId.takeIf { foundSelf }
     }
 
     private suspend fun assertRoom(session: MatrixSession, room: Room, expectedPeer: String?) {
