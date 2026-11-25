@@ -41,7 +41,7 @@ internal object CallFeedStore {
         "SELECT time FROM checkpoints WHERE account=? AND source=?",arrayOf(account,source)).use { if(it.moveToFirst()) it.getLong(0) else 0L }
 
     /** First synchronization seeds the trail without flooding the notification shade. */
-    fun save(context: Context, account: String, source: String, items: List<CallFeedItem>, now: Long): List<CallFeedItem> {
+    fun save(context: Context, account: String, source: String, items: List<CallFeedItem>, now: Long, subscribedAt: Long = Long.MAX_VALUE): List<CallFeedItem> {
         val db = db(context)
         val added = mutableListOf<CallFeedItem>()
         db.beginTransaction()
@@ -54,7 +54,8 @@ internal object CallFeedStore {
                     put("folder",item.folder); put("slot",item.slot); put("caller",item.caller); put("providerDate",item.providerDate)
                 }
                 if (db.insertWithOnConflict("events",null,values,SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
-                    if (prior != 0L && item.receivedAt >= prior - 86_400_000L) added.add(item)
+                    val alertFrom = if (prior == 0L) subscribedAt else prior - 86_400_000L
+                    if (item.receivedAt >= alertFrom) added.add(item)
                 } else if (item.voicemail) db.update("events",values,"account=? AND id=?",arrayOf(account,item.id))
             }
             db.execSQL("INSERT OR REPLACE INTO checkpoints VALUES (?,?,?)",arrayOf<Any>(account,source,now))

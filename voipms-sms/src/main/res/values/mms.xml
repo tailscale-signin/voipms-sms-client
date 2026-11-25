@@ -10,6 +10,7 @@
     <string name="mms_attach_description">Manage attachments, %1$d selected</string>
     <string name="mms_add">Add attachment</string>
     <string name="mms_file_label">%1$d. %2$s · %3$d kB</string>
+    <string name="mms_attachment_index">Attachment %1$d</string>
     <string name="mms_attachments">Attachments to send</string>
     <string name="mms_preview">Preview attachment</string>
     <string name="mms_edit">Edit photo for privacy</string>

@@ -123,6 +123,18 @@ test('an ambiguous send is never replayed, including concurrent requests',async(
   assert.equal((await request('send',pc,{...attempt,body:'你'.repeat(71)},true)).status,400);
   assert.equal((await request('send',pc,{...attempt,body:'^'.repeat(81)},true)).status,400);
 });
+test('two devices submitting the same saved draft create a single outbound message',async()=>{
+  const phone=await login('Owner');
+  await request('draft',pc,{...base,body:'Finish on desktop',version:0},true);
+  const draft={...base,body:'Finish on desktop',version:1};
+  const results=await Promise.all([
+    request('send',pc,{...draft,nonce:'a'.repeat(24)},true),
+    request('send',phone,{...draft,nonce:'b'.repeat(24)},true),
+  ]);
+  assert.ok(results.every(v=>v.status===200));
+  assert.equal(count,1);
+  assert.equal((await request('thread',pc,base)).body.draft.body,'');
+});
 test('VoIP.ms adapter matches Android field shapes, omits other DIDs and masks code messages',async()=>{
   const captured=[];
   const api=providerClient('me','secret',async(url,options)=>{

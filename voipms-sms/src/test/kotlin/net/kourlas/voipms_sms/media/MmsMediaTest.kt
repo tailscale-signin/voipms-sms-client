@@ -21,7 +21,7 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(sdk = [35], application = android.app.Application::class)
 class MmsMediaTest {
     @Test fun inboundGalleryKeepsAllSixAttachmentsAndDeduplicatesLegacyColumns() {
         val refs = List(6) { "https://voip.ms/media/$it/image.jpeg" }

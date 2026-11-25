@@ -56,8 +56,9 @@ internal data class SearchFilters(
     fun query(offset: Int): SimpleSQLiteQuery {
         val args = mutableListOf<Any>()
         val terms = Regex("[\\p{L}\\p{N}]+").findAll(words).map { "\"${it.value}*\"" }.take(16).toList()
-        val sql = StringBuilder("SELECT s.* FROM sms AS s")
-        if (terms.isNotEmpty()) sql.append(" JOIN message_search ON message_search.rowid=s.DatabaseId")
+        // Starting at FTS hits avoids a separate MATCH lookup for every message on a busy line.
+        val sql = StringBuilder(if (terms.isEmpty()) "SELECT s.* FROM sms AS s"
+            else "SELECT s.* FROM message_search CROSS JOIN sms AS s ON s.DatabaseId=message_search.rowid")
         sql.append(" WHERE s.Did IN (").append(dids.joinToString(",") { "?" }).append(")")
         args.addAll(dids)
         if (words.isNotBlank() && terms.isEmpty()) { sql.append(" AND instr(s.Text,?)>0"); args.add(words.trim()) }

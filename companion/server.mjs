@@ -104,6 +104,7 @@ export function createCompanion(store,provider,origin) {
         store.transaction(()=>{
           store.run('INSERT OR IGNORE INTO userprivate VALUES(?,?,?)',user,did,peer);
           store.run('DELETE FROM drafts WHERE user=? AND did=? AND peer=?',user,did,peer);
+          store.run('DELETE FROM draftsends WHERE user=? AND did=? AND peer=?',user,did,peer);
           store.run('DELETE FROM claims WHERE user=? AND did=? AND peer=?',user,did,peer);
         });
         json(200,{ok:true}); return;
@@ -162,6 +163,13 @@ export function createCompanion(store,provider,origin) {
       const previous=store.transaction(()=>{
         const prior=store.one('SELECT did,peer,body,state,providerId FROM sends WHERE user=? AND nonce=?',user,nonce);
         if (prior) { check(prior.did===did && prior.peer===peer && prior.body===body,409,'This send key was already used.'); return prior; }
+        if (Number.isInteger(data.version)) {
+          const earlier=store.one('SELECT s.body,s.state,s.providerId FROM draftsends d JOIN sends s ON s.user=d.user AND s.nonce=d.nonce WHERE d.user=? AND d.did=? AND d.peer=? AND d.version=?',user,did,peer,data.version);
+          if (earlier && earlier.body===body) return earlier;
+          const draft=store.one('SELECT version,body FROM drafts WHERE user=? AND did=? AND peer=?',user,did,peer);
+          check(data.version===(draft?.version??0),409,'The draft changed on another device. Refresh before sending.');
+          if (draft?.body===body) store.run('INSERT INTO draftsends VALUES(?,?,?,?,?)',user,did,peer,data.version,nonce);
+        }
         store.claim(user,did,peer,true);
         store.run("INSERT INTO sends VALUES(?,?,?,?,?,'unconfirmed',NULL,?)",user,nonce,did,peer,body,Date.now()); return null;
       });
@@ -197,7 +205,7 @@ function main() {
     const [user]=args;
     check(user,400,'Specify an identity.');
     store.transaction(()=>{
-      for(const table of ['sessions','invites','grants','claims','drafts']) store.run('DELETE FROM '+table+' WHERE user=?',user);
+      for(const table of ['sessions','invites','grants','claims','drafts','draftsends']) store.run('DELETE FROM '+table+' WHERE user=?',user);
     }); return;
   }
   if(command==='ungrant') {
@@ -205,7 +213,7 @@ function main() {
     const did=number(line);
     check(user && did,400,'Use ungrant NAME DID.');
     store.transaction(()=>{
-      for(const table of ['grants','claims','drafts']) store.run('DELETE FROM '+table+' WHERE user=? AND did=?',user,did);
+      for(const table of ['grants','claims','drafts','draftsends']) store.run('DELETE FROM '+table+' WHERE user=? AND did=?',user,did);
     }); return;
   }
   if(command==='restore-contact') {

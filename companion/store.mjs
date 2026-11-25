@@ -34,6 +34,7 @@ export function openStore(filename, account) {
     CREATE TABLE IF NOT EXISTS claims(did TEXT,peer TEXT,user TEXT,PRIMARY KEY(did,peer));
     CREATE TABLE IF NOT EXISTS notes(id INTEGER PRIMARY KEY,did TEXT,peer TEXT,user TEXT,body TEXT,created INTEGER);
     CREATE TABLE IF NOT EXISTS sends(user TEXT,nonce TEXT,did TEXT,peer TEXT,body TEXT,state TEXT,providerId TEXT,created INTEGER,PRIMARY KEY(user,nonce));
+    CREATE TABLE IF NOT EXISTS draftsends(user TEXT,did TEXT,peer TEXT,version INTEGER,nonce TEXT,PRIMARY KEY(user,did,peer,version));
   `);
   const run = (sql,...params) => db.prepare(sql).run(...params);
   const one = (sql,...params) => db.prepare(sql).get(...params);
@@ -69,7 +70,7 @@ export function openStore(filename, account) {
     }
     run('INSERT OR IGNORE INTO excluded VALUES (?,?)',did,peer);
     run('DELETE FROM shared WHERE did=? AND peer=?',did,peer);
-    for (const name of ['claims','notes','drafts']) run('DELETE FROM '+name+' WHERE did=? AND peer=?',did,peer);
+    for (const name of ['claims','notes','drafts','draftsends']) run('DELETE FROM '+name+' WHERE did=? AND peer=?',did,peer);
     // Keep replay protection when a contact is shared again.
     run("UPDATE sends SET body='' WHERE did=? AND peer=?",did,peer);
   });

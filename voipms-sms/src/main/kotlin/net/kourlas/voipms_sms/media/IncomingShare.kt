@@ -5,6 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.IntentCompat
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.kourlas.voipms_sms.sms.Message
 
 internal object IncomingShare {
     fun isShare(intent: Intent): Boolean {
@@ -33,4 +40,35 @@ internal object IncomingShare {
         }
         dest.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
+    fun share(owner: AppCompatActivity, message: Message) {
+        owner.lifecycleScope.launch {
+            try {
+                val files = withContext(Dispatchers.IO) { message.medias.map { MmsMedia.previewFile(owner, it) } }
+                val refs = ArrayList(files.map { MmsMedia.uri(owner, it) })
+                val intent = Intent(if (refs.size > 1) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND)
+                intent.type = if (files.isEmpty()) "text/plain" else {
+                    val types = files.map { MmsMedia.mime(it) }.distinct()
+                    if (types.size == 1) types.first() else {
+                        val families = types.map { it.substringBefore('/') }.distinct()
+                        if (families.size == 1) families.first() + "/*" else "*/*"
+                    }
+                }
+                if (message.text.isNotBlank()) intent.putExtra(Intent.EXTRA_TEXT, message.text)
+                if (refs.isNotEmpty()) {
+                    if (refs.size == 1) intent.putExtra(Intent.EXTRA_STREAM, refs.first())
+                    else intent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, refs)
+                    intent.clipData = ClipData.newRawUri(null, refs.first()).also { clip ->
+                        refs.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+                    }
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                owner.startActivity(Intent.createChooser(intent, null))
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                android.widget.Toast.makeText(owner, net.kourlas.voipms_sms.R.string.mms_unavailable,
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
 }

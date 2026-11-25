@@ -1375,30 +1375,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                 )
             )
 
-            if (message.media1 != "") {
-                dialogText.append("\n")
-                dialogText.append(
-                    getString(
-                        R.string.conversation_info_media, message.media1
-                    )
-                )
-            }
-            if (message.media2 != "") {
-                dialogText.append("\n")
-                dialogText.append(
-                    getString(
-                        R.string.conversation_info_media, message.media2
-                    )
-                )
-            }
-            if (message.media3 != "") {
-                dialogText.append("\n")
-                dialogText.append(
-                    getString(
-                        R.string.conversation_info_media, message.media3
-                    )
-                )
-            }
+            if (message.medias.isNotEmpty()) dialogText.append("\n").append(message.mediaDisplayText)
 
             Linkify.addLinks(dialogText, Linkify.WEB_URLS)
 
@@ -1446,16 +1423,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
             .firstOrNull { it.checked }
             ?.message
 
-        // Send a share intent with the text of the message
-        if (message != null) {
-            val intent = Intent(Intent.ACTION_SEND)
-            intent.type = "text/plain"
-            intent.putExtra(
-                Intent.EXTRA_TEXT,
-                message.fullDisplayText
-            )
-            startActivity(Intent.createChooser(intent, null))
-        }
+        if (message != null) net.kourlas.voipms_sms.media.IncomingShare.share(this, message)
 
         mode.finish()
     }

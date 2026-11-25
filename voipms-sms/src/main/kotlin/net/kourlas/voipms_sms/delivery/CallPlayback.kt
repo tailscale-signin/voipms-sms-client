@@ -65,6 +65,8 @@ internal class VoicePlaybackModel : ViewModel() {
         state.value = item.id to PlayState.LOADING
         job = activity.lifecycleScope.launch {
             try {
+                val box = CallHistory.mailboxes(account,getDids(activity, onlyRetrieveMessages = true))[item.mailbox]
+                if (box == null || box.did != item.did) { failure(activity); return@launch }
                 val bytes = CallHistory.audio(account,item)
                 if (readAccountCredentials(activity)?.generation != account.generation) { stop(); return@launch }
                 val path = File.createTempFile("voicemail-", ".audio", activity.cacheDir)

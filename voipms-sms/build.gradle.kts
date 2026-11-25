@@ -191,7 +191,11 @@ dependencies {
     implementation(libs.moshi.adapters)
     implementation(libs.moshi)
     implementation(libs.okhttp)
-    implementation("org.unifiedpush.android:connector:3.0.10")
+    implementation("org.unifiedpush.android:connector:3.0.10") {
+        exclude(group = "com.google.crypto.tink", module = "tink")
+    }
+    // AndroidX encrypted preferences and Web Push share the Android build of Tink.
+    implementation("com.google.crypto.tink:tink-android:1.17.0")
     implementation(libs.mukeshsolanki.markdownView)
     implementation(libs.xabaras.recyclerViewSwipeDecorator)
     implementation(libs.saket.betterLinkMovementMethod)

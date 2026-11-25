@@ -1,26 +1,9 @@
 package net.kourlas.voipms_sms.delivery
 
-import android.content.Intent
-import android.media.MediaPlayer
 import android.util.Base64
-import android.content.Context
-import android.widget.EditText
-import androidx.appcompat.app.AlertDialog
-import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import net.kourlas.voipms_sms.R
-import net.kourlas.voipms_sms.conversation.ConversationActivity
 import net.kourlas.voipms_sms.preferences.AccountCredentials
-import net.kourlas.voipms_sms.preferences.getDids
-import net.kourlas.voipms_sms.preferences.readAccountCredentials
-import net.kourlas.voipms_sms.privacy.PrivateThreads
-import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.utils.HttpClientManager
 import net.kourlas.voipms_sms.utils.awaitDecoded
 import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
@@ -28,13 +11,15 @@ import okhttp3.FormBody
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
 import java.util.Date
+import java.util.Locale
 import java.util.TimeZone
+
+internal data class VoiceMailbox(val lines: Set<String>, val zone: TimeZone) {
+    val did: String get() = lines.singleOrNull().orEmpty()
+}
 
 internal fun callerNumber(value: String): String? {
     val literal = if ('<' in value) value.substringAfterLast('<').substringBefore('>') else value
@@ -88,7 +73,7 @@ internal object CallHistory {
         }
     }
 
-    suspend fun mailboxes(account: AccountCredentials, dids: Set<String>): Map<String, Pair<String,TimeZone>> = coroutineScope {
+    suspend fun mailboxes(account: AccountCredentials, dids: Set<String>): Map<String, VoiceMailbox> = coroutineScope {
         val mailboxList = async { request(account, "getVoicemails").rows("voicemails") }
         val lines = request(account, "getDIDsInfo").rows("dids").groupBy { it.optString("voicemail") }
         val zones = mailboxList.await().associate { it.optString("mailbox") to it.optString("timezone") }
@@ -105,7 +90,7 @@ internal object CallHistory {
                 null, "" -> eastern
                 else -> if (zoneName in TimeZone.getAvailableIDs()) TimeZone.getTimeZone(zoneName) else eastern
             }
-            mailbox to (numbers.singleOrNull().orEmpty() to zone)
+            mailbox to VoiceMailbox(numbers.toSet(), zone)
         }.toMap()
     }
 

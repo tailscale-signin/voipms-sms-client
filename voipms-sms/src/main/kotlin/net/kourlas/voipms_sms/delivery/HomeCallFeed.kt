@@ -68,8 +68,12 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
             CallFeedStore.observe(activity).collect { items ->
                 val rows = withContext(Dispatchers.IO) {
                     val names=mutableMapOf<String,String>()
-                    items.filter { (it.did.isEmpty() || getDidShowInConversationsView(activity,it.did)) &&
-                        !PrivateThreads.isPrivate(activity,ConversationId(it.did,it.peer)) }.map { item ->
+                    items.filter { item ->
+                        val lines = if (item.did.isNotEmpty()) setOf(item.did) else
+                            prefs.getStringSet("mailboxLines.${account.generation}.${item.mailbox}", emptySet()).orEmpty()
+                        lines.isNotEmpty() && lines.all { line -> getDidShowInConversationsView(activity,line) &&
+                            !PrivateThreads.isPrivate(activity,ConversationId(line,item.peer)) }
+                    }.map { item ->
                         item to if(item.peer.isEmpty()) activity.getString(R.string.calls_unknown)
                         else getContactName(activity,item.peer,names) ?: getFormattedPhoneNumber(item.peer)
                     }

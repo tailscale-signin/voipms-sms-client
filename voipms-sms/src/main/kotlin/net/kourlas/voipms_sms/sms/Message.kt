@@ -234,40 +234,17 @@ class Message(
      * Gets a version of the message text for display.
      */
     val fullDisplayText: String
-        get() {
-            if (text == "") {
-                return CustomApplication.getApplication().resources.getString(
-                    R.string.message_empty
-                )
-            }
+        get() = listOf(text, mediaDisplayText).filter(String::isNotBlank).joinToString("\n\n")
+            .ifEmpty { CustomApplication.getApplication().getString(R.string.message_empty) }
 
-            val builder = StringBuilder()
-            builder.append(text)
-            builder.append("\n\n")
-            builder.append(mediaDisplayText)
-            return builder.toString()
-        }
-
-    /**
-     * Gets the media links for display.
-     */
     val mediaDisplayText: String
         get() {
-            if (medias.isEmpty()) {
-                return ""
-            }
-
-            val builder = StringBuilder()
-            for (media in medias) {
-                builder.append(
-                    CustomApplication.getApplication().resources.getString(
-                        R.string.conversation_info_media, media
-                    )
-                )
-                builder.append("\n\n")
-            }
-            builder.deleteRange(builder.length - 2, builder.length)
-            return builder.toString()
+            val app = CustomApplication.getApplication()
+            return medias.mapIndexed { index, media ->
+                if (net.kourlas.voipms_sms.media.MmsMedia.isLocal(media)) {
+                    app.getString(R.string.mms_attachment_index, index + 1)
+                } else app.getString(R.string.conversation_info_media, media)
+            }.joinToString("\n")
         }
 
     fun conversationsViewCompareTo(other: Message): Int {

@@ -26,6 +26,9 @@ internal object CallFeedSync {
         val account = readAccountCredentials(context)?.takeIf { it.configured } ?: return
         val state = DeliveryTrace.store(context)
         if (!force && System.currentTimeMillis() - state.getLong("lastCallAttempt.${account.generation}",0) in 0 until 2 * MINUTE) return
+        if (!state.contains("callsFrom.${account.generation}")) {
+            state.edit { putLong("callsFrom.${account.generation}",System.currentTimeMillis()) }
+        }
         val job = OneTimeWorkRequestBuilder<CallFeedWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setInputData(workDataOf("account" to account.generation)).build()
@@ -43,6 +46,7 @@ class CallFeedWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val key = accountKey(account.email)
         val now = System.currentTimeMillis()
         val prefs = DeliveryTrace.store(ctx)
+        val subscribedAt = prefs.getLong("callsFrom.${account.generation}", now)
         prefs.edit { putLong("lastCallAttempt.${account.generation}",now) }
         var failed = false
         suspend fun fetch(source: String, get: suspend () -> List<CallFeedItem>) {
@@ -50,7 +54,7 @@ class CallFeedWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 val rows = get()
                 withCurrentAccount(ctx,account.generation) {
                     if (dids == getDids(ctx, onlyRetrieveMessages = true)) {
-                        val added = CallFeedStore.save(ctx,key,source,rows,now)
+                        val added = CallFeedStore.save(ctx,key,source,rows,now,subscribedAt)
                         CallAlerts.post(ctx,added,account.generation)
                     }
                 }
@@ -62,7 +66,8 @@ class CallFeedWorker(context: Context, params: WorkerParameters) : CoroutineWork
         fetch(source) { CallHistory.missed(account,dids,if(last == 0L) now - 30 * 86_400_000L else minOf(last,now) - 86_400_000L) }
         try {
             for ((box, mapping) in CallHistory.mailboxes(account,dids)) {
-                fetch("mailbox-$box") { CallHistory.voicemail(account,box,mapping.first,mapping.second) }
+                prefs.edit { putStringSet("mailboxLines.${account.generation}.$box", mapping.lines) }
+                fetch("mailbox-$box") { CallHistory.voicemail(account,box,mapping.did,mapping.zone) }
             }
         } catch(e: CancellationException) { throw e }
         catch (_: Exception) { failed = true }
