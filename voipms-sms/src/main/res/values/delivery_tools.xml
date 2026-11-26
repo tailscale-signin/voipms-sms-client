@@ -33,4 +33,7 @@
     <string name="calls_unknown">Unknown caller</string>
     <string name="calls_shared">Shared mailbox</string>
     <string name="calls_row_detail">%1$s · %2$s</string>
+    <string name="calls_voicemails_only">Voicemails only</string>
+    <string name="calls_voicemails_empty">No voicemail in the selected mailboxes.</string>
+    <string name="calls_recording_unavailable">Recording unavailable in this mailbox</string>
 </resources>

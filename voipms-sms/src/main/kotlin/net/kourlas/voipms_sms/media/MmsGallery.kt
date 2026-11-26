@@ -8,7 +8,22 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
+import android.app.Dialog
+import android.os.Bundle
+import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.widget.FrameLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.isVisible
+import androidx.fragment.app.DialogFragment
+import net.kourlas.voipms_sms.conversation.ConversationActivity
+import net.kourlas.voipms_sms.preferences.currentDirectoryAccountGeneration
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.VideoView
@@ -27,84 +42,23 @@ import net.kourlas.voipms_sms.tools.ConversationSpeech
 
 internal object MmsGallery {
     fun show(activity: AppCompatActivity, id: Long, refs: List<String>, start: Int) {
-        if (start !in refs.indices) return
-        val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        val media = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        val actions = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        panel.addView(media)
-        panel.addView(actions)
-        val dialog = AlertDialog.Builder(activity).setView(ScrollView(activity).apply { addView(panel) })
-            .setPositiveButton(android.R.string.ok, null).setNeutralButton(R.string.mms_previous, null)
-            .setNegativeButton(R.string.mms_next, null).create()
-        var index = start
-        var job: Job? = null
-        var player: MediaPlayer? = null
-        var video: VideoView? = null
-        fun release() { player?.release(); player = null; video?.stopPlayback(); video = null }
-        fun action(label: Int, run: () -> Unit) {
-            actions.addView(Button(activity).apply { setText(label); setOnClickListener { run() } })
-        }
-        fun load() {
-            job?.cancel()
-            release()
-            actions.removeAllViews(); media.removeAllViews()
-            media.addView(ProgressBar(activity))
-            dialog.setTitle(activity.getString(R.string.mms_gallery_position, index + 1, refs.size))
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).isEnabled = index > 0
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = index < refs.lastIndex
-            val ref = refs[index]
-            job = activity.lifecycleScope.launch {
-                try {
-                    val file = withContext(Dispatchers.IO) { MmsMedia.previewFile(activity, ref) }
-                    val type = MmsMedia.mime(file)
-                    media.removeAllViews()
-                    val size = (activity.resources.displayMetrics.heightPixels * 0.42).toInt()
-                    when {
-                        type.startsWith("image/") -> {
-                            val bitmap = withContext(Dispatchers.IO) { MmsMedia.photo(file.readBytes()) }
-                            media.addView(ImageView(activity).apply {
-                                contentDescription = activity.getString(R.string.mms_preview)
-                                scaleType = ImageView.ScaleType.FIT_CENTER
-                                setImageBitmap(bitmap)
-                            }, LinearLayout.LayoutParams(-1, size))
-                            action(R.string.mms_read_image) { ocr(activity, id, refs, bitmap) }
-                        }
-                        type.startsWith("video/") -> {
-                            val view = VideoView(activity)
-                            video = view
-                            media.addView(view, LinearLayout.LayoutParams(-1, size))
-                            view.setVideoURI(MmsMedia.uri(activity, file))
-                            action(R.string.mms_play_pause) { if (view.isPlaying) view.pause() else view.start() }
-                        }
-                        type.startsWith("audio/") -> {
-                            action(R.string.mms_play_pause) {
-                                try {
-                                    val audio = player ?: MediaPlayer.create(activity, MmsMedia.uri(activity, file))?.also { player = it }
-                                    if (audio?.isPlaying == true) audio.pause() else audio?.start()
-                                } catch (_: IllegalStateException) { toast(activity, R.string.mms_unavailable) }
-                            }
-                            action(R.string.mms_transcribe) { ConversationSpeech.transcribe(activity, MmsMedia.uri(activity, file)) }
-                        }
-                    }
-                    media.addView(TextView(activity).apply {
-                        text = activity.getString(R.string.mms_file_label, index + 1, file.extension.uppercase(),
-                            (file.length() + 999) / 1000)
-                    })
-                } catch (e: CancellationException) { throw e }
-                catch (e: Exception) {
-                    media.removeAllViews()
-                    media.addView(TextView(activity).apply { setText(R.string.mms_unavailable) })
-                }
+        val host = activity as? ConversationActivity ?: return
+        val manager = host.supportFragmentManager
+        if (start !in refs.indices || manager.isStateSaved || manager.findFragmentByTag(TAG) != null) return
+        MmsGalleryDialog().apply {
+            arguments = Bundle().apply {
+                putLong("message", id)
+                putStringArrayList("refs", ArrayList(refs))
+                putInt("index", start)
+                putString("thread", host.conversationId.getId())
+                putLong("account", currentDirectoryAccountGeneration(host))
             }
-        }
-        dialog.setOnDismissListener { job?.cancel(); release() }
-        dialog.show()
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { if (index > 0) { index--; load() } }
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { if (index < refs.lastIndex) { index++; load() } }
-        load()
+        }.showNow(manager, TAG)
     }
 
-    private fun ocr(owner: AppCompatActivity, id: Long, refs: List<String>, bitmap: Bitmap) {
+    const val TAG = "mms-gallery"
+
+    fun ocr(owner: AppCompatActivity, id: Long, refs: List<String>, bitmap: Bitmap) {
         fun read() {
             owner.lifecycleScope.launch {
                 try {
@@ -156,4 +110,150 @@ internal object MmsGallery {
         }
     }
     private fun toast(owner: AppCompatActivity, res: Int) = Toast.makeText(owner, res, Toast.LENGTH_LONG).show()
+}
+
+class MmsGalleryDialog : DialogFragment() {
+    private val refs by lazy { requireArguments().getStringArrayList("refs").orEmpty() }
+    private var index = 0
+    private var job: Job? = null
+    private var player: MediaPlayer? = null
+    private var video: VideoView? = null
+
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        index = (state ?: requireArguments()).getInt("index")
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("index", index)
+    }
+
+    override fun onCreateDialog(savedInstanceState: Bundle?) =
+        Dialog(requireContext(), android.R.style.Theme_Material_NoActionBar_Fullscreen).apply {
+            if (requireActivity().window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
+                window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, state: Bundle?): View =
+        inflater.inflate(R.layout.mms_gallery, container, false)
+
+    override fun onViewCreated(view: View, state: Bundle?) {
+        view.findViewById<View>(R.id.gallery_close).setOnClickListener { dismiss() }
+        view.findViewById<View>(R.id.gallery_previous).setOnClickListener { if (index > 0) { index--; load() } }
+        view.findViewById<View>(R.id.gallery_next).setOnClickListener { if (index < refs.lastIndex) { index++; load() } }
+        ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.systemBars())
+            view.findViewById<View>(R.id.gallery_header).setPadding(safe.left, safe.top, safe.right, 0)
+            view.findViewById<View>(R.id.gallery_footer).setPadding(safe.left, 0, safe.right, safe.bottom)
+            insets
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val owner = requireActivity() as ConversationActivity
+        val args = requireArguments()
+        if (index !in refs.indices || !owner.canOpenMedia(args.getString("thread"), args.getLong("account"))) {
+            dismissAllowingStateLoss()
+            return
+        }
+        requireDialog().window?.let { window ->
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            WindowCompat.getInsetsController(window, window.decorView).apply {
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        load()
+    }
+
+    private fun release() {
+        job?.cancel()
+        player?.release()
+        player = null
+        video?.stopPlayback()
+        video = null
+    }
+
+    override fun onStop() {
+        release()
+        super.onStop()
+    }
+
+    private fun load() {
+        release()
+        val root = requireView()
+        val owner = requireActivity() as AppCompatActivity
+        val media = root.findViewById<FrameLayout>(R.id.gallery_media)
+        val actions = root.findViewById<LinearLayout>(R.id.gallery_actions)
+        val header = root.findViewById<View>(R.id.gallery_header)
+        val footer = root.findViewById<View>(R.id.gallery_footer)
+        actions.removeAllViews()
+        media.removeAllViews()
+        header.isVisible = true
+        footer.isVisible = true
+        root.findViewById<View>(R.id.gallery_navigation).isVisible = refs.size > 1
+        root.findViewById<View>(R.id.gallery_previous).isEnabled = index > 0
+        root.findViewById<View>(R.id.gallery_next).isEnabled = index < refs.lastIndex
+        root.findViewById<TextView>(R.id.gallery_position).text = getString(R.string.mms_gallery_position, index + 1, refs.size)
+        fun action(label: Int, perform: () -> Unit) {
+            actions.addView(Button(root.context, null, android.R.attr.borderlessButtonStyle).apply {
+                setText(label)
+                setOnClickListener { perform() }
+            })
+        }
+        val centered = FrameLayout.LayoutParams(-2, -2, Gravity.CENTER)
+        media.addView(ProgressBar(root.context), centered)
+        val ref = refs[index]
+        job = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) { MmsMedia.displayFile(owner, ref) }
+                val mime = MmsMedia.mime(file)
+                media.removeAllViews()
+                when {
+                    mime.startsWith("image/") -> {
+                        val bitmap = withContext(Dispatchers.IO) { MmsMedia.photo(file.readBytes()) }
+                        media.addView(ImageView(root.context).apply {
+                            scaleType = ImageView.ScaleType.FIT_CENTER
+                            setImageBitmap(bitmap)
+                            contentDescription = getString(R.string.mms_toggle_controls)
+                            setOnClickListener {
+                                val visible = !header.isVisible
+                                header.isVisible = visible
+                                footer.isVisible = visible
+                            }
+                        }, FrameLayout.LayoutParams(-1, -1))
+                        action(R.string.mms_read_image) { MmsGallery.ocr(owner, requireArguments().getLong("message"), refs, bitmap) }
+                    }
+                    mime.startsWith("video/") -> {
+                        val view = VideoView(root.context)
+                        video = view
+                        media.addView(view, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
+                        view.setVideoURI(MmsMedia.uri(owner, file))
+                        action(R.string.mms_play_pause) { if (view.isPlaying) view.pause() else view.start() }
+                    }
+                    else -> {
+                        media.addView(TextView(root.context).apply {
+                            text = getString(R.string.mms_file_label, index + 1, file.extension.uppercase(), (file.length() + 999) / 1000)
+                        }, centered)
+                        action(R.string.mms_play_pause) {
+                            try {
+                                val audio = player ?: requireNotNull(MediaPlayer.create(owner, MmsMedia.uri(owner, file))).also { player = it }
+                                if (audio.isPlaying) audio.pause() else audio.start()
+                            } catch (_: Exception) { Toast.makeText(owner, R.string.mms_unavailable, Toast.LENGTH_LONG).show() }
+                        }
+                        action(R.string.mms_transcribe) { ConversationSpeech.transcribe(owner, MmsMedia.uri(owner, file)) }
+                    }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                media.removeAllViews()
+                media.addView(TextView(root.context).apply { setText(R.string.mms_unavailable); gravity = Gravity.CENTER }, centered)
+                action(R.string.inbox_load_retry) { load() }
+            }
+        }
+    }
 }

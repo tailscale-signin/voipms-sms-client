@@ -1,7 +1,10 @@
 package net.kourlas.voipms_sms.privacy
 
 import androidx.core.content.edit
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.os.PersistableBundle
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
@@ -20,6 +23,43 @@ import java.util.concurrent.TimeUnit
 internal object CodePrivacy {
     private fun prefs(c: Context) = c.getSharedPreferences("code-privacy", 0)
     fun days(c: Context) = prefs(c).getInt("days", 0)
+    fun copyCode(context: Context, code: String): Boolean {
+        val clip = ClipData.newPlainText(context.getString(R.string.clipboard_code), code)
+        clip.description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+        return try {
+            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+            true
+        } catch (_: RuntimeException) {
+            // A device clipboard policy must not interrupt provider sync or notifications.
+            false
+        }
+    }
+
+    /** The provider insert transaction has committed, and the sync still owns this account generation. */
+    @Synchronized
+    fun copyReceived(context: Context, generation: Long, messages: List<Message>, since: Long,
+                     now: Long = System.currentTimeMillis()) {
+        val prefs = prefs(context)
+        if (messages.isEmpty() || !prefs.getBoolean("autoCopy", true)) return
+        val after = maxOf(since, now - TimeUnit.MINUTES.toMillis(15), prefs.getLong("enabledSince", 0))
+        val sameAccount = prefs.getLong("lastGeneration", -1) == generation
+        val lastDate = if (sameAccount) prefs.getLong("lastDate", -1) else -1
+        val lastId = if (sameAccount) prefs.getLong("lastId", -1) else -1
+        val newest = messages.asSequence().filter {
+            it.isIncoming && it.date.time in after..now &&
+                (it.date.time > lastDate || it.date.time == lastDate && it.databaseId > lastId)
+        }.sortedWith(compareByDescending<Message> { it.date.time }.thenByDescending { it.databaseId })
+            .mapNotNull { message ->
+                VerificationCode.extract(message.text)?.takeUnless { PrivateThreads.isPrivate(context, message.conversationId) }
+                    ?.let { code -> message to code }
+            }.firstOrNull() ?: return
+        if (copyCode(context, newest.second)) prefs.edit {
+            putLong("lastGeneration", generation)
+            putLong("lastDate", newest.first.date.time)
+            putLong("lastId", newest.first.databaseId)
+        }
+    }
+
     fun notificationText(c: Context, message: Message): String {
         return if (prefs(c).getBoolean("mask", true) && message.isIncoming && VerificationCode.shouldMaskNotification(message.text))
             c.getString(R.string.code_masked) else message.summaryDisplayText
@@ -27,6 +67,21 @@ internal object CodePrivacy {
 
     fun addSettings(fragment: PreferenceFragmentCompat) {
         val c = fragment.requireContext()
+        fragment.preferenceScreen.addPreference(SwitchPreferenceCompat(c).apply {
+            key = "auto_copy_verification_codes"
+            title = c.getString(R.string.code_auto_copy)
+            summary = c.getString(R.string.code_auto_copy_summary)
+            isPersistent = false
+            isChecked = prefs(c).getBoolean("autoCopy", true)
+            setOnPreferenceChangeListener { _, value ->
+                val enabled = value as Boolean
+                prefs(c).edit {
+                    putBoolean("autoCopy", enabled)
+                    if (enabled) putLong("enabledSince", System.currentTimeMillis() / 1000 * 1000)
+                }
+                true
+            }
+        })
         fragment.preferenceScreen.addPreference(SwitchPreferenceCompat(c).apply {
             title = c.getString(R.string.code_mask)
             isPersistent = false

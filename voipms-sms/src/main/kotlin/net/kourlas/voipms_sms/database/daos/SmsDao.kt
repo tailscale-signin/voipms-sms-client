@@ -133,8 +133,16 @@ interface SmsDao {
     @Query("SELECT * FROM sms WHERE Did = :did AND Contact = :contact ORDER BY DeliveryInProgress DESC, Date DESC, VoipId DESC, DatabaseId DESC LIMIT 1")
     suspend fun latestInThread(did: String, contact: String): Sms?
 
-    @Query("SELECT DISTINCT Did, Contact FROM sms WHERE Did IN (:dids) AND Type = 0")
-    suspend fun threadsWithReplies(dids: Set<String>): List<ConversationId>
+    data class ThreadState(val did: String, val contact: String, val unread: Boolean, val hasReply: Boolean, val latestIncoming: String?)
+
+    @Query("""
+        SELECT Did AS did, Contact AS contact, MAX(Unread) AS unread, MIN(Type) = 0 AS hasReply,
+            (SELECT incoming.Text FROM sms incoming
+             WHERE incoming.Did = thread.Did AND incoming.Contact = thread.Contact AND incoming.Type = 1
+             ORDER BY incoming.DeliveryInProgress DESC, incoming.Date DESC, incoming.VoipId DESC, incoming.DatabaseId DESC LIMIT 1) AS latestIncoming
+        FROM sms thread WHERE Did IN (:dids) GROUP BY Did, Contact
+    """)
+    suspend fun threadStates(dids: Set<String>): List<ThreadState>
 
     @Query(
         "SELECT COALESCE(MAX(${Sms.COLUMN_DATE}), 0) AS ${Sms.COLUMN_DATE} FROM ${Sms.TABLE_NAME} WHERE ${Sms.COLUMN_DID} = :did AND ${Sms.COLUMN_CONTACT} = :contact AND ${Sms.COLUMN_INCOMING} = 0"

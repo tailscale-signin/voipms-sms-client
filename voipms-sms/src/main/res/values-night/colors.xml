@@ -23,4 +23,6 @@
     <color name="colorSecondaryVariant">#283E38</color>
     <color name="surface_outline">#36504E</color>
     <color name="inbox_surface">#172728</color>
+    <color name="inbox_caution">#FFB960</color>
+    <bool name="inbox_light_status_icons">false</bool>
 </resources>

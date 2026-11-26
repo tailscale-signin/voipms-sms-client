@@ -17,10 +17,7 @@
 
 package net.kourlas.voipms_sms.conversation
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.os.Build
-import android.os.PersistableBundle
 import android.widget.Toast
 import android.graphics.Bitmap
 import android.graphics.Typeface
@@ -93,6 +90,10 @@ class ConversationRecyclerViewAdapter(
     init {
         // Optional call/chat feeds may arrive before the saved SMS viewport can be restored.
         stateRestorationPolicy = StateRestorationPolicy.PREVENT
+    }
+
+    private val thumbnails = object : android.util.LruCache<String, Bitmap>(6 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
     }
 
     private var retrySnackbar: Snackbar? = null
@@ -228,7 +229,7 @@ class ConversationRecyclerViewAdapter(
 
             else -> throw Exception("Unknown view type $viewType")
         }
-        return MessageViewHolder(itemView, viewType)
+        return MessageViewHolder(itemView, viewType, activity, thumbnails)
     }
 
     override fun onBindViewHolder(
@@ -262,12 +263,8 @@ class ConversationRecyclerViewAdapter(
         val code = VerificationCode.extract(row.item.message.text)
         holder.copyCode.visibility = if (code == null) View.GONE else View.VISIBLE
         holder.copyCode.setOnClickListener(if (code == null) null else View.OnClickListener {
-            val clip = ClipData.newPlainText(activity.getString(R.string.clipboard_code), code)
-            clip.description.extras = PersistableBundle().apply {
-                putBoolean("android.content.extra.IS_SENSITIVE", true)
-            }
-            activity.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            if (net.kourlas.voipms_sms.privacy.CodePrivacy.copyCode(activity, code) &&
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                 Toast.makeText(activity, R.string.code_copied, Toast.LENGTH_SHORT).show()
             }
         })
@@ -396,14 +393,7 @@ class ConversationRecyclerViewAdapter(
 
         }
 
-        val gallery = holder.itemView.findViewById<android.widget.Button>(R.id.message_gallery)
-        gallery.visibility = if (message.medias.isEmpty()) View.GONE else View.VISIBLE
-        if (message.medias.isNotEmpty()) {
-            gallery.text = activity.getString(R.string.mms_gallery_count, message.medias.size)
-            gallery.setOnClickListener {
-                net.kourlas.voipms_sms.media.MmsGallery.show(activity, message.databaseId, message.medias, 0)
-            }
-        } else gallery.setOnClickListener(null)
+        holder.attachments.bind(message.databaseId, message.medias)
         messageText.visibility = if (messageTextBuilder.isEmpty() && message.medias.isNotEmpty()) View.GONE else View.VISIBLE
         messageText.text = messageTextBuilder
 
@@ -637,8 +627,14 @@ class ConversationRecyclerViewAdapter(
         }
     }
 
+    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+        if (holder is MessageViewHolder) holder.attachments.clear()
+        super.onViewRecycled(holder)
+    }
+
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         loadJob?.cancel()
+        thumbnails.evictAll()
         retrySnackbar?.dismiss()
         retrySnackbar = null
         super.onDetachedFromRecyclerView(recyclerView)
@@ -729,7 +725,9 @@ class ConversationRecyclerViewAdapter(
 
     class MessageViewHolder internal constructor(
         itemView: View,
-        viewType: Int
+        viewType: Int,
+        activity: ConversationActivity,
+        thumbnails: android.util.LruCache<String, Bitmap>
     ) : RecyclerView.ViewHolder(
         itemView
     ) {
@@ -740,6 +738,8 @@ class ConversationRecyclerViewAdapter(
             } else {
                 null
             }
+        internal val attachments = net.kourlas.voipms_sms.media.InlineMmsAttachments(
+            activity, itemView.findViewById(R.id.message_attachments), thumbnails)
         internal val smsContainer: View =
             itemView.findViewById(R.id.sms_container)
         internal val warning: TextView? = itemView.findViewById(R.id.message_risk_warning)

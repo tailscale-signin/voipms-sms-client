@@ -336,8 +336,10 @@ open class ConversationsActivity(val archived: Boolean = false) :
         setupToolbar()
         setupRecyclerViewAndSwipeRefreshLayout()
         setupInboxTabs()
+        net.kourlas.voipms_sms.lookup.ReportedNumbers.schedule(this)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { net.kourlas.voipms_sms.lookup.ReportedNumbers.revision.collect { adapter.refresh() } }
                 OnlineNumberLookup.updates.collect { adapter.refreshLookupLabels() }
             }
         }
@@ -459,13 +461,17 @@ open class ConversationsActivity(val archived: Boolean = false) :
      */
     private fun setupToolbar() {
         // Set up toolbar
-        setSupportActionBar(findViewById(R.id.toolbar))
+        val toolbar = findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)
+        val foreground = ContextCompat.getColor(this, R.color.on_surface)
+        toolbar.collapseIcon = toolbar.collapseIcon?.mutate()?.apply { setTint(foreground) }
+        setSupportActionBar(toolbar)
         supportActionBar?.let {
             if (archived) {
                 it.title = getString(R.string.conversations_archived_name)
             }
             it.setDisplayHomeAsUpEnabled(true)
-            it.setHomeAsUpIndicator(R.drawable.ic_menu_toolbar_24dp)
+            it.setHomeAsUpIndicator(androidx.appcompat.content.res.AppCompatResources
+                .getDrawable(this, R.drawable.ic_menu_toolbar_24dp)?.mutate()?.apply { setTint(foreground) })
         }
     }
 
@@ -968,12 +974,12 @@ open class ConversationsActivity(val archived: Boolean = false) :
         searchAutoComplete.hint = getString(R.string.conversations_text_hint)
         searchAutoComplete.setTextColor(
             ContextCompat.getColor(
-                applicationContext, android.R.color.white
+                this, R.color.on_surface
             )
         )
         searchAutoComplete.setHintTextColor(
             ContextCompat.getColor(
-                applicationContext, R.color.search_hint
+                this, R.color.message_hint
             )
         )
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -982,12 +988,12 @@ open class ConversationsActivity(val archived: Boolean = false) :
                     "mCursorDrawableRes"
                 )
                 field.isAccessible = true
-                field.set(searchAutoComplete, R.drawable.search_cursor)
+                field.set(searchAutoComplete, R.drawable.inbox_search_cursor)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to set search cursor drawable", e)
             }
         } else {
-            searchAutoComplete.setTextCursorDrawable(R.drawable.search_cursor)
+            searchAutoComplete.setTextCursorDrawable(R.drawable.inbox_search_cursor)
         }
 
         if (archived) {
@@ -1645,7 +1651,7 @@ open class ConversationsActivity(val archived: Boolean = false) :
         adapter
             .filter { it.checked }
             .forEach {
-                if (it.message.isUnread) {
+                if (it.row.unread) {
                     unread++
                 } else {
                     read++

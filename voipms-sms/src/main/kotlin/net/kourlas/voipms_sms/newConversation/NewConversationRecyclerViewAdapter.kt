@@ -30,18 +30,16 @@ import android.widget.Filterable
 import android.widget.ImageView
 import android.widget.QuickContactBadge
 import android.widget.TextView
-import androidx.core.net.toUri
 import androidx.recyclerview.widget.RecyclerView
 import net.kourlas.voipms_sms.BuildConfig
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.demo.getNewConversationContacts
 import net.kourlas.voipms_sms.ui.FastScroller
 import net.kourlas.voipms_sms.utils.applyCircularMask
-import net.kourlas.voipms_sms.utils.getBitmapFromUri
 import net.kourlas.voipms_sms.utils.getContactInitial
 import net.kourlas.voipms_sms.utils.getDigitsOfString
 import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
-import net.kourlas.voipms_sms.utils.getGenericContactPhotoBitmap
+import net.kourlas.voipms_sms.utils.getContactPhotoBitmap
 import net.kourlas.voipms_sms.utils.getPhoneNumberType
 import net.kourlas.voipms_sms.utils.showSnackbar
 import java.util.Locale
@@ -110,6 +108,9 @@ class NewConversationRecyclerViewAdapter(
         updateViewHolderContactBadge(holder, item, editName)
         updateViewHolderContact(holder, item, editName)
     }
+
+    private val avatarSize = activity.resources.getDimensionPixelSize(R.dimen.contact_badge)
+    private val avatars = android.util.LruCache<String, Bitmap>(32)
 
     /**
      * Adds an index label to the first contact item starting with its first
@@ -181,8 +182,11 @@ class NewConversationRecyclerViewAdapter(
         } else if (contactItem is ContactItem) {
             holder.contactBadge.scaleType = ImageView.ScaleType.CENTER_CROP
             holder.contactBadge.setBackgroundResource(0)
-            holder.contactBadge.setImageBitmap(contactItem.bitmap ?: getGenericContactPhotoBitmap(
-                activity, contactItem.name, contactItem.primaryPhoneNumber, activity.resources.getDimensionPixelSize(R.dimen.contact_badge)))
+            val initial = getContactInitial(contactItem.name)
+            val avatar = avatars.get(initial) ?: getContactPhotoBitmap(activity, contactItem.name, avatarSize).also {
+                avatars.put(initial, it)
+            }
+            holder.contactBadge.setImageBitmap(avatar)
         }
     }
 
@@ -470,7 +474,7 @@ class NewConversationRecyclerViewAdapter(
      */
     private fun loadAllContactItems() {
         if (BuildConfig.IS_DEMO) {
-            allContactItems.addAll(getNewConversationContacts(activity))
+            allContactItems.addAll(getNewConversationContacts())
             return
         }
 
@@ -541,41 +545,6 @@ class NewConversationRecyclerViewAdapter(
                             )
                         )
 
-                        index = cursor.getColumnIndex(
-                            ContactsContract.Contacts.PHOTO_URI
-                        )
-                        if (index < 0) {
-                            continue
-                        }
-                        val photoUri = cursor.getString(
-                            index
-                        )
-
-                        index = cursor.getColumnIndex(
-                            ContactsContract.Contacts.DISPLAY_NAME
-                        )
-                        if (index < 0) {
-                            continue
-                        }
-                        val bitmap = photoUri?.let {
-                            getBitmapFromUri(
-                                activity,
-                                it.toUri(),
-                                activity.resources.getDimensionPixelSize(
-                                    R.dimen.contact_badge
-                                )
-                            )
-                        } ?: getGenericContactPhotoBitmap(
-                            activity,
-                            cursor.getString(
-                                index
-                            ),
-                            phoneNumber,
-                            activity.resources.getDimensionPixelSize(
-                                R.dimen.contact_badge
-                            )
-                        )
-
                         val previousContactItem =
                             if (allContactItems.isNotEmpty()) {
                                 allContactItems.last()
@@ -605,8 +574,7 @@ class NewConversationRecyclerViewAdapter(
                                         PhoneNumberAndType(
                                             phoneNumber, phoneNumberType
                                         )
-                                    ),
-                                    bitmap
+                                    )
                                 )
                             )
                         }
@@ -620,7 +588,7 @@ class NewConversationRecyclerViewAdapter(
 
         local.entries.forEachIndexed { i, (number, name) ->
             val numberAndType = PhoneNumberAndType(number, activity.getString(R.string.local_contact_source))
-            allContactItems.add(ContactItem(-1L - i, name, mutableListOf(numberAndType), null))
+            allContactItems.add(ContactItem(-1L - i, name, mutableListOf(numberAndType)))
         }
         // Sort contact items
         allContactItems.sortBy {
@@ -683,13 +651,11 @@ class NewConversationRecyclerViewAdapter(
      * @param name The name of the contact.
      * @param phoneNumbersAndTypes The contact's phone numbers and
      *                             corresponding types.
-     * @param bitmap The photo of the contact.
      */
     class ContactItem(
         val id: Long,
         val name: String,
-        val phoneNumbersAndTypes: MutableList<PhoneNumberAndType>,
-        val bitmap: Bitmap?
+        val phoneNumbersAndTypes: MutableList<PhoneNumberAndType>
     ) :
         BaseContactItem(phoneNumbersAndTypes[0].phoneNumber) {
         /**

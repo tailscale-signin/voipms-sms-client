@@ -140,7 +140,7 @@ internal object PortableBackup {
                     val sample = nextFile()
                     var cause: java.io.IOException? = null
                     val file = try {
-                        if (receivedBytes >= limit) null else MmsMedia.forBackup(context, ref, mode == ReceivedMode.FETCH)
+                        if (receivedBytes >= limit) null else MmsMedia.receivedFile(context, ref, mode == ReceivedMode.FETCH)
                     } catch (e: CancellationException) { throw e }
                     catch (e: java.io.IOException) { cause = e; null }
                     val bytes = try {

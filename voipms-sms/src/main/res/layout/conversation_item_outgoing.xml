@@ -77,11 +77,11 @@
                     android:textColor="@color/on_message_outgoing"
                     android:textColorLink="@color/on_message_outgoing" />
 
-                <Button
-                    android:id="@+id/message_gallery"
-                    style="?android:attr/borderlessButtonStyle"
+                <LinearLayout
+                    android:id="@+id/message_attachments"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:orientation="vertical"
                     android:visibility="gone" />
 
                 <include layout="@layout/copy_sms_code" />

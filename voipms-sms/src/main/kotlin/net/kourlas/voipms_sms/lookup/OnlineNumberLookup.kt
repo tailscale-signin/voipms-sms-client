@@ -104,6 +104,13 @@ internal object OnlineNumberLookup {
         return Label.Match(context.getString(R.string.cid_subtitle, context.getString(fact.kind.title), fact.value, sources))
     }
 
+    fun reportedBy(context: Context, raw: String): String? {
+        val number = WikidataDirectory.number(raw) ?: return null
+        return session(context).recent(number).firstOrNull { result ->
+            result.status == LookupStatus.FOUND && result.facts.any { it.kind == FactKind.REPORTS }
+        }?.source?.attribution
+    }
+
     fun blueNumber(context: Context, raw: String, toolbar: Boolean = false): SpannableString {
         val color = if (toolbar) R.color.online_lookup_toolbar_number else R.color.online_lookup_number
         return SpannableString(getFormattedPhoneNumber(raw)).apply {

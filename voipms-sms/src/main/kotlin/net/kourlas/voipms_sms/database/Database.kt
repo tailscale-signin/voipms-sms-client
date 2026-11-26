@@ -396,7 +396,8 @@ class Database private constructor(private val context: Context) {
      * list is sorted by date, from most recent to least recent.
      */
     internal data class InboxPreview(
-        val message: Message, val otherFolder: Boolean?, val latestIncoming: String?, val hasReply: Boolean
+        val message: Message, val otherFolder: Boolean?, val latestIncoming: String?, val hasReply: Boolean,
+        val unread: Boolean = message.isUnread
     )
 
     internal suspend fun inboxPreviews(
@@ -405,12 +406,13 @@ class Database private constructor(private val context: Context) {
         if (dids.isEmpty()) return@read emptyList()
         val latest = database.smsDao().latestForDids(dids, "", "").associateBy { ConversationId(it.did, it.contact) }
         val settings = database.archivedDao().forDids(dids).associateBy { ConversationId(it.did, it.contact) }
-        val replies = database.smsDao().threadsWithReplies(dids).toHashSet()
+        val states = database.smsDao().threadStates(dids).associateBy { ConversationId(it.did, it.contact) }
         getConversationsMessageMostRecentFilteredWithoutLock(dids, filter, names, latest).mapNotNull { message ->
             val id = message.conversationId
             val row = settings[id]
             if ((row?.archived == 1) != archived) return@mapNotNull null
-            InboxPreview(message, row?.otherFolder, latest[id]?.takeIf { it.incoming == 1L }?.text, id in replies)
+            val state = states[id]
+            InboxPreview(message, row?.otherFolder, state?.latestIncoming, state?.hasReply == true, state?.unread == true)
         }
     }
 
@@ -785,33 +787,21 @@ class Database private constructor(private val context: Context) {
         incomingMessages: List<IncomingMessage>,
         retrieveDeletedMessages: Boolean,
         checkpoint: SyncCheckpoint?,
-        previousThrough: String?
+        previousThrough: String?,
+        onNewIncoming: (List<Message>) -> Unit = {}
     ): Set<ConversationId> =
         coroutineScope {
+            val newIncoming = mutableListOf<Message>()
             val (addedMessages, addedConversationIds) = importExportLock.read {
                 val addedConversationIds = mutableSetOf<ConversationId>()
                 val addedMessages = mutableListOf<Message>()
 
                 database.withTransaction {
                     for (incomingMessage in incomingMessages) {
-                        if (retrieveDeletedMessages) {
-                            // Retrieve deleted messages is true, so we should
-                            // remove this message from our list of deleted
-                            // messages.
-                            database.deletedDao()
-                                .delete(
-                                    incomingMessage.did,
-                                    incomingMessage.voipId
-                                )
-                        } else if (database.deletedDao().get(
-                                incomingMessage.did,
-                                incomingMessage.voipId
-                            ) != null
-                        ) {
-                            // Retrieve deleted messages is not true and this
-                            // message has been previously deleted, so we
-                            // shouldn't add it back
-                            continue
+                        val wasDeleted = database.deletedDao().get(incomingMessage.did, incomingMessage.voipId) != null
+                        if (wasDeleted) {
+                            if (!retrieveDeletedMessages) continue
+                            database.deletedDao().delete(incomingMessage.did, incomingMessage.voipId)
                         }
 
                         val databaseId = database.smsDao().getIdByVoipId(
@@ -850,7 +840,9 @@ class Database private constructor(private val context: Context) {
                                 incomingMessage.contact
                             )
                         )
-                        addedMessages.add(sms.toMessage(newDatabaseId))
+                        val message = sms.toMessage(newDatabaseId)
+                        addedMessages.add(message)
+                        if (message.isIncoming && !wasDeleted) newIncoming.add(message)
 
                         // Incoming activity reopens the thread while retaining its inbox folder.
                         database.archivedDao().clearArchiveFlag(
@@ -873,6 +865,7 @@ class Database private constructor(private val context: Context) {
                 Pair(addedMessages, addedConversationIds)
             }
 
+            onNewIncoming(newIncoming)
             launch {
                 addedMessages.filter { it.isIncoming }.forEach {
                     net.kourlas.voipms_sms.tools.ThreadReminders.inbound(context, it.conversationId, it.date.time / 1000)
@@ -1095,7 +1088,7 @@ class Database private constructor(private val context: Context) {
                     val peer = name ?: getFormattedPhoneNumber(id.contact)
                     val line = LineProfiles.label(context, id.did)
                     val shortLine = LineProfiles.name(context, id.did) ?: id.did.takeLast(4)
-                    val icon = IconCompat.createWithAdaptiveBitmap(getContactPhotoAdaptiveBitmap(context, name, id.contact))
+                    val icon = IconCompat.createWithAdaptiveBitmap(getContactPhotoAdaptiveBitmap(context, name))
                     val target = Intent(context, ConversationActivity::class.java).setAction(Intent.ACTION_VIEW)
                         .putExtra(context.getString(R.string.conversation_did), id.did)
                         .putExtra(context.getString(R.string.conversation_contact), id.contact)

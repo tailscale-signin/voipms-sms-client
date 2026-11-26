@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <FrameLayout android:id="@+id/gallery_media"
+        android:layout_width="match_parent" android:layout_height="match_parent" />
+
+    <LinearLayout android:id="@+id/gallery_header"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="top" android:gravity="center_vertical" android:background="#B3000000">
+        <TextView android:id="@+id/gallery_position"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:paddingStart="16dp" android:paddingEnd="8dp" android:textColor="@android:color/white" />
+        <ImageButton android:id="@+id/gallery_close"
+            android:layout_width="48dp" android:layout_height="48dp"
+            android:src="@drawable/ic_close_toolbar_24dp" android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mms_close" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/gallery_footer"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:gravity="center" android:orientation="vertical"
+        android:background="#B3000000">
+        <LinearLayout android:id="@+id/gallery_actions"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:gravity="center" android:orientation="horizontal" />
+        <LinearLayout android:id="@+id/gallery_navigation"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center">
+            <Button android:id="@+id/gallery_previous" style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/mms_previous" />
+            <Button android:id="@+id/gallery_next" style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/mms_next" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

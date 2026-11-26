@@ -19,6 +19,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import android.widget.CheckBox
+import androidx.core.content.edit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,6 +47,7 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
     private val time = android.text.format.DateFormat.getTimeFormat(activity)
     private val prefs = DeliveryTrace.store(activity)
     private val empty = TextView(activity).apply { gravity=Gravity.CENTER; setPadding(activity.dp(20),activity.dp(32),activity.dp(20),activity.dp(32)) }
+    private val voicemailOnly = MutableStateFlow(prefs.getBoolean("voicemailOnly", false))
     private var count = 0
     private val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key?.startsWith("callFeedError.") == true) updateEmpty()
@@ -53,7 +58,11 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
 
     private fun updateEmpty() {
         val generation = readAccountCredentials(activity)?.generation
-        empty.setText(if (prefs.getBoolean("callFeedError.$generation",false)) R.string.calls_partial else R.string.calls_home_empty)
+        empty.setText(when {
+            prefs.getBoolean("callFeedError.$generation", false) -> R.string.calls_partial
+            voicemailOnly.value -> R.string.calls_voicemails_empty
+            else -> R.string.calls_home_empty
+        })
         empty.visibility=if (count==0 || prefs.getBoolean("callFeedError.$generation",false)) View.VISIBLE else View.GONE
     }
 
@@ -66,7 +75,18 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
         header.addView(MaterialButton(activity,null,com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
             setText(R.string.delivery_refresh); setOnClickListener { CallFeedSync.refresh(activity,true) }
         })
-        layout.addView(header); (empty.parent as? ViewGroup)?.removeView(empty); layout.addView(empty)
+        layout.addView(header)
+        layout.addView(CheckBox(activity).apply {
+            setText(R.string.calls_voicemails_only)
+            isChecked = voicemailOnly.value
+            setOnCheckedChangeListener { _, checked ->
+                voicemailOnly.value = checked
+                prefs.edit { putBoolean("voicemailOnly", checked) }
+                if (account == null) updateEmpty()
+            }
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = activity.dp(18) })
+        (empty.parent as? ViewGroup)?.removeView(empty)
+        layout.addView(empty)
         val list = ListView(activity).apply { dividerHeight=0; clipToPadding=false; setPadding(0,0,0,activity.dp(28)) }
         layout.addView(list,LinearLayout.LayoutParams(-1,0,1f))
         container.removeAllViews(); container.addView(layout)
@@ -75,7 +95,9 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
         if (account == null) return
         CallFeedSync.refresh(activity)
         job=activity.lifecycleScope.launch {
-            CallFeedStore.observe(activity).collect { items ->
+            CallFeedStore.observe(activity).combine(voicemailOnly) { items, onlyVoice ->
+                if (onlyVoice) items.filter { it.voicemail } else items
+            }.collect { items ->
                 val rows = withContext(Dispatchers.IO) {
                     val names=mutableMapOf<String,String>()
                     val active = net.kourlas.voipms_sms.preferences.getDids(activity, onlyRetrieveMessages = true)

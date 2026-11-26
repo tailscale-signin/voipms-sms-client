@@ -34,7 +34,7 @@ import kotlin.math.roundToInt
 
 internal fun Context.dp(value: Int) = (resources.displayMetrics.density * value).roundToInt()
 
-internal enum class PlayState { READY, LOADING, PLAYING, PAUSED }
+internal enum class PlayState { READY, LOADING, PLAYING, PAUSED, UNAVAILABLE }
 
 /** Bounded provider audio stays in memory. Reads occur on Android's decoder thread. */
 internal class VoicemailDataSource(private var bytes: ByteArray?) : MediaDataSource() {
@@ -161,6 +161,10 @@ internal class VoicePlaybackModel : ViewModel() {
                 recording.setOnErrorListener { failed, _, _ -> if (player === failed) failure(activity); true }
                 recording.prepareAsync()
             } catch (e: CancellationException) { throw e }
+            catch (_: RecordingUnavailable) {
+                stop()
+                state.value = item.id to PlayState.UNAVAILABLE
+            }
             catch (_: Exception) { failure(activity) }
         }
     }
@@ -217,12 +221,13 @@ internal object CallPlayback {
         var observation: Job? = null
         fun update(id: String,s: PlayState) {
             val state = if (id == event.id) s else PlayState.READY
-            play.isEnabled = state == PlayState.READY || state == PlayState.PAUSED
+            play.isEnabled = state == PlayState.READY || state == PlayState.PAUSED || state == PlayState.UNAVAILABLE
             pause.isEnabled = state == PlayState.PLAYING
-            stop.isEnabled = state != PlayState.READY
+            stop.isEnabled = state != PlayState.READY && state != PlayState.UNAVAILABLE
             for (button in listOf(play,pause,stop)) button.alpha = if(button.isEnabled) 1f else .32f
             label.text = when(state) { PlayState.READY -> ""; PlayState.LOADING -> activity.getString(R.string.calls_buffering)
-                PlayState.PLAYING -> activity.getString(R.string.calls_playing); PlayState.PAUSED -> activity.getString(R.string.calls_paused) }
+                PlayState.PLAYING -> activity.getString(R.string.calls_playing); PlayState.PAUSED -> activity.getString(R.string.calls_paused)
+                PlayState.UNAVAILABLE -> activity.getString(R.string.calls_recording_unavailable) }
         }
         update(model.state.value.first,model.state.value.second)
         row.addOnAttachStateChangeListener(object:View.OnAttachStateChangeListener {

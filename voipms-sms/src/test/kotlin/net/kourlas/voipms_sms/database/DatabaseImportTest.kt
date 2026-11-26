@@ -74,6 +74,53 @@ class DatabaseImportTest {
         resetDatabaseInstance()
     }
 
+    @Test fun unreadThreadSurvivesDraftAndSearchUntilOpened(): Unit = runBlocking {
+        fun incoming(id: Long, text: String) = IncomingMessage(id, Date(id * 1000), true,
+            conversationId.did, conversationId.contact, text, null, null, null)
+        database.insertMessagesVoipMsApi(listOf(incoming(1, "Old note")), false, null, null)
+        database.markConversationRead(conversationId)
+        database.insertMessagesVoipMsApi(listOf(incoming(2, "New note")), false, null, null)
+        database.updateConversationDraft(conversationId, "Partly typed reply")
+        suspend fun preview(query: String) = database.inboxPreviews(setOf(conversationId.did), query, false, mutableMapOf()).single()
+        assertTrue(preview("").message.isDraft)
+        assertTrue(preview("").unread)
+        assertTrue(preview("old").unread)
+        assertEquals("New note", preview("old").latestIncoming)
+        database.markConversationRead(conversationId)
+        assertFalse(preview("").unread)
+    }
+
+    @Test fun automaticClipboardCopiesOnlyFreshNewCodesAndHonoursSwitch(): Unit = runBlocking {
+        val manager = context.getSystemService(android.content.ClipboardManager::class.java)
+        val prefs = context.getSharedPreferences("code-privacy", Context.MODE_PRIVATE)
+        val now = 1_800_000_000_000L
+        fun message(id: Long, offset: Long, incoming: Boolean = true, text: String = "Verification code: 00$id.") =
+            IncomingMessage(id, Date(now + offset), incoming, conversationId.did, conversationId.contact, text, null, null, null)
+        suspend fun receive(vararg rows: IncomingMessage, since: Long = 0) =
+            database.insertMessagesVoipMsApi(rows.toList(), false, null, null) { batch ->
+                net.kourlas.voipms_sms.privacy.CodePrivacy.copyReceived(context, 42, batch, since, now)
+            }
+        fun current() = manager.primaryClip?.getItemAt(0)?.text?.toString()
+        fun sentinel() = manager.setPrimaryClip(android.content.ClipData.newPlainText("fixture", "previous"))
+        sentinel()
+        receive(message(1111, -1000), message(1112, -2000), message(1113, 0, incoming = false))
+        assertEquals("001111", current())
+        assertTrue(manager.primaryClipDescription?.extras?.getBoolean("android.content.extra.IS_SENSITIVE") == true)
+        sentinel()
+        receive(message(1111, -1000), message(1114, -3000), message(1115, -3600_000))
+        receive(message(1116, -1000), since = now)
+        receive(message(1117, 0, text = "Lunch is at noon."))
+        assertEquals("previous", current())
+        prefs.edit().putBoolean("autoCopy", false).commit()
+        receive(message(1118, 0))
+        assertEquals("previous", current())
+        prefs.edit().putBoolean("autoCopy", true).commit()
+        context.getSharedPreferences("private-threads", Context.MODE_PRIVATE).edit()
+            .putBoolean(conversationId.getId(), true).commit()
+        receive(message(1119, 0))
+        assertEquals("previous", current())
+    }
+
     @Test
     fun receivedImageRestoresOfflineToASyncedThreadAndPrivateImagesStayOut(): Unit = runBlocking {
         val media = net.kourlas.voipms_sms.media.MmsMedia

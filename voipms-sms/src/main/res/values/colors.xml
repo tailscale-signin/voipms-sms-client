@@ -71,4 +71,6 @@
     <color name="colorSecondaryVariant">#334B4F</color>
     <color name="surface_outline">#CCDAD7</color>
     <color name="inbox_surface">#FFFFFF</color>
+    <color name="inbox_caution">#915400</color>
+    <bool name="inbox_light_status_icons">true</bool>
 </resources>

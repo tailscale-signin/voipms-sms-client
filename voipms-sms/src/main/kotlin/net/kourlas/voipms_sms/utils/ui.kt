@@ -21,7 +21,6 @@ import android.content.DialogInterface
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color.rgb
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.PorterDuff
@@ -44,7 +43,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.saket.bettermovementmethod.BetterLinkMovementMethod
 import net.kourlas.voipms_sms.R
-import kotlin.math.abs
 
 private const val TAG = "Ui"
 
@@ -233,24 +231,4 @@ fun abortActivity(
         duration
     ).show()
     activity.finish()
-}
-
-/**
- * Gets a deterministically selected material design colour associated with
- * the specified phone number.
- */
-fun getMaterialDesignColour(phoneNumber: String): Int {
-    val colours = listOf(
-        rgb(0xd5, 0x00, 0x00), rgb(0xc5, 0x11, 0x62),
-        rgb(0xaa, 0x00, 0xff), rgb(0x62, 0x00, 0xea),
-        rgb(0x30, 0x4f, 0xfe), rgb(0x29, 0x62, 0xff),
-        rgb(0x00, 0x91, 0xea), rgb(0x00, 0xb8, 0xd4),
-        rgb(0x00, 0xbf, 0xa5), rgb(0x00, 0xc8, 0x53),
-        rgb(0x64, 0xdd, 0x17), rgb(0xae, 0xea, 0x00),
-        rgb(0xff, 0xd6, 0x00), rgb(0xff, 0xab, 0x00),
-        rgb(0xff, 0x6d, 0x00), rgb(0xdd, 0x2c, 0x00),
-        rgb(0x3e, 0x27, 0x23), rgb(0x21, 0x21, 0x21),
-        rgb(0x26, 0x32, 0x38)
-    )
-    return colours[abs(phoneNumber.hashCode() % colours.size)]
 }

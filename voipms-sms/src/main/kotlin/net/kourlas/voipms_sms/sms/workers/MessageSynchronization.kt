@@ -205,9 +205,11 @@ internal class MessageSynchronization(
             var previous = if (retrieveOnlyRecentMessages) {
                 database.checkedThrough(accountKey, did, start)
             } else null
+            // Older windows in an initial sync or a full history reload must not overwrite the clipboard.
+            val copySince = if (previous == null) now.time / 1000 * 1000 else 0L
             retrievalWindows(start, previous, now).map { window ->
                 val checkpoint = SyncCheckpoint(accountKey, did, start, window.to)
-                RetrievalRequest(did, window, checkpoint, previous).also { previous = window.to }
+                RetrievalRequest(did, window, checkpoint, previous, copySince).also { previous = window.to }
             }
         }
     }
@@ -299,7 +301,10 @@ internal class MessageSynchronization(
                         val conversations = database.insertMessagesVoipMsApi(
                             messages, retrieveDeletedMessages, request.checkpoint.takeIf { request.did !in incompleteDids },
                             request.previousThrough
-                        )
+                        ) { inserted ->
+                            net.kourlas.voipms_sms.privacy.CodePrivacy.copyReceived(
+                                applicationContext, credentials.generation, inserted, request.copySince)
+                        }
                         appliedMessages = (appliedMessages ?: 0L) + messages.size
                         net.kourlas.voipms_sms.delivery.DeliveryTrace.fetched(applicationContext, request.did, messages, route)
                         if (conversations.isNotEmpty()) {
@@ -329,7 +334,7 @@ internal class MessageSynchronization(
 
     private data class RetrievalRequest(
         val did: String, val window: RetrievalWindow, val checkpoint: SyncCheckpoint,
-        val previousThrough: String?
+        val previousThrough: String?, val copySince: Long
     )
 
     companion object {
