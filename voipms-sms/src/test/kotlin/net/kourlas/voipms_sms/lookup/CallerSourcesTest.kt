@@ -22,6 +22,16 @@ class CallerSourcesTest {
 
     private data class Fixture(val source: CallerSource, val host: String, val path: String, val json: String, val expected: CallerFact)
 
+    @Test fun publicReportFeedUsesOnlyRepeatedReportsAndNoSenderInRequest() {
+        val numbers = ReportedNumbers.numbers("""[{"caller_id_number":"(416) 555-0199","reports":"2"},
+            {"caller_id_number":"4165550141","reports":"1"},{"caller_id_number":"unknown","reports":"4"}]""")
+        assertEquals(setOf("+14165550199"), numbers)
+        val request = ReportedNumbers.request(java.time.LocalDate.of(2026, 8, 28))
+        assertEquals("opendata.fcc.gov", request.url.host)
+        assertEquals("caller_id_number", request.url.queryParameter("\$group"))
+        assertFalse(request.url.toString().contains("5550199"))
+    }
+
     @Test fun providerContractsSendTheCorrectRequestAndExtractOnlyDisplayFields() {
         val name = CallerFact(FactKind.NAME, "Example")
         val carrier = CallerFact(FactKind.CARRIER, "Network")

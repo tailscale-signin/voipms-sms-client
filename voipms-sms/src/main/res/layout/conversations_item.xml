@@ -101,6 +101,13 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/sender_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/Caption"
+            android:textColor="@color/message_hint" />
+
+        <TextView
             android:id="@+id/sender_region"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

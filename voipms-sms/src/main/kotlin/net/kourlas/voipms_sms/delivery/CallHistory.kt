@@ -140,7 +140,9 @@ internal object CallHistory {
     }
 
     /** A message number is a mutable folder slot. Never select between indistinguishable recordings. */
-    internal fun locateSlot(rows: List<JSONObject>, item: CallFeedItem): String? {
+    internal data class RecordingLocation(val folder: String, val slot: String)
+
+    internal fun locateRecording(rows: List<JSONObject>, item: CallFeedItem): RecordingLocation? {
         val match = rows.singleOrNull { row ->
             val duration = row.optString("duration")
             val exact = item.providerEpoch
@@ -153,21 +155,26 @@ internal object CallHistory {
                     row.optString("date") == item.providerDate &&
                     item.id.startsWith("vm:${item.mailbox}:${item.providerDate}:${item.peer}:$duration:")
             }
-            sameRecording && row.optString("mailbox") == item.mailbox && row.optString("folder") == item.folder &&
+            sameRecording && row.optString("mailbox") == item.mailbox && row.optString("folder").isNotBlank() &&
                 row.optString("callerid") == item.caller
-        }
-        return match?.optString("message_num")?.takeIf { it.toIntOrNull()?.let { slot -> slot >= 0 } == true }
+        } ?: return null
+        val slot = match.optString("message_num").takeIf { it.toIntOrNull()?.let { n -> n >= 0 } == true } ?: return null
+        return RecordingLocation(match.getString("folder"), slot)
     }
 
-    suspend fun audio(account: AccountCredentials, item: CallFeedItem): ByteArray {
-        val folder = mapOf("mailbox" to item.mailbox, "folder" to item.folder)
-        suspend fun currentSlot() = locateSlot(request(account, "getVoicemailMessages", folder).rows("messages"), item)
-        val slot = currentSlot() ?: throw IOException("Voicemail unavailable")
-        val file = request(account, "getVoicemailMessageFile", folder + ("message_num" to slot))
-            .rows("message").singleOrNull() ?: throw IOException("Voicemail unavailable")
-        if (file.optString("mailbox") != item.mailbox || file.optString("folder") != item.folder ||
-            file.optString("message_num") != slot || currentSlot() != slot) throw IOException("Voicemail changed")
+    suspend fun audio(account: AccountCredentials, item: CallFeedItem,
+                      fetch: suspend (AccountCredentials, String, Map<String, String>) -> JSONObject = ::request): ByteArray {
+        val mailbox = mapOf("mailbox" to item.mailbox)
+        suspend fun locate() = locateRecording(fetch(account, "getVoicemailMessages", mailbox).rows("messages"), item)
+        val location = locate() ?: throw RecordingUnavailable()
+        val file = fetch(account, "getVoicemailMessageFile",
+            mailbox + mapOf("folder" to location.folder, "message_num" to location.slot))
+            .rows("message").singleOrNull() ?: throw RecordingUnavailable()
+        if (file.optString("mailbox") != item.mailbox || file.optString("folder") != location.folder ||
+            file.optString("message_num") != location.slot || locate() != location) throw RecordingUnavailable()
         return Base64.decode(file.getString("data"), Base64.DEFAULT).takeIf { it.isNotEmpty() }
             ?: throw IOException("Empty voicemail")
     }
 }
+
+internal class RecordingUnavailable : IOException("Could not identify this mailbox recording")

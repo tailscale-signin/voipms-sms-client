@@ -283,6 +283,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
         !isFinishing && target == conversationId && boundGeneration == generation &&
             currentLine(target, generation) && (privateSession || !PrivateThreads.isPrivate(this, target))
 
+    internal fun canOpenMedia(thread: String?, generation: Long): Boolean =
+        ::did.isInitialized && ::contact.isInitialized && conversationId.getId() == thread &&
+            currentTarget(conversationId, generation)
+
     private fun openPrivateGate() {
         findViewById<View>(android.R.id.content).visibility = View.INVISIBLE
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
@@ -297,10 +301,6 @@ open class ConversationActivity(val bubble: Boolean = false) :
         richFeed = ResumedChatFeed(this)
         onBackPressedDispatcher.addCallback(this, messageBack)
         setContentView(R.layout.conversation)
-        val list = findViewById<View>(R.id.list)
-        findViewById<View>(R.id.message_section).addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
-            if (bottom - top != oldBottom - oldTop) ViewCompat.requestApplyInsets(list)
-        }
         if (savedInstanceState?.containsKey("thread_account_generation") == true &&
             savedInstanceState.getLong("thread_account_generation") != currentDirectoryAccountGeneration(this)) {
             findViewById<View>(android.R.id.content).visibility = View.INVISIBLE
@@ -367,6 +367,8 @@ open class ConversationActivity(val bubble: Boolean = false) :
             previousAnchor != intent.getLongExtra(net.kourlas.voipms_sms.tools.MessageSearch.ANCHOR, -1)
         if (replaceAdapter && previous != null) actionMode?.finish()
         if (previous != null && changedThread) {
+            (supportFragmentManager.findFragmentByTag(net.kourlas.voipms_sms.media.MmsGallery.TAG)
+                as? androidx.fragment.app.DialogFragment)?.dismissAllowingStateLoss()
             androidx.lifecycle.ViewModelProvider(this)[net.kourlas.voipms_sms.delivery.VoicePlaybackModel::class.java].stop()
             editor.text.clear()
             keepReviewedDraft = false
@@ -507,7 +509,7 @@ open class ConversationActivity(val bubble: Boolean = false) :
                     val name = if (BuildConfig.IS_DEMO) net.kourlas.voipms_sms.demo.getContactName(target.contact)
                         else LocalContacts.find(applicationContext, target.contact) ?: getContactName(applicationContext, target.contact)
                     val region = if (name == null) NumberOrigin.offline(target.contact, locale) else null
-                    ContactPresentation(name, getContactPhotoBitmap(applicationContext, name, target.contact, size), region)
+                    ContactPresentation(name, getContactPhotoBitmap(this@ConversationActivity, name, size), region)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -635,18 +637,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
         })
 
-        val composer = findViewById<View>(R.id.message_section)
-        val margin = resources.getDimensionPixelSize(R.dimen.margin)
-        ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, windowInsets ->
-            val insets =
-                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
-            v.setPadding(
-                insets.left,
-                v.paddingTop,
-                insets.right,
-                insets.bottom + composer.height + margin
-            )
-            WindowInsetsCompat.CONSUMED
+        ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { view, windowInsets ->
+            val sides = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(sides.left, view.paddingTop, sides.right, view.paddingBottom)
+            windowInsets
         }
 
         // Set up fast scroller

@@ -19,6 +19,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import android.widget.CheckBox
+import androidx.core.content.edit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,6 +33,8 @@ import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.privacy.PrivateThreads
 import net.kourlas.voipms_sms.sms.ConversationId
 import net.kourlas.voipms_sms.tools.LineProfiles
+import net.kourlas.voipms_sms.utils.getContactInitial
+import net.kourlas.voipms_sms.utils.getContactPhotoBitmap
 import net.kourlas.voipms_sms.utils.getContactName
 import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
 import java.text.DateFormat
@@ -38,11 +44,13 @@ import java.util.Locale
 
 internal class HomeCallFeed(private val activity: FragmentActivity, private val container: FrameLayout) {
     private var job: Job? = null
+    private val avatars = android.util.LruCache<String, android.graphics.Bitmap>(32)
     private val date = DateFormat.getDateInstance(DateFormat.FULL)
     private val calendarDay = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { isLenient = false }
     private val time = android.text.format.DateFormat.getTimeFormat(activity)
     private val prefs = DeliveryTrace.store(activity)
     private val empty = TextView(activity).apply { gravity=Gravity.CENTER; setPadding(activity.dp(20),activity.dp(32),activity.dp(20),activity.dp(32)) }
+    private val voicemailOnly = MutableStateFlow(prefs.getBoolean("voicemailOnly", false))
     private var count = 0
     private val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key?.startsWith("callFeedError.") == true) updateEmpty()
@@ -53,7 +61,11 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
 
     private fun updateEmpty() {
         val generation = readAccountCredentials(activity)?.generation
-        empty.setText(if (prefs.getBoolean("callFeedError.$generation",false)) R.string.calls_partial else R.string.calls_home_empty)
+        empty.setText(when {
+            prefs.getBoolean("callFeedError.$generation", false) -> R.string.calls_partial
+            voicemailOnly.value -> R.string.calls_voicemails_empty
+            else -> R.string.calls_home_empty
+        })
         empty.visibility=if (count==0 || prefs.getBoolean("callFeedError.$generation",false)) View.VISIBLE else View.GONE
     }
 
@@ -66,7 +78,18 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
         header.addView(MaterialButton(activity,null,com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
             setText(R.string.delivery_refresh); setOnClickListener { CallFeedSync.refresh(activity,true) }
         })
-        layout.addView(header); (empty.parent as? ViewGroup)?.removeView(empty); layout.addView(empty)
+        layout.addView(header)
+        layout.addView(CheckBox(activity).apply {
+            setText(R.string.calls_voicemails_only)
+            isChecked = voicemailOnly.value
+            setOnCheckedChangeListener { _, checked ->
+                voicemailOnly.value = checked
+                prefs.edit { putBoolean("voicemailOnly", checked) }
+                if (account == null) updateEmpty()
+            }
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = activity.dp(18) })
+        (empty.parent as? ViewGroup)?.removeView(empty)
+        layout.addView(empty)
         val list = ListView(activity).apply { dividerHeight=0; clipToPadding=false; setPadding(0,0,0,activity.dp(28)) }
         layout.addView(list,LinearLayout.LayoutParams(-1,0,1f))
         container.removeAllViews(); container.addView(layout)
@@ -75,7 +98,10 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
         if (account == null) return
         CallFeedSync.refresh(activity)
         job=activity.lifecycleScope.launch {
-            CallFeedStore.observe(activity).collect { items ->
+            var displayedFilter = voicemailOnly.value
+            CallFeedStore.observe(activity).combine(voicemailOnly) { items, onlyVoice ->
+                onlyVoice to if (onlyVoice) items.filter { it.voicemail } else items
+            }.collect { (onlyVoice, items) ->
                 val rows = withContext(Dispatchers.IO) {
                     val names=mutableMapOf<String,String>()
                     val active = net.kourlas.voipms_sms.preferences.getDids(activity, onlyRetrieveMessages = true)
@@ -89,7 +115,11 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                     }
                 }
                 if (readAccountCredentials(activity)?.generation != account.generation) return@collect
-                val pos=list.firstVisiblePosition; val offset=list.getChildAt(0)?.top ?: 0
+                val position = list.firstVisiblePosition
+                val anchor = if (displayedFilter == onlyVoice && position > 0)
+                    (list.getItemAtPosition(position) as? CallFeedItem)?.id else null
+                val offset = list.getChildAt(0)?.top ?: 0
+                displayedFilter = onlyVoice
                 count=rows.size; updateEmpty()
                 list.adapter=object:BaseAdapter() {
                     override fun getCount()=rows.size
@@ -106,7 +136,16 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                         })
                         val card=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(activity.dp(12),activity.dp(10),activity.dp(12),0); setBackgroundResource(R.drawable.call_event_surface) }
                         val row=LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL }
-                        row.addView(ImageView(activity).apply { setImageResource(if(event.voicemail) R.drawable.ic_vm_mail else R.drawable.ic_vm_missed); importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO }, activity.dp(28), activity.dp(28))
+                        val avatarName = name.takeIf { event.peer.isNotEmpty() }
+                        val initial = getContactInitial(avatarName)
+                        val size = activity.resources.getDimensionPixelSize(R.dimen.contact_badge)
+                        val avatar = avatars.get(initial) ?: getContactPhotoBitmap(activity, avatarName, size).also {
+                            avatars.put(initial, it)
+                        }
+                        row.addView(ImageView(activity).apply {
+                            setImageBitmap(avatar)
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        }, size, size)
                         val label=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(activity.dp(10),0,activity.dp(6),0) }
                         label.addView(TextView(activity).apply {
                             text = name
@@ -117,7 +156,14 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                             }
                         })
                         val line=if(event.did.isEmpty()) activity.getString(R.string.calls_shared) else LineProfiles.label(activity,event.did)
-                        label.addView(TextView(activity).apply { text=activity.getString(R.string.calls_row_detail,activity.getString(if(event.voicemail) R.string.calls_voicemail else R.string.calls_missed),line);textSize=13f })
+                        label.addView(TextView(activity).apply {
+                            text = activity.getString(R.string.calls_row_detail,
+                                activity.getString(if (event.voicemail) R.string.calls_voicemail else R.string.calls_missed), line)
+                            textSize = 13f
+                            val icon = if (event.voicemail) R.drawable.ic_vm_mail else R.drawable.ic_vm_missed
+                            setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0)
+                            compoundDrawablePadding = activity.dp(4)
+                        })
                         row.addView(label,LinearLayout.LayoutParams(0,-2,1f))
                         row.addView(TextView(activity).apply { text=if (event.dateOnly) "" else time.format(Date(event.receivedAt)); textSize=13f })
                         card.addView(row); if(event.voicemail) card.addView(CallPlayback.controls(activity,event))
@@ -131,7 +177,10 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                         group.addView(card); return group
                     }
                 }
-                if (pos>0) list.setSelectionFromTop(pos,offset)
+                if (anchor != null) {
+                    val index = rows.indexOfFirst { it.first.id == anchor }
+                    if (index >= 0) list.setSelectionFromTop(index, offset)
+                }
             }
         }
     }

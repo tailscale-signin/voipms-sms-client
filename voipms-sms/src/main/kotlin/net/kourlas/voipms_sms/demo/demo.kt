@@ -17,13 +17,10 @@
 
 package net.kourlas.voipms_sms.demo
 
-import android.content.Context
 import net.kourlas.voipms_sms.BuildConfig
-import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.newConversation.NewConversationRecyclerViewAdapter
 import net.kourlas.voipms_sms.sms.Message
 import net.kourlas.voipms_sms.utils.getFormattedPhoneNumber
-import net.kourlas.voipms_sms.utils.getGenericContactPhotoBitmap
 import java.util.Date
 
 fun getConversationsDemoMessages(): List<Message> {
@@ -229,9 +226,7 @@ fun getDemoNotification(): Message = Message(
     0
 )
 
-fun getNewConversationContacts(
-    context: Context
-): List<NewConversationRecyclerViewAdapter.ContactItem> {
+fun getNewConversationContacts(): List<NewConversationRecyclerViewAdapter.ContactItem> {
     val contactItems =
         mutableListOf<NewConversationRecyclerViewAdapter.ContactItem>()
     contactItems.add(
@@ -241,14 +236,6 @@ fun getNewConversationContacts(
             mutableListOf(
                 NewConversationRecyclerViewAdapter.PhoneNumberAndType(
                     "4165550919", "Mobile"
-                )
-            ),
-            getGenericContactPhotoBitmap(
-                context,
-                "Craig Johnson",
-                "4165550919",
-                context.resources.getDimensionPixelSize(
-                    R.dimen.contact_badge
                 )
             )
         )
@@ -261,14 +248,6 @@ fun getNewConversationContacts(
                 NewConversationRecyclerViewAdapter.PhoneNumberAndType(
                     "6135556019", "Work"
                 )
-            ),
-            getGenericContactPhotoBitmap(
-                context,
-                "Jennifer Morris",
-                "6135556019",
-                context.resources.getDimensionPixelSize(
-                    R.dimen.contact_badge
-                )
             )
         )
     )
@@ -279,14 +258,6 @@ fun getNewConversationContacts(
             mutableListOf(
                 NewConversationRecyclerViewAdapter.PhoneNumberAndType(
                     "6135551242", "Home"
-                )
-            ),
-            getGenericContactPhotoBitmap(
-                context,
-                "Martin Wheeler",
-                "6135551242",
-                context.resources.getDimensionPixelSize(
-                    R.dimen.contact_badge
                 )
             )
         )
@@ -301,14 +272,6 @@ fun getNewConversationContacts(
                 ),
                 NewConversationRecyclerViewAdapter.PhoneNumberAndType(
                     "5145553496", "Work"
-                )
-            ),
-            getGenericContactPhotoBitmap(
-                context,
-                "Monica Alexander",
-                "5145553495",
-                context.resources.getDimensionPixelSize(
-                    R.dimen.contact_badge
                 )
             )
         )

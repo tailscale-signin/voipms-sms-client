@@ -9,4 +9,11 @@
     <string name="copy_code">Copy code</string>
     <string name="clipboard_code">SMS verification code</string>
     <string name="code_copied">Code copied</string>
+    <string name="inbox_known">Known conversation</string>
+    <string name="inbox_unknown">Unknown sender</string>
+    <string name="inbox_junk">Suspected junk</string>
+    <string name="inbox_check_message">Review message</string>
+    <string name="inbox_reported_sender">Reported number · %1$s</string>
+    <string name="code_auto_copy">Automatically copy verification codes</string>
+    <string name="code_auto_copy_summary">Replace the clipboard with the newest incoming code. Private conversations are excluded.</string>
 </resources>

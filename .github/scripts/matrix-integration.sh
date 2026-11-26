@@ -95,6 +95,10 @@ elif [[ "$mode" == test ]]; then
   adb reverse tcp:18443 tcp:18443
   adb shell pm clear net.kourlas.voipms_sms
   adb install -r matrix-test-apk/*.apk
+  output=$(adb shell am instrument -w -r -e class net.kourlas.voipms_sms.delivery.MessagingMediaTest \
+    net.kourlas.voipms_sms.test/androidx.test.runner.AndroidJUnitRunner)
+  echo "$output"
+  grep -Fq 'OK (2 tests)' <<<"$output" || { echo 'Android messaging media tests failed' >&2; exit 1; }
   output=$(adb shell am instrument -w -r -e class net.kourlas.voipms_sms.rich.MatrixIntegrationTest \
     -e matrixPassword "$(cat "$dir/password")" \
     net.kourlas.voipms_sms.test/androidx.test.runner.AndroidJUnitRunner)

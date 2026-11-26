@@ -93,12 +93,13 @@ internal object MmsMedia {
         return out.toByteArray()
     }
 
-    fun photo(bytes: ByteArray): Bitmap {
+    fun photo(bytes: ByteArray, maxEdge: Int = 3072): Bitmap {
+        require(maxEdge > 0)
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
         require(opts.outWidth > 0 && opts.outHeight > 0)
         var sample = 1
-        while (maxOf(opts.outHeight, opts.outWidth) / sample > 3072) sample *= 2
+        while (maxOf(opts.outHeight, opts.outWidth) / sample > maxEdge) sample *= 2
         opts.inJustDecodeBounds = false
         opts.inSampleSize = sample
         val bitmap = requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts))
@@ -186,13 +187,23 @@ internal object MmsMedia {
         dest
     }
 
-    /** The reader explicitly opened media, or the user opted into downloading media for this backup. */
+    /** Used by explicit image indexing. */
     fun previewFile(context: Context, ref: String): File {
         if (isLocal(ref)) return localFile(context, ref).also { require(it.isFile) }
         return knownReceived(context, ref) ?: saveReceivedResponse(context, ref, receivedCall(context, ref).execute())
     }
 
-    suspend fun forBackup(context: Context, ref: String, allowNetwork: Boolean): File? {
+    fun mayBePhoto(ref: String): Boolean {
+        val name = if (isLocal(ref)) ref else allowedUrl(ref)?.pathSegments?.lastOrNull() ?: return false
+        val mime = types[name.substringAfterLast('.').lowercase()]
+        return mime == null || mime.startsWith("image/")
+    }
+
+    suspend fun displayFile(context: Context, ref: String): File =
+        if (isLocal(ref)) localFile(context, ref).also { require(it.isFile) }
+        else receivedFile(context, ref, true) ?: throw IOException(context.getString(R.string.mms_unavailable))
+
+    suspend fun receivedFile(context: Context, ref: String, allowNetwork: Boolean): File? {
         knownReceived(context, ref)?.let { return it }
         if (!allowNetwork || allowedUrl(ref) == null) return null
         return suspendCancellableCoroutine { wait ->

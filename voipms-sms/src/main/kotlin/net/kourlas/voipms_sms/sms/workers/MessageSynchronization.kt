@@ -43,6 +43,7 @@ import net.kourlas.voipms_sms.preferences.getRetrieveOnlyRecentMessages
 import net.kourlas.voipms_sms.preferences.getStartDate
 import net.kourlas.voipms_sms.preferences.readAccountCredentials
 import net.kourlas.voipms_sms.preferences.withCurrentAccount
+import net.kourlas.voipms_sms.privacy.CodePrivacy
 import net.kourlas.voipms_sms.utils.HttpStatusException
 import net.kourlas.voipms_sms.utils.httpPostWithMultipartFormData
 import java.io.IOException
@@ -170,7 +171,7 @@ internal class MessageSynchronization(
             // Process retrieval requests separately
             val email = credentials.email
             val retrievalRequests = withCurrentAccount(applicationContext, credentials.generation) {
-                createRetrievalRequests(retrieveOnlyRecentMessages, accountKey(email))
+                createRetrievalRequests(retrieveOnlyRecentMessages, accountKey(email), credentials.generation)
             } ?: return
             if (retrievalRequests.isEmpty()) return
             trace.step(DiagnosticStep.READING, count = retrievalRequests.size.toLong())
@@ -194,7 +195,8 @@ internal class MessageSynchronization(
 
     private suspend fun createRetrievalRequests(
         retrieveOnlyRecentMessages: Boolean,
-        accountKey: String
+        accountKey: String,
+        generation: Long
     ): List<RetrievalRequest> {
         val dids = getDids(applicationContext, onlyRetrieveMessages = true)
         val target = targetDid
@@ -202,12 +204,11 @@ internal class MessageSynchronization(
         val now = Date()
         val database = Database.getInstance(applicationContext)
         return dids.filter { target == null || it == target }.flatMap { did ->
-            var previous = if (retrieveOnlyRecentMessages) {
-                database.checkedThrough(accountKey, did, start)
-            } else null
+            val copySince = CodePrivacy.watchLine(applicationContext, generation, did)
+            var previous = if (retrieveOnlyRecentMessages) database.checkedThrough(accountKey, did, start) else null
             retrievalWindows(start, previous, now).map { window ->
                 val checkpoint = SyncCheckpoint(accountKey, did, start, window.to)
-                RetrievalRequest(did, window, checkpoint, previous).also { previous = window.to }
+                RetrievalRequest(did, window, checkpoint, previous, copySince).also { previous = window.to }
             }
         }
     }
@@ -299,7 +300,10 @@ internal class MessageSynchronization(
                         val conversations = database.insertMessagesVoipMsApi(
                             messages, retrieveDeletedMessages, request.checkpoint.takeIf { request.did !in incompleteDids },
                             request.previousThrough
-                        )
+                        ) { inserted ->
+                            CodePrivacy.copyReceived(
+                                applicationContext, credentials.generation, inserted, request.copySince)
+                        }
                         appliedMessages = (appliedMessages ?: 0L) + messages.size
                         net.kourlas.voipms_sms.delivery.DeliveryTrace.fetched(applicationContext, request.did, messages, route)
                         if (conversations.isNotEmpty()) {
@@ -329,7 +333,7 @@ internal class MessageSynchronization(
 
     private data class RetrievalRequest(
         val did: String, val window: RetrievalWindow, val checkpoint: SyncCheckpoint,
-        val previousThrough: String?
+        val previousThrough: String?, val copySince: Long
     )
 
     companion object {

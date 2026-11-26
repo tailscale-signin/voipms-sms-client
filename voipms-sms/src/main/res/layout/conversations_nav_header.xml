@@ -16,10 +16,10 @@
   -->
 
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="144dp"
-    android:background="@drawable/nav_header_gradient"
     android:clickable="true"
     android:focusable="true"
     android:gravity="bottom"
@@ -34,6 +34,7 @@
         android:background="@android:color/transparent"
         android:scaleType="centerCrop"
         android:src="@drawable/ic_account_circle_toolbar_24dp"
+        app:tint="@color/primary"
         tools:ignore="ContentDescription" />
 
     <TextView
@@ -43,5 +44,5 @@
         android:ellipsize="end"
         android:text="@string/conversations_no_account"
         android:textAppearance="@style/Body2"
-        android:textColor="@android:color/white" />
+        android:textColor="@color/on_surface" />
 </LinearLayout>

@@ -4,7 +4,6 @@
     <color name="highlight">#8CDCE8</color>
     <color name="message_hint">#B2C6C1</color>
     <color name="message_section">#192C2D</color>
-    <color name="nav_view_header_gradient_end">#112D31</color>
     <color name="primary">#82DED0</color>
     <color name="primary_text">#073C37</color>
     <color name="toolbar_background">#112D31</color>
@@ -22,5 +21,6 @@
     <color name="colorOnSecondary">#152E28</color>
     <color name="colorSecondaryVariant">#283E38</color>
     <color name="surface_outline">#36504E</color>
-    <color name="inbox_surface">#172728</color>
+    <color name="inbox_caution">#FFB960</color>
+    <bool name="inbox_light_status_icons">false</bool>
 </resources>

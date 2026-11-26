@@ -603,7 +603,7 @@ class Notifications private constructor(private val context: Context) {
         }
 
         val contactName = if (!BuildConfig.IS_DEMO) {
-            getContactName(context, contact) ?: getFormattedPhoneNumber(contact)
+            net.kourlas.voipms_sms.contacts.LocalContacts.find(context, contact) ?: getContactName(context, contact) ?: getFormattedPhoneNumber(contact)
         } else {
             net.kourlas.voipms_sms.demo.getContactName(contact)
         }
@@ -612,14 +612,13 @@ class Notifications private constructor(private val context: Context) {
             getContactPhotoBitmap(
                 context,
                 contactName,
-                contact,
                 context.resources.getDimensionPixelSize(
                     android.R.dimen.notification_large_icon_height
                 )
             )
         )
         val adaptiveIcon = IconCompat.createWithAdaptiveBitmap(
-            getContactPhotoAdaptiveBitmap(context, contactName, contact)
+            getContactPhotoAdaptiveBitmap(context, contactName)
         )
 
         // Notification channel

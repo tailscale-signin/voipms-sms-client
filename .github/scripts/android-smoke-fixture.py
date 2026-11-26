@@ -7,6 +7,8 @@ import hashlib
 from pathlib import Path
 import re
 import sqlite3
+import struct
+import zlib
 import subprocess
 import tempfile
 import time
@@ -19,6 +21,9 @@ CONTACT = "4165550111"
 LAST_MESSAGE = "Great, see you at the studio!"
 JUNK = "Unpaid tolls: pay at https://example.invalid"
 CODE = "004281"
+PHOTO_PEER = "4165550177"
+PHOTO_CAPTION = "Photo from the studio"
+PHOTO_URL = "https://sms.voip.ms/mms/studio-preview"
 PRIVATE_PEER = "6475550194"
 PRIVATE_TEXT = "Confidential rehearsal fixture"
 FIXTURE_EMAIL = "fixture@example.invalid"
@@ -67,6 +72,17 @@ def install_fixture(adb):
     private = f'<map><boolean name="{DID}_{PRIVATE_PEER}" value="true"/></map>'
     put_file(adb, "shared_prefs/private-threads.xml", private.encode())
 
+    # Seed a restored provider photo so the production thumbnail and viewer run without a network.
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    pixels = b"".join(bytes([0]) + bytes([40, 110 + y % 100, 150]) * 360 for y in range(240))
+    png = (bytes.fromhex("89504e470d0a1a0a") + chunk(b"IHDR", struct.pack(">2I5B", 360, 240, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
+    adb("shell", "run-as", PACKAGE, "mkdir", "-p", "files/mms_received")
+    put_file(adb, "files/mms_received/" + hashlib.sha256(PHOTO_URL.encode()).hexdigest() + ".png", png)
+    public_reports = f'<map><long name="updated" value="{int(time.time()*1000)}"/><set name="numbers"><string>+1{PHOTO_PEER}</string></set></map>'
+    put_file(adb, "shared_prefs/fcc-caller-reports.xml", public_reports.encode())
+
     schema_dir = Path(__file__).resolve().parents[2] / "voipms-sms/schemas/net.kourlas.voipms_sms.database.AbstractDatabase"
     schema_file = max(schema_dir.glob("*.json"), key=lambda p: int(p.stem))
     schema = json.loads(schema_file.read_text())["database"]
@@ -93,6 +109,8 @@ def install_fixture(adb):
             ]
             db.executemany("INSERT INTO sms (VoipId,Date,Type,Did,Contact,Text,Unread,Delivered,DeliveryInProgress) "
                            "VALUES (?, ?, ?, ?, ?, ?, 0, 1, 0)", messages)
+            db.execute("INSERT INTO sms (VoipId,Date,Type,Did,Contact,Text,Unread,Delivered,DeliveryInProgress,Media1) "
+                       "VALUES (108, ?, 1, ?, ?, ?, 1, 1, 0, ?)", (now - 100, DID, PHOTO_PEER, PHOTO_CAPTION, PHOTO_URL))
         db.close()
         adb("shell", "run-as", PACKAGE, "rm", "-f", "databases/sms.db-wal", "databases/sms.db-shm",
             "databases/sms.db-journal")
@@ -345,6 +363,11 @@ def run(adb, element, screenshot):
     element("content-desc", "Play voicemail")
     verify_call_home(read_tree(adb), voice, missed)
     screenshot("sample-home")
+    element("text", "Voicemails only", tap=True)
+    element("content-desc", "Play voicemail")
+    if any(n.get("text", "").startswith("Missed call · ") for n in read_tree(adb).iter("node")):
+        raise AssertionError("Voicemail filter still displays missed calls")
+    element("text", "Voicemails only", tap=True)
     element("text", "Text back", tap=True)  # First visible event is the fixture voicemail.
     element("resource-id", PACKAGE + ":id/call_entry_name", expected_text="Voicemail")
     verify_thread_voicemail(read_tree(adb), voice)
@@ -369,6 +392,39 @@ def run(adb, element, screenshot):
     element("text", LAST_MESSAGE)
     element("resource-id", PACKAGE + ":id/sender_region")
     screenshot("sample-inbox")
+    element("text", "Reported number · FCC")
+    element("text", PHOTO_CAPTION, tap=True)
+    open_photo = "Open full-screen photo, 1 of 1"
+    element("content-desc", open_photo)
+    tree = read_tree(adb)
+    preview = next(n for n in tree.iter("node") if n.get("content-desc") == open_photo)
+    x1, y1, x2, y2 = bounds(preview)
+    width, height = map(int, re.findall(r"(\d+)x(\d+)", adb("shell", "wm", "size"))[-1])
+    composer_top = bounds(next(n for n in tree.iter("node") if n.get("resource-id") == route))[1]
+    if y2 > composer_top or x2 - x1 < width * .55 or abs((y2 - y1) - (x2 - x1) * 2 / 3) > 2:
+        raise AssertionError("The inline photo must be fully visible above the composer at its original aspect ratio")
+    screenshot("sample-inline-mms")
+    element("content-desc", open_photo, tap=True)
+    # Some system images show Android's first-use immersive navigation tutorial over the gallery.
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        nodes = list(read_tree(adb).iter("node"))
+        if any(n.get("text") == "Viewing full screen" for n in nodes):
+            element("text", ("Got it", "GOT IT"), tap=True)
+            break
+        if any(n.get("content-desc") == "Show or hide photo controls" for n in nodes):
+            break
+    element("content-desc", "Show or hide photo controls")
+    tree = read_tree(adb)
+    viewer = next(n for n in tree.iter("node") if n.get("content-desc") == "Show or hide photo controls")
+    x1, y1, x2, y2 = bounds(viewer)
+    if x2 - x1 < width * .95 or y2 - y1 < height * .95:
+        raise AssertionError("The expanded photo does not fill the display")
+    screenshot("sample-fullscreen-mms")
+    element("content-desc", "Close attachment", tap=True)
+    element("content-desc", "Open full-screen photo, 1 of 1")
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    element("text", LAST_MESSAGE)
     verify_private_pull(adb, element, screenshot)
     element("text", "Other", tap=True)
     element("text", f"Link and request mentioning “Unpaid tolls” · {JUNK}", hold=True)

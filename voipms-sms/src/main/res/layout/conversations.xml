@@ -23,21 +23,28 @@
 
     <androidx.coordinatorlayout.widget.CoordinatorLayout
         android:id="@+id/coordinator_layout"
+        android:background="@color/surface"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
         <com.google.android.material.appbar.AppBarLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:background="@color/surface"
+            android:stateListAnimator="@null"
+            app:elevation="0dp"
+            app:liftOnScroll="false"
+            app:statusBarForeground="@color/surface"
             android:fitsSystemWindows="true">
 
             <androidx.appcompat.widget.Toolbar
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:theme="@style/ToolbarTheme"
+                android:background="@color/surface"
+                android:theme="@style/InboxToolbarTheme"
                 app:collapseIcon="@drawable/ic_close_toolbar_24dp"
-                app:titleTextColor="@android:color/white" />
+                app:titleTextColor="@color/on_surface" />
 
             <FrameLayout
                 android:layout_width="match_parent"
@@ -170,6 +177,7 @@
 
     <com.google.android.material.navigation.NavigationView
         android:id="@+id/nav_view"
+        android:background="@color/surface"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"

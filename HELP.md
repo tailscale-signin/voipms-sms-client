@@ -90,13 +90,17 @@ Two other services reviewed have access or usage constraints. tellows documents 
 
 **Home** opens the call timeline. **Messages** shows your conversations. **Other** collects suspected junk using local message patterns. Long-press a conversation and choose **Move to Messages** or **Move to Other** to remember your choice. In Other, the return icon also restores one thread with a single tap. Archived conversations are available in the inbox menu.
 
+MMS photos appear inside the conversation. Tap any photo to open it full screen. Tap the photo again to hide or show the controls. Use Previous and Next to browse the attachments in that message.
+
+A stronger background and an unread dot mark conversations with unread messages, including conversations with an unsent draft. Red marks suspected junk. Amber marks message warnings and numbers with caller reports. The sender label identifies the evidence. Saved contacts and established conversations have a theme-coloured initial or number badge. The app checks a daily public FCC report list on the device and can also display reports from a caller lookup you requested.
+
+**Settings → Notifications → Automatically copy verification codes** is on by default. A newly received code replaces the clipboard contents. The app copies only the code, preserves leading zeroes and skips private threads. Initial history and previously delivered messages leave the clipboard alone. A new code received after a period offline is eligible when synchronization resumes. You can still tap **Copy code** in the conversation. Android marks the clipboard entry as sensitive in both cases.
+
 The app checks incoming messages locally for English, French and Portuguese requests, including attempts to obtain a sign-in code, misleading links and urgent payment demands. A warning appears on the individual message even for a saved sender. Ordinary verification texts keep the copy button. Established conversations stay in Messages unless you choose Other. Suspicious previews in Android notifications show a review prompt, and automatically filed junk stays quiet.
 
 Folder choices apply to the sending number on the selected receiving line. Correcting a message with a recurring link campaign also helps recognize similar messages on that line. The app remembers a bounded set of fingerprints. Private threads and verification codes do not train those campaign rules.
 
 To hide one conversation from Android sharing suggestions, open it and turn off **Suggest in Direct Share** in its menu. Other conversations with the same contact on a different line keep their own settings.
-
-Open a message with a verification code and tap **Copy code** to copy the code, including leading zeros. Android marks the clipboard entry as sensitive.
 
 ## Private threads
 
@@ -118,7 +122,7 @@ In a push-enabled primary build, VoIP.ms calls the operator’s HTTPS relay when
 
 Open **Settings → Synchronization → Push registration** to check each number. Tap the status to retry setup. Enable message retrieval for the number and allow Android notifications if you want alerts. If another service already uses the number’s callback, the app leaves it in place. You can keep that integration and use scheduled synchronization, or change the callback yourself in the [VoIP.ms portal](https://voip.ms/m/managedid.php). Changing it there affects every app using that number.
 
-Direct listening and scheduled recovery also work on devices without Google Play services. If you force-stop the app in Android settings, reopen it to resume delivery. To view media or compare a message with the provider’s records, open **VoIP.ms Message Center** from the conversation list menu.
+Direct listening and scheduled recovery also work on devices without Google Play services. If you force-stop the app in Android settings, reopen it to resume delivery. To compare a message with the provider’s records, open **VoIP.ms Message Center** from the conversation list menu.
 
 ### Check delivery on your phone
 
@@ -204,6 +208,6 @@ Use the [fork’s issue tracker](https://github.com/tailscale-signin/voipms-sms-
 
 ## Calls, voicemail and browser access
 
-**Home** lists missed calls and voicemails by the time VoIP.ms received them. A new event can post an Android notification after a provider check. The first successful check seeds older events quietly. **Messages** contains conversations, and **Other** contains suspected junk. A voicemail received on an identifiable line also appears at its original time in the caller’s conversation. Play, pause, and stop work in either view. The app uses the mailbox timezone when supplied. A mailbox assigned to multiple enabled lines appears in Home as shared. Select **Text back** for a known line and number to open the composer. Background notification timing depends on Android scheduling, the configured sync interval, connectivity, and the provider making its call records available.
+**Home** lists missed calls and voicemails by the time VoIP.ms received them. A new event can post an Android notification after a provider check. The first successful check seeds older events quietly. **Messages** contains conversations, and **Other** contains suspected junk. A voicemail received on an identifiable line also appears at its original time in the caller’s conversation. Select **Voicemails only** on Home to filter the timeline. Play, pause, and stop work in either view. Playback finds the recording’s current mailbox folder and slot, including recordings moved to Old. The timeline retains entries after the provider removes their audio. The app uses the mailbox timezone when supplied. A mailbox assigned to multiple enabled lines appears in Home as shared. Select **Text back** for a known line and number to open the composer. Background notification timing depends on Android scheduling, the configured sync interval, connectivity, and the provider making its call records available.
 
 For Windows and shared work numbers, run the [browser companion](companion/README.md) on your own computer or server. Open **Settings → Browser companion** on Android to access your HTTPS instance. Configure device access, line permissions, and excluded contacts on that server.

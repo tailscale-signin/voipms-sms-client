@@ -77,6 +77,17 @@
         <item name="colorControlNormal">@android:color/white</item>
     </style>
 
+    <style name="InboxTheme" parent="AppTheme">
+        <item name="android:statusBarColor">@color/surface</item>
+        <item name="android:windowLightStatusBar">@bool/inbox_light_status_icons</item>
+    </style>
+
+    <style name="InboxToolbarTheme" parent="ToolbarTheme">
+        <item name="colorControlNormal">@color/on_surface</item>
+        <item name="android:textColorPrimary">@color/on_surface</item>
+        <item name="android:textColorSecondary">@color/message_hint</item>
+    </style>
+
     <style name="Body1" parent="TextAppearance.MaterialComponents.Body1">
         <item name="fontFamily">@font/sms_font</item>
         <item name="android:fontFamily">@font/sms_font</item>

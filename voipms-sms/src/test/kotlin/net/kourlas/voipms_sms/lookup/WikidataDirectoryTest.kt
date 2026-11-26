@@ -60,7 +60,7 @@ class WikidataDirectoryTest {
         for (toolbar in listOf(false, true)) {
             val text = OnlineNumberLookup.blueNumber(app, "4165550199", toolbar)
             val blue = text.getSpans(0, text.length, ForegroundColorSpan::class.java).single()
-            val background = if (toolbar) R.color.toolbar_background else R.color.inbox_surface
+            val background = if (toolbar) R.color.toolbar_background else R.color.surface
             assertTrue(ColorUtils.calculateContrast(blue.foregroundColor, app.getColor(background)) >= 4.5)
             assertEquals(0, text.getSpanStart(blue))
             assertEquals(text.length, text.getSpanEnd(blue))
