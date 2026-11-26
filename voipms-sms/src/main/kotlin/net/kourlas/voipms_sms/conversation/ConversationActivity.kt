@@ -301,10 +301,6 @@ open class ConversationActivity(val bubble: Boolean = false) :
         richFeed = ResumedChatFeed(this)
         onBackPressedDispatcher.addCallback(this, messageBack)
         setContentView(R.layout.conversation)
-        val list = findViewById<View>(R.id.list)
-        findViewById<View>(R.id.message_section).addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
-            if (bottom - top != oldBottom - oldTop) ViewCompat.requestApplyInsets(list)
-        }
         if (savedInstanceState?.containsKey("thread_account_generation") == true &&
             savedInstanceState.getLong("thread_account_generation") != currentDirectoryAccountGeneration(this)) {
             findViewById<View>(android.R.id.content).visibility = View.INVISIBLE
@@ -641,18 +637,10 @@ open class ConversationActivity(val bubble: Boolean = false) :
 
         })
 
-        val composer = findViewById<View>(R.id.message_section)
-        val margin = resources.getDimensionPixelSize(R.dimen.margin)
-        ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, windowInsets ->
-            val insets =
-                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
-            v.setPadding(
-                insets.left,
-                v.paddingTop,
-                insets.right,
-                insets.bottom + composer.height + margin
-            )
-            WindowInsetsCompat.CONSUMED
+        ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { view, windowInsets ->
+            val sides = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(sides.left, view.paddingTop, sides.right, view.paddingBottom)
+            windowInsets
         }
 
         // Set up fast scroller

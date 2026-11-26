@@ -400,10 +400,20 @@ def run(adb, element, screenshot):
     preview = next(n for n in tree.iter("node") if n.get("content-desc") == open_photo)
     x1, y1, x2, y2 = bounds(preview)
     width, height = map(int, re.findall(r"(\d+)x(\d+)", adb("shell", "wm", "size"))[-1])
-    if x2 - x1 < width * .40 or y2 - y1 < (x2 - x1) * .60:
-        raise AssertionError("The inline photo preview is too small or cropped")
+    composer_top = bounds(next(n for n in tree.iter("node") if n.get("resource-id") == route))[1]
+    if y2 > composer_top or x2 - x1 < width * .55 or abs((y2 - y1) - (x2 - x1) * 2 / 3) > 2:
+        raise AssertionError("The inline photo must be fully visible above the composer at its original aspect ratio")
     screenshot("sample-inline-mms")
     element("content-desc", open_photo, tap=True)
+    # Some system images show Android's first-use immersive navigation tutorial over the gallery.
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        nodes = list(read_tree(adb).iter("node"))
+        if any(n.get("text") == "Viewing full screen" for n in nodes):
+            element("text", ("Got it", "GOT IT"), tap=True)
+            break
+        if any(n.get("content-desc") == "Show or hide photo controls" for n in nodes):
+            break
     element("content-desc", "Show or hide photo controls")
     tree = read_tree(adb)
     viewer = next(n for n in tree.iter("node") if n.get("content-desc") == "Show or hide photo controls")

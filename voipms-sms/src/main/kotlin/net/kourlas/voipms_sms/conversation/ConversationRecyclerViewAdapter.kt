@@ -393,8 +393,10 @@ class ConversationRecyclerViewAdapter(
 
         }
 
-        holder.attachments.bind(message.databaseId, message.medias)
-        messageText.visibility = if (messageTextBuilder.isEmpty() && message.medias.isNotEmpty()) View.GONE else View.VISIBLE
+        val media = message.medias
+        holder.oppositeSpacer.visibility = if (media.isEmpty()) View.VISIBLE else View.GONE
+        holder.attachments.bind(message.databaseId, media)
+        messageText.visibility = if (messageTextBuilder.isEmpty() && media.isNotEmpty()) View.GONE else View.VISIBLE
         messageText.text = messageTextBuilder
 
         Linkify.addLinks(
@@ -738,6 +740,7 @@ class ConversationRecyclerViewAdapter(
             } else {
                 null
             }
+        internal val oppositeSpacer: View = itemView.findViewById(R.id.placeholder)
         internal val attachments = net.kourlas.voipms_sms.media.InlineMmsAttachments(
             activity, itemView.findViewById(R.id.message_attachments), thumbnails)
         internal val smsContainer: View =
