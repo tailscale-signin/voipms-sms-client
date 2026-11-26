@@ -34,8 +34,6 @@
     <color name="message_outgoing">#C3EFE0</color>
     <color name="message_outgoing_checked">#8FD5BE</color>
     <color name="message_section">#FFFFFF</color>
-    <color name="nav_view_header_gradient_end">#123F42</color>
-    <color name="nav_view_header_gradient_start">#123F42</color>
     <color name="new_conversation_letter">@color/primary</color>
     <color name="primary">#00695F</color>
     <color name="primary_text">#FFFFFF</color>
@@ -70,7 +68,6 @@
     <color name="colorSecondary">#4A6267</color>
     <color name="colorSecondaryVariant">#334B4F</color>
     <color name="surface_outline">#CCDAD7</color>
-    <color name="inbox_surface">#FFFFFF</color>
     <color name="inbox_caution">#915400</color>
     <bool name="inbox_light_status_icons">true</bool>
 </resources>

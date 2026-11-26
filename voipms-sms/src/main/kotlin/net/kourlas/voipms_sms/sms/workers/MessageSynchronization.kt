@@ -202,11 +202,10 @@ internal class MessageSynchronization(
         val now = Date()
         val database = Database.getInstance(applicationContext)
         return dids.filter { target == null || it == target }.flatMap { did ->
-            var previous = if (retrieveOnlyRecentMessages) {
-                database.checkedThrough(accountKey, did, start)
-            } else null
-            // Older windows in an initial sync or a full history reload must not overwrite the clipboard.
-            val copySince = if (previous == null) now.time / 1000 * 1000 else 0L
+            val checkedThrough = database.checkedThrough(accountKey, did, start)
+            var previous = checkedThrough.takeIf { retrieveOnlyRecentMessages }
+            // Seed each new line quietly. An established line can also receive a fresh code during a full sync.
+            val copySince = if (checkedThrough == null) now.time / 1000 * 1000 else 0L
             retrievalWindows(start, previous, now).map { window ->
                 val checkpoint = SyncCheckpoint(accountKey, did, start, window.to)
                 RetrievalRequest(did, window, checkpoint, previous, copySince).also { previous = window.to }

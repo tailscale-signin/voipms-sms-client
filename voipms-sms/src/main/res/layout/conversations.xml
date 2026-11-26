@@ -34,6 +34,7 @@
             android:stateListAnimator="@null"
             app:elevation="0dp"
             app:liftOnScroll="false"
+            app:statusBarForeground="@color/surface"
             android:fitsSystemWindows="true">
 
             <androidx.appcompat.widget.Toolbar

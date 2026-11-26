@@ -94,7 +94,7 @@ MMS photos appear inside the conversation. Tap any photo to open it full screen.
 
 A stronger background and an unread dot mark conversations with unread messages, including conversations with an unsent draft. Red marks suspected junk. Amber marks message warnings and numbers with caller reports. The sender label identifies the evidence. Saved contacts and established conversations have a theme-coloured initial or number badge. The app checks a daily public FCC report list on the device and can also display reports from a caller lookup you requested.
 
-**Settings → Notifications → Automatically copy verification codes** is on by default. A newly received code replaces the clipboard contents. The app copies only the code, preserves leading zeroes and skips private threads and older history. You can still tap **Copy code** in the conversation.
+**Settings → Notifications → Automatically copy verification codes** is on by default. A newly received code replaces the clipboard contents. The app copies only the code, preserves leading zeroes and skips private threads. Codes more than 15 minutes old stay available through the manual copy button. Tap **Copy code** in the conversation whenever you need a code again.
 
 The app checks incoming messages locally for English, French and Portuguese requests, including attempts to obtain a sign-in code, misleading links and urgent payment demands. A warning appears on the individual message even for a saved sender. Ordinary verification texts keep the copy button. Established conversations stay in Messages unless you choose Other. Suspicious previews in Android notifications show a review prompt, and automatically filed junk stays quiet.
 
@@ -124,7 +124,7 @@ In a push-enabled primary build, VoIP.ms calls the operator’s HTTPS relay when
 
 Open **Settings → Synchronization → Push registration** to check each number. Tap the status to retry setup. Enable message retrieval for the number and allow Android notifications if you want alerts. If another service already uses the number’s callback, the app leaves it in place. You can keep that integration and use scheduled synchronization, or change the callback yourself in the [VoIP.ms portal](https://voip.ms/m/managedid.php). Changing it there affects every app using that number.
 
-Direct listening and scheduled recovery also work on devices without Google Play services. If you force-stop the app in Android settings, reopen it to resume delivery. To view media or compare a message with the provider’s records, open **VoIP.ms Message Center** from the conversation list menu.
+Direct listening and scheduled recovery also work on devices without Google Play services. If you force-stop the app in Android settings, reopen it to resume delivery. To compare a message with the provider’s records, open **VoIP.ms Message Center** from the conversation list menu.
 
 ### Check delivery on your phone
 
