@@ -168,6 +168,9 @@ PY
       cat > notes.md <<'NOTES'
 **VoIP.ms SMS 0.8.0 (158)** is a signed Android update for installations of the fork’s 0.7.1 release.
 
+* Messages displays loading and retry states, preserves the current conversation while refreshing, and keeps drafts tied to their recipients. This update fixes crashes when displaying certain avatars and highlighting search results.
+* Open Settings → Database → Debug mode to record message loading and file operations. Export the local JSON Lines report to see timings, counts and error locations. Turning debug mode off clears its local history.
+* From a conversation, choose Export → Save JSON to file for the complete SMS and MMS history, including messages outside the current search or page.
 * Send ordinary SMS and MMS from your VoIP.ms number over internet-connected Wi-Fi. The outbox keeps queued messages when connectivity drops and lets you review uncertain sends.
 * Link a Matrix account to use encrypted direct and group chat, attachments, typing indicators and receipts with participating accounts. Nearby lets two compatible Android devices exchange messages over Wi-Fi Direct after you confirm the pairing on both phones.
 * Open a draft in the phone’s carrier messaging app to use your mobile line. The carrier app and provider determine whether RCS is available for that conversation.
