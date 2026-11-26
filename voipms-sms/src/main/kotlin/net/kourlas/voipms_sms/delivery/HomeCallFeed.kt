@@ -98,9 +98,10 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
         if (account == null) return
         CallFeedSync.refresh(activity)
         job=activity.lifecycleScope.launch {
+            var displayedFilter = voicemailOnly.value
             CallFeedStore.observe(activity).combine(voicemailOnly) { items, onlyVoice ->
-                if (onlyVoice) items.filter { it.voicemail } else items
-            }.collect { items ->
+                onlyVoice to if (onlyVoice) items.filter { it.voicemail } else items
+            }.collect { (onlyVoice, items) ->
                 val rows = withContext(Dispatchers.IO) {
                     val names=mutableMapOf<String,String>()
                     val active = net.kourlas.voipms_sms.preferences.getDids(activity, onlyRetrieveMessages = true)
@@ -114,7 +115,11 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                     }
                 }
                 if (readAccountCredentials(activity)?.generation != account.generation) return@collect
-                val pos=list.firstVisiblePosition; val offset=list.getChildAt(0)?.top ?: 0
+                val position = list.firstVisiblePosition
+                val anchor = if (displayedFilter == onlyVoice && position > 0)
+                    (list.getItemAtPosition(position) as? CallFeedItem)?.id else null
+                val offset = list.getChildAt(0)?.top ?: 0
+                displayedFilter = onlyVoice
                 count=rows.size; updateEmpty()
                 list.adapter=object:BaseAdapter() {
                     override fun getCount()=rows.size
@@ -172,7 +177,10 @@ internal class HomeCallFeed(private val activity: FragmentActivity, private val 
                         group.addView(card); return group
                     }
                 }
-                if (pos>0) list.setSelectionFromTop(pos,offset)
+                if (anchor != null) {
+                    val index = rows.indexOfFirst { it.first.id == anchor }
+                    if (index >= 0) list.setSelectionFromTop(index, offset)
+                }
             }
         }
     }

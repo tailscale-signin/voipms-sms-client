@@ -94,15 +94,13 @@ MMS photos appear inside the conversation. Tap any photo to open it full screen.
 
 A stronger background and an unread dot mark conversations with unread messages, including conversations with an unsent draft. Red marks suspected junk. Amber marks message warnings and numbers with caller reports. The sender label identifies the evidence. Saved contacts and established conversations have a theme-coloured initial or number badge. The app checks a daily public FCC report list on the device and can also display reports from a caller lookup you requested.
 
-**Settings → Notifications → Automatically copy verification codes** is on by default. A newly received code replaces the clipboard contents. The app copies only the code, preserves leading zeroes and skips private threads. Codes more than 15 minutes old stay available through the manual copy button. Tap **Copy code** in the conversation whenever you need a code again.
+**Settings → Notifications → Automatically copy verification codes** is on by default. A newly received code replaces the clipboard contents. The app copies only the code, preserves leading zeroes and skips private threads. Initial history and previously delivered messages leave the clipboard alone. A new code received after a period offline is eligible when synchronization resumes. You can still tap **Copy code** in the conversation. Android marks the clipboard entry as sensitive in both cases.
 
 The app checks incoming messages locally for English, French and Portuguese requests, including attempts to obtain a sign-in code, misleading links and urgent payment demands. A warning appears on the individual message even for a saved sender. Ordinary verification texts keep the copy button. Established conversations stay in Messages unless you choose Other. Suspicious previews in Android notifications show a review prompt, and automatically filed junk stays quiet.
 
 Folder choices apply to the sending number on the selected receiving line. Correcting a message with a recurring link campaign also helps recognize similar messages on that line. The app remembers a bounded set of fingerprints. Private threads and verification codes do not train those campaign rules.
 
 To hide one conversation from Android sharing suggestions, open it and turn off **Suggest in Direct Share** in its menu. Other conversations with the same contact on a different line keep their own settings.
-
-Open a message with a verification code and tap **Copy code** to copy the code, including leading zeros. Android marks the clipboard entry as sensitive.
 
 ## Private threads
 

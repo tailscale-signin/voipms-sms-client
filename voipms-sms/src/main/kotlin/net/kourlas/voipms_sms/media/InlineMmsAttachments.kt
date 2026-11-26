@@ -9,6 +9,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.AppCompatImageView
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.R
 import net.kourlas.voipms_sms.delivery.dp
+import kotlin.math.roundToInt
 
 /** Each attachment keeps its place while visible photos load. A recycled row owns no pending request. */
 internal class InlineMmsAttachments(
@@ -62,10 +64,16 @@ internal class InlineMmsAttachments(
 
     private fun showPhoto(slot: FrameLayout, index: Int, bitmap: Bitmap) {
         slot.removeAllViews()
-        slot.addView(ImageView(activity).apply {
-            adjustViewBounds = true
-            maxWidth = activity.dp(270)
-            maxHeight = activity.dp(320)
+        val aspect = bitmap.width.toFloat() / bitmap.height
+        val preview = object : AppCompatImageView(activity) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val preferred = minOf(activity.dp(270), (activity.dp(320) * aspect).roundToInt())
+                val width = View.resolveSize(preferred.coerceAtLeast(1), widthMeasureSpec)
+                val height = View.resolveSize((width / aspect).roundToInt().coerceAtLeast(1), heightMeasureSpec)
+                setMeasuredDimension(width, height)
+            }
+        }
+        slot.addView(preview.apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = activity.getString(R.string.mms_open_photo, index + 1, refs.size)
             setImageBitmap(bitmap)

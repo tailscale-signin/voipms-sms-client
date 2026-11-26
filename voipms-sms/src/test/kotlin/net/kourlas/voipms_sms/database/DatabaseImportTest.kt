@@ -94,21 +94,28 @@ class DatabaseImportTest {
         val manager = context.getSystemService(android.content.ClipboardManager::class.java)
         val prefs = context.getSharedPreferences("code-privacy", Context.MODE_PRIVATE)
         val now = 1_800_000_000_000L
+        val privacy = net.kourlas.voipms_sms.privacy.CodePrivacy
+        val since = privacy.watchLine(context, 42, conversationId.did, now - 86_400_000)
+        assertEquals(since, privacy.watchLine(context, 42, conversationId.did, now))
         fun message(id: Long, offset: Long, incoming: Boolean = true, text: String = "Verification code: 00$id.") =
             IncomingMessage(id, Date(now + offset), incoming, conversationId.did, conversationId.contact, text, null, null, null)
-        suspend fun receive(vararg rows: IncomingMessage, since: Long = 0) =
+        suspend fun receive(vararg rows: IncomingMessage, cutoff: Long = since) =
             database.insertMessagesVoipMsApi(rows.toList(), false, null, null) { batch ->
-                net.kourlas.voipms_sms.privacy.CodePrivacy.copyReceived(context, 42, batch, since, now)
+                privacy.copyReceived(context, 42, batch, cutoff, now)
             }
         fun current() = manager.primaryClip?.getItemAt(0)?.text?.toString()
         fun sentinel() = manager.setPrimaryClip(android.content.ClipData.newPlainText("fixture", "previous"))
         sentinel()
+        receive(message(1109, -2 * 86_400_000L))
+        assertEquals("previous", current())
+        receive(message(1110, -3_600_000))
+        assertEquals("001110", current())
         receive(message(1111, -1000), message(1112, -2000), message(1113, 0, incoming = false))
         assertEquals("001111", current())
         assertTrue(manager.primaryClipDescription?.extras?.getBoolean("android.content.extra.IS_SENSITIVE") == true)
         sentinel()
         receive(message(1111, -1000), message(1114, -3000), message(1115, -3600_000))
-        receive(message(1116, -1000), since = now)
+        receive(message(1116, -1000), cutoff = now)
         receive(message(1117, 0, text = "Lunch is at noon."))
         assertEquals("previous", current())
         prefs.edit().putBoolean("autoCopy", false).commit()

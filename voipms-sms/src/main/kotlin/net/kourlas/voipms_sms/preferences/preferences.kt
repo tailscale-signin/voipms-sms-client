@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import net.kourlas.voipms_sms.notifications.Notifications
 import net.kourlas.voipms_sms.notifications.PushRegistration
 import net.kourlas.voipms_sms.R
+import net.kourlas.voipms_sms.privacy.CodePrivacy
 import net.kourlas.voipms_sms.sms.workers.SyncWorker
 import net.kourlas.voipms_sms.utils.subscribeToDidTopics
 import net.kourlas.voipms_sms.utils.normalizeVoipMsDid
@@ -372,6 +373,7 @@ fun setDids(context: Context, selected: Set<String>) {
         ), dids
     )
     for (did in newDids) {
+        CodePrivacy.watchLine(context, currentDirectoryAccountGeneration(context), did, System.currentTimeMillis())
         setDidShowInConversationsView(context, did, true)
         setDidRetrieveMessages(context, did, true)
         setDidShowNotifications(context, did, true)

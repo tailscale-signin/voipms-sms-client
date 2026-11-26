@@ -62,6 +62,7 @@ import net.kourlas.voipms_sms.sms.Message
 import net.kourlas.voipms_sms.sms.VerificationCode
 import net.kourlas.voipms_sms.ui.FastScroller
 import net.kourlas.voipms_sms.utils.applyCircularMask
+import net.kourlas.voipms_sms.utils.getContactPhotoBitmap
 import net.kourlas.voipms_sms.utils.getConversationViewDate
 import net.kourlas.voipms_sms.utils.getConversationViewTopDate
 import net.kourlas.voipms_sms.utils.getScrollBarDate
@@ -191,7 +192,9 @@ class ConversationRecyclerViewAdapter(
     // Whether the adapter is currently loading additional items.
     var loadingMoreItems = false
 
-    private var contactPhoto: Bitmap? = null
+    private var contactPhoto = getContactPhotoBitmap(
+        activity, null, activity.resources.getDimensionPixelSize(R.dimen.contact_badge)
+    )
 
     fun updateContactPhoto(photo: Bitmap) {
         contactPhoto = photo
@@ -304,8 +307,7 @@ class ConversationRecyclerViewAdapter(
 
     /**
      * Displays or hides the contact badge on the view holder. If the view
-     * holder is displayed, sets the content of the view holder to a photo
-     * or a material design letter.
+     * holder is displayed, sets the badge to the contact’s themed initial.
      *
      * @param holder The message view holder to use.
      * @param position The position of the view in the adapter.
@@ -328,9 +330,7 @@ class ConversationRecyclerViewAdapter(
                 holder.contactBadge.visibility = View.VISIBLE
                 contactBadge.assignContactFromPhone(message.contact, true)
                 if (!BuildConfig.IS_DEMO) contactBadge.setOnClickListener { activity.editLocalContact() }
-                val photo = contactPhoto
-                if (photo != null) contactBadge.setImageBitmap(photo)
-                else contactBadge.setImageResource(R.drawable.ic_account_box_settings_24dp)
+                contactBadge.setImageBitmap(contactPhoto)
             } else {
                 holder.contactBadge.visibility = View.INVISIBLE
             }

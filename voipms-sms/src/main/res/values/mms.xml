@@ -23,7 +23,7 @@
     <string name="mms_edit_help">Drag over an area to cover or crop it. Tap the tool to switch. Photo location and metadata are removed from the outgoing copy.</string>
     <string name="mms_reset">Reset</string>
     <string name="mms_apply">Apply</string>
-    <string name="mms_open_photo">Open photo %1$d of %2$d full screen</string>
+    <string name="mms_open_photo">Open full-screen photo, %1$d of %2$d</string>
     <string name="mms_close">Close attachment</string>
     <string name="mms_attachment_retry">Retry attachment %1$d</string>
     <string name="mms_toggle_controls">Show or hide photo controls</string>

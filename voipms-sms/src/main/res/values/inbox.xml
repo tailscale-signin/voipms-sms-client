@@ -15,5 +15,5 @@
     <string name="inbox_check_message">Review message</string>
     <string name="inbox_reported_sender">Reported number · %1$s</string>
     <string name="code_auto_copy">Automatically copy verification codes</string>
-    <string name="code_auto_copy_summary">Put the newest code from an incoming message on the clipboard. This replaces the current clipboard item.</string>
+    <string name="code_auto_copy_summary">Replace the clipboard with the newest incoming code. Private conversations are excluded.</string>
 </resources>

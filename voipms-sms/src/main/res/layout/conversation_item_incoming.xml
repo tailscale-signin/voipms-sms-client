@@ -57,14 +57,6 @@
                 android:layout_height="@dimen/contact_badge"
                 android:layout_gravity="center_vertical"
                 android:scaleType="centerCrop" />
-
-            <TextView
-                android:id="@+id/photo_letter"
-                android:layout_width="@dimen/contact_badge"
-                android:layout_height="@dimen/contact_badge"
-                android:gravity="center"
-                android:textAppearance="@style/Headline5"
-                android:textColor="@android:color/white" />
         </FrameLayout>
 
         <View

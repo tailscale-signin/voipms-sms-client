@@ -5,12 +5,14 @@ import android.content.Intent
 import android.media.MediaPlayer
 import android.os.SystemClock
 import android.util.Base64
+import androidx.preference.SwitchPreferenceCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import net.kourlas.voipms_sms.database.entities.Sms
 import net.kourlas.voipms_sms.preferences.AccountCredentials
-import net.kourlas.voipms_sms.preferences.activities.AboutPreferencesActivity
+import net.kourlas.voipms_sms.preferences.activities.NotificationsPreferencesActivity
+import net.kourlas.voipms_sms.preferences.fragments.NotificationsPreferencesFragment
 import net.kourlas.voipms_sms.privacy.CodePrivacy
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -31,11 +33,11 @@ class MessagingMediaTest {
             instrumentation.uiAutomation.executeShellCommand("input keyevent KEYCODE_HOME")).use { it.readBytes() }
         instrumentation.waitForIdleSync()
         val now = System.currentTimeMillis()
-        val message = Sms(databaseId = 22, did = "4165550100", contact = "4165550142", incoming = 1,
-            date = now / 1000, text = "Verification code: 001234").toMessage()
-        CodePrivacy.copyReceived(context, 412L, listOf(message), 0, now)
-        val screen = instrumentation.startActivitySync(Intent(context, AboutPreferencesActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val row = Sms(databaseId = 22, did = "4165550100", contact = "4165550142", incoming = 1,
+            date = now / 1000, text = "Verification code: 001234")
+        CodePrivacy.copyReceived(context, 412L, listOf(row.toMessage()), 0, now)
+        val screen = instrumentation.startActivitySync(Intent(context, NotificationsPreferencesActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as NotificationsPreferencesActivity
         try {
             val deadline = SystemClock.elapsedRealtime() + 5000
             while (!screen.hasWindowFocus() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(50)
@@ -43,6 +45,25 @@ class MessagingMediaTest {
             val manager = screen.getSystemService(ClipboardManager::class.java)
             assertEquals("001234", manager.primaryClip?.getItemAt(0)?.text?.toString())
             assertTrue(manager.primaryClipDescription?.extras?.getBoolean("android.content.extra.IS_SENSITIVE") == true)
+            fun switchCopying(expected: Boolean) = instrumentation.runOnMainSync {
+                screen.supportFragmentManager.executePendingTransactions()
+                val settings = screen.supportFragmentManager.fragments.filterIsInstance<NotificationsPreferencesFragment>().single()
+                val toggle = requireNotNull(settings.findPreference<SwitchPreferenceCompat>("auto_copy_verification_codes"))
+                assertEquals(!expected, toggle.isChecked)
+                toggle.performClick()
+                assertEquals(expected, toggle.isChecked)
+            }
+            fun receive(id: Long) {
+                val time = System.currentTimeMillis()
+                val next = row.copy(databaseId = id, date = time / 1000, text = "Verification code: 006789")
+                CodePrivacy.copyReceived(context, 412L, listOf(next.toMessage()), 0, time)
+            }
+            switchCopying(false)
+            receive(23)
+            assertEquals("001234", manager.primaryClip?.getItemAt(0)?.text?.toString())
+            switchCopying(true)
+            receive(24)
+            assertEquals("006789", manager.primaryClip?.getItemAt(0)?.text?.toString())
         } finally {
             instrumentation.runOnMainSync { screen.finish() }
         }

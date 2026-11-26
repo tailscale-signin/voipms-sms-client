@@ -131,6 +131,7 @@ class MmsGalleryDialog : DialogFragment() {
 
     override fun onCreateDialog(savedInstanceState: Bundle?) =
         Dialog(requireContext(), android.R.style.Theme_Material_NoActionBar_Fullscreen).apply {
+            window?.setBackgroundDrawableResource(android.R.color.black)
             if (requireActivity().window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
                 window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             }
